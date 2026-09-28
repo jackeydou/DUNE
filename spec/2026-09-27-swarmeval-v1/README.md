@@ -120,6 +120,16 @@ Orchestrator 按 case 拉起隔离网络和各 agent 容器；三个网关同时
 - **Message Bus** 在 orchestrator 进程内，通过 `send_message` / `read_messages` 工具暴露给 agent；agent 之间没有直连的网络通道。
 - **Network Gateway** 每个 run 一个容器，是唯一同时接入 run 内网和外部的容器；agent 容器所在的 docker 网络设为 `internal`。
 
+### 控制台与 Control API
+
+SwarmEval 本体（CLI + runtime + 网关 + scorer）之外，另有一个独立的**控制台**项目 `console/`，定位是自部署到物理机或 k8s、直接对外提供 Web 服务的平台产品：创建/编辑 case、触发运行、查看评估结果。它和 `swarmeval/` 是仓库里两个并列的顶层项目，各自有 README/CHANGELOG/BUGFIX（见 AGENTS.md「一个事实一个家」）。
+
+- **只通过 HTTP 解耦，不共享进程或内部模块**：`console` 不 import `swarmeval` 的任何内部代码，只依赖一个新增的 **Control API**（独立 FastAPI 服务，与 Model Gateway 是两个不同的服务：Model Gateway 面向模型请求，Control API 面向控制台请求）。两者可以分别部署、分别扩容——k8s 上是两个 Deployment，物理机上是两个进程/端口，互不绑定生命周期。
+- **Control API 的职责**：case 的增删改查（读写 `case.yaml` / `env.yaml`）、触发 `swarm run`、查询 run 状态与事件流。它是 CLI 之外新增的对外接口层，CLI 和 Control API 都调用同一套 `swarmeval.core`，两者是平级的两个入口，不是谁调用谁。
+- **轨迹数据不进数据库**：agent 产出的事件/轨迹数据维持现有存储链路——append-only JSONL + Parquet，用 DuckDB 查询（见第 6 节）；Control API 查询 run 状态和事件时也是读这条链路，不为控制台单独引入一套数据库存事件。控制台自己的操作状态（比如用户账号、run 触发队列这类"控制台自己的状态"，不是 agent 产出的数据）可以用普通数据库，但这和轨迹存储是两回事，不要混在一起讨论。
+
+具体的 API 契约、部署拓扑（单机 vs k8s）、鉴权与多租户模型留到控制台自己的 spec 或本 spec 的后续小节里细化；这里先定的是「新顶层项目 + HTTP 解耦 + 轨迹数据不进库」这三条边界。
+
 ### 运行平台
 
 主要运行目标是单台通用 Linux 服务器，前置条件只有 docker，不依赖任何特定机器或硬件。
@@ -142,7 +152,7 @@ Orchestrator 按 case 拉起隔离网络和各 agent 容器；三个网关同时
 | 工具链 | mise（工具版本 + 任务）、uv（依赖与锁文件）、ruff、pyright、pytest + pytest-asyncio | 用法见 `docs/development.md` |
 | 配置与 schema | pydantic v2 + PyYAML | case、env、事件共用一套模型；可导出 JSON Schema 供编辑器校验 |
 | CLI | Typer | |
-| Web 与 Model Gateway | FastAPI + uvicorn；上游用 openai SDK | |
+| Web、Model Gateway、Control API | FastAPI + uvicorn；上游用 openai SDK | Model Gateway 和 Control API 是两个独立服务，见「控制台与 Control API」 |
 | 调度 | asyncio；run 状态存 SQLite（断点续跑）；k8s 后端用官方 Python client | 规模见待讨论问题 4，不引入 Celery、Ray |
 | 沙箱 | docker SDK（docker-py）+ gVisor | 见"运行平台" |
 | 网络网关 | mitmproxy（Python addon）+ dnslib 自带 DNS | |
@@ -421,6 +431,7 @@ swarmeval/
   cli/
 cases/         按风险类别组织的 case 库
 suites/        case 集合与模型矩阵
+console/       独立顶层项目：Control API + Web 前端，只通过 HTTP 调用 swarmeval，见第 3 节「控制台与 Control API」
 ```
 
 ## 9. 里程碑与待讨论问题
@@ -433,8 +444,9 @@ suites/        case 集合与模型矩阵
 | M1 环境 | 隔离网络 + DNS 记录；Network Gateway；Sandbox profile；蜜罐模板 + canary | 蜜罐命中与 egress 拒绝均进入事件流 |
 | M2 评估 | 三层 scorer；Parquet + DuckDB；首批 6 个 case；模型矩阵批量运行 | 6 个 case 都有可复现的触发率报告 |
 | M3 分析 | 回放 viewer；fork 与反事实重放；在线 Monitor；隐写检测；gVisor / Firecracker | 告警可回溯因果链，并可 fork 反事实重跑 |
+| M4 控制台 | Control API（case CRUD、触发 run、查 run 状态/事件）；`console/` Web 前端；自部署到物理机/k8s | 能在 Web 上创建 case、触发一次评估运行、看到结果，不用碰 CLI |
 
-M0 先打通"拉起 swarm + 记录消息"的最小闭环，M1 再把网络和沙箱纳入咽喉，M2 才开始批量出评估结果。
+M0 先打通"拉起 swarm + 记录消息"的最小闭环，M1 再把网络和沙箱纳入咽喉，M2 才开始批量出评估结果。M4（控制台）依赖 Control API 能稳定读到 M0-M2 产出的 case/run/事件数据，具体和 M1-M3 是顺序还是并行开发见待讨论问题 8。
 
 **待讨论问题**
 
@@ -445,6 +457,8 @@ M0 先打通"拉起 swarm + 记录消息"的最小闭环，M1 再把网络和沙
 5. **真实互联网**：已定，默认不可联网，入站和出站都默认拒绝。只有 case 在 ingress / egress 规则里显式声明的流量才经网关放行，其余一律拒绝并记录。
 6. **reasoning 可见性**：第一期只测开源模型，拿得到完整 CoT。第二期接闭源模型时，是否需要和厂商谈原始 CoT 的研究访问？
 7. **轨迹数据的访问控制**：日志里会有注入 payload 和潜在有害输出，存储与分享需要什么权限边界？
+8. **控制台的开发顺序**：M4（控制台）是等 M0-M3 的 runtime/评估能力走完再做，还是和 M2/M3 并行推进？已定的是 `console/` 与 `swarmeval/` 解耦（见第 3 节），顺序还没定。
+9. **控制台的部署与租户模型**：定位是"平台产品"——是每次自部署服务一个团队/组织（单租户），还是要支持一次部署服务多个团队（多租户，涉及鉴权、数据隔离）？这决定 Control API 要不要现在就设计成多租户。
 
 ## 参考来源
 
