@@ -1,0 +1,26 @@
+[tools]
+uv = "0.10.5"
+
+[tasks.sync]
+description = "Install the Python version and all dependencies from uv.lock"
+run = "uv sync --locked"
+
+[tasks.fmt]
+description = "Format all Python files in place"
+run = "uv run ruff format ."
+
+[tasks.lint]
+description = "Check formatting and lint rules"
+run = ["uv run ruff format --check .", "uv run ruff check ."]
+
+[tasks.typecheck]
+description = "Run pyright in strict mode"
+run = "uv run pyright"
+
+[tasks.test]
+description = "Run the test suite"
+run = "uv run pytest"
+
+[tasks.check]
+description = "Everything that must pass before a change is done"
+depends = ["lint", "typecheck", "test"]

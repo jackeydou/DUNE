@@ -1,0 +1,47 @@
+[project]
+name = "swarmeval"
+version = "0.0.1"
+description = "Launch LLM agent swarms in controlled environments and record their trajectories for safety analysis."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.27.2",
+]
+
+[project.scripts]
+swarm = "swarmeval.cli.main:app"
+
+[build-system]
+requires = ["uv_build>=0.10,<0.11"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Specs freeze when their work ships; the formatter must not rewrite their code samples.
+extend-exclude = ["spec"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+include = ["swarmeval", "tests"]
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.414",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.9",
+]
