@@ -125,8 +125,10 @@ Orchestrator 按 case 拉起隔离网络和各 agent 容器；三个网关同时
 SwarmEval 本体（CLI + runtime + 网关 + scorer）之外，另有一个独立的**控制台**项目 `console/`，定位是自部署到物理机或 k8s、直接对外提供 Web 服务的平台产品：创建/编辑 case、触发运行、查看评估结果。它和 `swarmeval/` 是仓库里两个并列的顶层项目，各自有 README/CHANGELOG/BUGFIX（见 AGENTS.md「一个事实一个家」）。
 
 - **只通过 HTTP 解耦，不共享进程或内部模块**：`console` 不 import `swarmeval` 的任何内部代码，只依赖一个新增的 **Control API**（独立 FastAPI 服务，与 Model Gateway 是两个不同的服务：Model Gateway 面向模型请求，Control API 面向控制台请求）。两者可以分别部署、分别扩容——k8s 上是两个 Deployment，物理机上是两个进程/端口，互不绑定生命周期。
-- **Control API 的职责**：case 的增删改查（读写 `case.yaml` / `env.yaml`）、触发 `swarm run`、查询 run 状态与事件流。它是 CLI 之外新增的对外接口层，CLI 和 Control API 都调用同一套 `swarmeval.core`，两者是平级的两个入口，不是谁调用谁。
+- **Control API 的职责**：case 的增删改查（读写 `case.yaml` / `env.yaml`）、触发 run、查询 run 状态与事件流。
 - **轨迹数据不进数据库**：agent 产出的事件/轨迹数据维持现有存储链路——append-only JSONL + Parquet，用 DuckDB 查询（见第 6 节）；Control API 查询 run 状态和事件时也是读这条链路，不为控制台单独引入一套数据库存事件。控制台自己的操作状态（比如用户账号、run 触发队列这类"控制台自己的状态"，不是 agent 产出的数据）可以用普通数据库，但这和轨迹存储是两回事，不要混在一起讨论。
+
+**Orchestrator 是常驻服务，CLI 是它的一个客户端**：CLI 不是重点投入的方向，Orchestrator 才是——调度、并发、断点续跑这些能力本身就要求它一直在跑（技术选型表里"run 状态存 SQLite 断点续跑"暗含了这一点），所以真正要部署、启动的是这一个常驻服务，Control API 就是它对外的网络接口。`swarm` CLI 不再直接在进程内 import `swarmeval.core` 跑一遍调度逻辑，而是像 Console 一样，认证后调用同一个 Control API——它是这套 API 的另一种客户端形态（终端，而不是浏览器），不是绕过服务器的另一条特权路径。用户在自己电脑上跑 `swarm run cases/x`，实质是带着凭证对着部署在服务器上的 Control API 发一次"触发 run"的请求。本地开发时可以让 CLI 在没检测到可连接的服务时自动拉起一个本地临时实例，但对外的调用方式不变，不单独维护一条进程内调用路径。
 
 具体的 API 契约、部署拓扑（单机 vs k8s）、鉴权与多租户模型留到控制台自己的 spec 或本 spec 的后续小节里细化；这里先定的是「新顶层项目 + HTTP 解耦 + 轨迹数据不进库」这三条边界。
 
@@ -138,9 +140,9 @@ SwarmEval 本体（CLI + runtime + 网关 + scorer）之外，另有一个独立
 
 这三块都是读 Event Store，不碰「轨迹数据不进库」这条边界；新增的是 Control API 之上的检索/规则/judge 调用层。这层具体落在哪个 Python 包里（复用 `swarmeval/scorers/`，还是新开一个 `swarmeval/analysis/`）留到实现时再定，但对外的地位很明确：和「触发 run」是 Control API 的两个平级入口，不是谁的子功能。
 
-**Team / workspace 是组织维度，不是访问隔离**：`case.yaml`、run、事件都带一个 `workspace`（或 `team`）字段，控制台用它分组、筛选、切换视图；Control API 现在不做鉴权，同一部署里任何人都能看到所有 workspace 的数据。原因是两部分改动的成本不对称：
+**Team / workspace 是组织维度，不是访问隔离**：`case.yaml`、run、事件都带一个 `workspace`（或 `team`）字段，控制台用它分组、筛选、切换视图。这里要把两件事分开——**认证（你是谁）从一开始就要有**：Control API 部署在服务器上、CLI 和 Console 都是远程调用它，任何调用都得带凭证，不存在免认证的访问方式；**授权（认证过的人能看到哪些 workspace）现在不做**，同一部署里任何通过认证的调用方都能看到所有 workspace 的数据。留白的是后者，不是前者。原因是两部分改动的成本不对称：
 
-- 把 workspace 从字段升级成真正的访问隔离（Control API 每个端点加鉴权、加越权检查），这块工作量跟「现在有没有先埋这个字段」关系不大——不管早做晚做，都得把当时已有的端点挨个过一遍，成本不会因为现在做了准备就变低。
+- 把「不区分 workspace 的授权」升级成「按 workspace 做访问隔离」（Control API 每个端点加越权检查），这块工作量跟「现在有没有先埋 workspace 字段」关系不大——不管早做晚做，都得把当时已有的端点挨个过一遍，成本不会因为现在做了准备就变低。
 - 但如果现在完全不设 workspace 概念，以后想补，要对着历史 run 做一次回填/迁移——老数据没有归属字段，得靠人工或规则去猜。现在就把 `workspace` 设计成 case/事件 schema 里的必填字段（走第 6 节已有的 `schema_version` 机制），新数据从一开始就带着归属，以后要不要做隔离只是给 Control API 加一层过滤 + 鉴权，数据层不用再动。
 
 所以现在把 workspace 字段加进 schema 是低成本、高可选性的动作，真正的访问隔离边界留到需要时再做。
@@ -418,7 +420,7 @@ canaries:
 
 ## 8. CLI 与目录结构
 
-日常使用集中在 `swarm` 一个命令：跑 case、跑套件、看回放、查事件、fork 重放、单独调试环境。技术栈见第 3 节"技术选型"。
+`swarm` 是一个命令行客户端，不是独立的运行时——它认证后调用部署在服务器上的 Control API，和 Console 走的是同一个入口（见第 3 节「Orchestrator 是常驻服务，CLI 是它的一个客户端」）。日常操作（跑 case、跑套件、看回放、查事件、fork 重放、单独调试环境）都通过它触发，但重点投入的是 Control API/Orchestrator 本身，CLI 只是薄客户端。技术栈见第 3 节"技术选型"。
 
 ```bash
 swarm run cases/collusion_pricing                     # 按 case 默认配置跑
@@ -475,7 +477,7 @@ M0 先打通"拉起 swarm + 记录消息"的最小闭环，M1 再把网络和沙
 6. **reasoning 可见性**：第一期只测开源模型，拿得到完整 CoT。第二期接闭源模型时，是否需要和厂商谈原始 CoT 的研究访问？
 7. **轨迹数据的访问控制**：日志里会有注入 payload 和潜在有害输出，存储与分享需要什么权限边界？
 8. **控制台的开发顺序**：M4（控制台）是等 M0-M3 的 runtime/评估能力走完再做，还是和 M2/M3 并行推进？已定的是 `console/` 与 `swarmeval/` 解耦（见第 3 节），顺序还没定。
-9. **控制台的部署与租户模型**：已定一半——`workspace` 作为组织维度现在就加进 case/事件 schema（见第 3 节「Team / workspace 是组织维度」），但 Control API 是否要做成真正的多租户（鉴权、跨 workspace 访问隔离），还是先只服务单团队/单组织，仍未定。这不影响现在的 schema 设计，只影响以后 Control API 要不要加鉴权层。
+9. **控制台的部署与租户模型**：已定大半——`workspace` 作为组织维度现在就加进 case/事件 schema（见第 3 节「Team / workspace 是组织维度」），Control API 从一开始就要求调用方认证（CLI、Console 都不例外）。仍未定的只剩一点：认证之后要不要按 workspace 做访问隔离（真正的多租户），还是先让任何认证过的调用方都能看到部署内所有数据。这不影响现在的认证机制和 schema 设计，只影响以后要不要在 Control API 加一层按 workspace 过滤的授权检查。
 
 ## 参考来源
 
