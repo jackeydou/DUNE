@@ -30,5 +30,5 @@ mise run sync
 ## Dependencies
 
 Add with `uv add <pkg>` (runtime) or `uv add --dev <pkg>` (tooling), and commit `uv.lock` with the
-change. Check [AGENTS.md](../AGENTS.md) "Don't reinvent utilities" and the spec's 技术选型 table
-before adding a new one.
+change. Check [AGENTS.md](../AGENTS.md) "Don't reinvent utilities" and
+[tech-stack.md](tech-stack.md) before adding a new one.
