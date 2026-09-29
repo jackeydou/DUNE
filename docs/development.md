@@ -15,7 +15,7 @@ mise install
 mise run sync
 ```
 
-`sync` installs exactly what `uv.lock` records. After that, `uv run swarm --version` works.
+`sync` installs exactly what `uv.lock` records.
 
 ## Tasks
 

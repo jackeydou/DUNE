@@ -4,12 +4,7 @@ version = "0.0.1"
 description = "Launch LLM agent swarms in controlled environments and record their trajectories for safety analysis."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "typer>=0.27.2",
-]
-
-[project.scripts]
-swarm = "swarmeval.cli.main:app"
+dependencies = []
 
 [build-system]
 requires = ["uv_build>=0.10,<0.11"]
