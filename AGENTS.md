@@ -4,21 +4,18 @@ Standing orders for agents working in this repo. Read before changing anything. 
 a few lines on purpose — the file it links owns the detail. Keep it that way: this file is what an
 agent needs in *every* session, and it stops working once it's long enough to skim.
 
-## Repo shape
+## Where to look
 
-SwarmEval: a framework for launching LLM agent swarms in controlled environments and recording
-their trajectories for safety analysis. The design lives in
-[spec/2026-09-27-swarmeval-v1/](spec/2026-09-27-swarmeval-v1/README.md); only the project
-skeleton exists so far.
-
-Planned layout (spec §8): the Python 3.12 package `swarmeval/` (runtime, gateways, sandbox,
-events, scorers), the case library `cases/`, and case suites `suites/`. The web replay viewer
-arrives in M3 under `viewer/`. Each project (the Python package, later `viewer/`) owns its
-`CHANGELOG.md` and `BUGFIX.md`. Prose lives in three places: `docs/` for how things work now,
-`spec/` for one decision each, and package READMEs for package contracts.
-
-Setup and the task list: [docs/development.md](docs/development.md). Run `mise run check` before
-you call a change done.
+- Services, how they talk, storage, isolation, deployment: [docs/architecture.md](docs/architecture.md)
+- One service's internals, interfaces, and libraries: [docs/services/](docs/architecture.md#services)
+- Event format, `runs` tables, hash chain, export: [docs/event-log.md](docs/event-log.md)
+- Agent loop, hooks, writing an extension: [docs/agent-runtime.md](docs/agent-runtime.md)
+- Tooling and libraries shared across services: [docs/tech-stack.md](docs/tech-stack.md)
+- What is in the repo and where new code goes: [docs/repo-layout.md](docs/repo-layout.md)
+- Setup and tasks: [docs/development.md](docs/development.md). Run `mise run check` before you
+  call a change done.
+- Why things are the way they are: [spec/](spec/AGENTS.md). "spec §N" below means the
+  [v1 spec](spec/2026-09-27-swarmeval-v1/README.md).
 
 ## One home per fact
 
@@ -49,11 +46,12 @@ subsystem, write its `docs/` page and stop citing the spec for it.
 - **Building a feature** — read that project's `CHANGELOG.md`. Does something already do this, and
   does my change break a behavior someone shipped on purpose? If either is yes, raise it before
   writing code.
-- **Touching more than one subsystem** (runtime, gateways, sandbox, events, scorers) — read the
-  spec sections, or `docs/` pages once they exist, for each one involved.
+- **Touching more than one service** ([list](docs/architecture.md#services)) — read the `docs/`
+  pages for each one involved, and the spec sections for anything `docs/` does not cover yet.
 - **Isolation defaults** — ingress and egress are denied by default; agent containers never see the
-  host or the log directory; events come from the gateways and sandbox audit, never from the agent.
-  A change that loosens any of these needs the user's explicit sign-off. Detail: spec §2 and §5.
+  host, the database, or the object store; events come from the gateways and sandbox audit, never from the agent.
+  A change that loosens any of these needs the user's explicit sign-off. Detail:
+  [docs/architecture.md](docs/architecture.md#isolation), spec §2 and §5.
 - **Model calls** — all LLM traffic goes through the Model Gateway. The `openai` SDK is imported
   only in `swarmeval/gateway/model/`; runtime and agent code never call a provider directly.
   Detail: spec §3 "模型接入".
@@ -74,8 +72,8 @@ Both files sit at the project root. Create them when the project gets its first 
 create empty ones. Add the entry in the same commit as the change.
 
 **Versions.** Do not bump a package unless the user asks. Packages start at `0.0.1`. Leave the
-`pyproject.toml` / `package.json` `version` and `swarm --version` alone. New changelog notes go
-under `[Unreleased]`. When they ask to bump, retitle `[Unreleased]` to `[x.y.z] - YYYY-MM-DD`,
+`pyproject.toml` / `package.json` `version` fields alone. New changelog notes go under
+`[Unreleased]`. When they ask to bump, retitle `[Unreleased]` to `[x.y.z] - YYYY-MM-DD`,
 open a fresh empty `[Unreleased]`, and set that package's version fields to `x.y.z` in the same
 change.
 
@@ -100,7 +98,7 @@ change.
 
 **Symptom.** Agents resolved TXT records without a `net.dns` event being written.
 **Root cause.** The resolver only forwarded A/AAAA queries through the gateway hook.
-**Fix.** Route every qtype through the hook. `swarmeval/gateway/network/dns.py`.
+**Fix.** Route every qtype through the hook. `internal/netgateway/dns.go`.
 **Guard.** `test_dns.py::test_txt_query_is_logged_and_denied`.
 **Touches.** Same hook as 2026-10-02 (NO_PROXY exception). Don't reintroduce a per-qtype fast path.
 ```
@@ -108,6 +106,11 @@ change.
 The **Touches** line is the point of the file. Fill it in.
 
 ## Specs
+
+A spec is an intermediate artifact of the requirement discussion that produced it. Once that
+discussion ends it is not updated in later product iterations; a later change gets its own spec.
+`docs/` is the opposite: it follows the product, so a change that alters behavior a doc describes
+updates that doc in the same change. Where both cover a topic and disagree, `docs/` is current.
 
 Most changes don't need one. Write one when the user asks. Ask first when the change is large,
 irreversible, spans subsystems, or the requirement is still fuzzy — then wait for the answer.
@@ -119,9 +122,13 @@ Layout, sections, and what happens at ship: [spec/AGENTS.md](spec/AGENTS.md).
 distinct responsibility, not "part 2". If the only honest split is arbitrary, leave it and say why.
 
 **Don't reinvent utilities.** Date math, argument parsing, retries, schema validation, path
-handling — use a maintained library. Check what the repo already depends on before adding a new
-one. Prefer small, typed, actively maintained packages, and say why you picked it. Write it
-yourself only when the library is heavy for a trivial need or the semantics have to be exact.
+handling — use an open-source third-party library. Check what the repo already depends on before
+adding a new one. Prefer small, typed, actively maintained, modern packages, and say why you
+picked it. Never add a library that is deprecated, archived, or in maintenance-only mode, and never
+call deprecated APIs; when a library has a modern successor, use the successor (psycopg 3 over
+psycopg2, `google.golang.org/protobuf` over `github.com/golang/protobuf`). Before adding one,
+check its recent releases and repository status. Write it yourself only when the library is heavy
+for a trivial need or the semantics have to be exact.
 
 **Abstract on the third use.** Two similar call sites are a coincidence. Three are a pattern.
 Premature abstraction costs more than duplication.
