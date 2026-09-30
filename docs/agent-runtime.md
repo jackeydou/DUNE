@@ -64,7 +64,7 @@ tool without having a sandbox.
 | Protocol | Production implementation | Contract |
 |---|---|---|
 | `RunStore` | `swarmeval.events.PostgresRunStore` on the `runs` schema ([event-log.md](event-log.md#tables)) | `commit` is atomic and assigns `seq` and `event_id` in order. `context` returns `messages[gen][:len]` from the latest `agent_state` row |
-| `ModelClient` | model-gateway client (not built) | `generate` returns after the gateway's record of the call has been committed through the run's `RunWriter` |
+| `ModelClient` | model-gateway client (not built) | `generate` returns after the gateway's record of the call has been committed through the run's `RunWriter`. The record's `gen` / `length` come from `ModelRequest.gen` and the request's message count |
 | `SandboxExecutor` | sandboxd client (not built) | Runs one `Exec` and returns output plus file and process observations |
 
 `RunWriter` is the run's only writer. The loop and the model-gateway stream handler share one

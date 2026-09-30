@@ -291,6 +291,7 @@ class RunLoop:
         request = ModelRequest(
             model=spec.model,
             messages=messages,
+            gen=agent.gen,
             tools=tuple(tool_schema(self._tools[name]) for name in requested.value.tools),
             options=requested.value,
         )

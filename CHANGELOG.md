@@ -24,4 +24,9 @@
 - `PostgresRunStore`, the production `RunStore`: commits events, context messages, agent state,
   and extension state in one transaction, refuses writes from a stale `owner_epoch`, and sends
   `NOTIFY swarmeval_events` for each commit with events.
+- `.eval` export (`swarmeval.events.export_run`): verifies a run's chain, rebuilds its events
+  with the chain fields and expanded model input, groups them into one span per agent, and
+  uploads `runs/<run_id>/sample.eval` to an S3-compatible bucket through `pyarrow.fs`.
+- `ModelRequest.gen`: the context generation a request's messages come from, recorded as the
+  model call's `gen` / `length`.
 - `mise run test:docker` runs the tests that need a local docker daemon.

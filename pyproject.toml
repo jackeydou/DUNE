@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.20.0",
     "inspect-ai==0.3.273",
     "psycopg[binary]>=3.3.6",
+    "pyarrow>=25.0.1",
     "pydantic>=2.13.5",
     "pyyaml>=6.0.3",
     "rfc8785>=0.1.4",
@@ -50,6 +51,7 @@ markers = ["docker: needs a local docker daemon (testcontainers)"]
 
 [dependency-groups]
 dev = [
+    "pyarrow-stubs>=20.0.0.20260819",
     "pyright>=1.1.414",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",

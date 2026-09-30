@@ -8,7 +8,8 @@ writer of a run's events and state. Its place among the services is in
 **Status:** case loading ([Case loading](#case-loading)), the agent loop
 ([agent-runtime.md](../agent-runtime.md)), and the Postgres store for the write-before rule
 ([event-log.md](../event-log.md#tables)) are built. The rest of M0 brings the Control API, one
-worker, the Message Bus without interventions, and export. M2 adds several workers,
+worker, and the Message Bus without interventions. Export of the per-run `.eval` is built
+([event-log.md](../event-log.md#export)); the worker does not call it yet. M2 adds several workers,
 leases, fencing, takeover, and pausing. M3 adds interventions, fork, the online Monitor, and the
 async and event-driven turn policies. Items marked *(proposed)* go beyond what the specs decided;
 they are listed under [Not settled](#not-settled).
@@ -228,6 +229,6 @@ connection.
    Control API manages. M4's case CRUD may change this.
 3. Concurrency limits expressed in the claim query.
 4. Default lease length of 30 s.
-5. `pyarrow.fs` as the only S3 client. Export then writes `.eval` to a scratch file with
-   `inspect_ai` and uploads it. The alternative is letting `inspect_ai` write to `s3://` through
+5. `pyarrow.fs` as the only S3 client. Export is built this way today: it writes `.eval` to a
+   scratch file with `inspect_ai` and uploads it. The alternative is letting `inspect_ai` write to `s3://` through
    its own fsspec dependency, which means a second S3 client with its own configuration.

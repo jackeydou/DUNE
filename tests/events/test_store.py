@@ -1,6 +1,4 @@
 import asyncio
-from collections.abc import AsyncIterator
-from itertools import count
 
 import psycopg
 import pytest
@@ -9,7 +7,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from swarmeval.db import agent_state, async_engine, control_runs, events, messages
+from swarmeval.db import agent_state, control_runs, events, messages
 from swarmeval.events import (
     NOTIFY_CHANNEL,
     ChainRow,
@@ -29,27 +27,11 @@ from swarmeval.runtime.records import (
     Transaction,
 )
 from swarmeval.runtime.writer import RunWriter
-from tests.postgres import create_run
 from tests.runtime.fakes import SHELL, FakeSandbox, FakeStore, ScriptedModel, agent, call, reply
 
 pytestmark = pytest.mark.docker
 
 EVENT = TypeAdapter[Event](Event)
-_run_ids = count(1)
-
-
-@pytest.fixture
-async def engine(postgres_url: str) -> AsyncIterator[AsyncEngine]:
-    engine = async_engine(postgres_url)
-    yield engine
-    await engine.dispose()
-
-
-@pytest.fixture
-async def run_id(engine: AsyncEngine) -> str:
-    run_id = f"run_{next(_run_ids)}"
-    await create_run(engine, run_id)
-    return run_id
 
 
 def store_for(engine: AsyncEngine, run_id: str, *, owner_epoch: int = 1) -> PostgresRunStore:

@@ -6,9 +6,9 @@ and how it leaves the database. Its code is `swarmeval/events/`, inside the
 `inspect_ai`. Where events come from and who writes them is covered in
 [architecture.md](architecture.md#event-flow).
 
-**Status:** the tables, the record-to-event conversion, the hash chain, and the Postgres
-`RunStore` are built (`swarmeval/db/`, `swarmeval/events/`). The `.eval` export arrives later in
-M0; Parquet and the run summary table arrive in M2. Items marked *(proposed)* are implementation details the specs
+**Status:** the tables, the record-to-event conversion, the hash chain, the Postgres `RunStore`,
+and the per-run `.eval` export are built (`swarmeval/db/`, `swarmeval/events/`). Parquet and the
+run summary table arrive in M2. Items marked *(proposed)* are implementation details the specs
 leave open. They are collected under [Not settled](#not-settled).
 
 ## Data model
@@ -106,8 +106,11 @@ the row at step *k*. It is the same query, and its cost does not depend on run l
 Derived results, such as later rule matches and judge verdicts, go to separate tables and never
 touch `events` (see [analysis](services/analysis.md#outputs)).
 
-`ModelEvent.input` is stored as a reference: `(agent_id, gen, len)` plus a hash of the request
-body. It is expanded when `.eval` is exported. Writing the full context on every call would make
+`ModelEvent.input` is stored as a reference: `agent_id`, plus `gen` and `len` in
+`metadata.swarmeval.input`, taken from the request the loop built. It is expanded when `.eval` is
+exported. The hash of the request body arrives with the model-gateway client. A model call not
+built from an agent's context (an extension's own call) has `gen: null`, and its input is not
+stored yet *(open)*. Writing the full context on every call would make
 storage grow with the square of the step count. If the gateway's request hash disagrees with the
 expanded input, that is a spoofing signal *(open, runtime spec Q1)*.
 
@@ -166,7 +169,25 @@ At run end the worker writes to the export bucket, which is created with object 
 | `summaries/<run_id>.parquet` | One row per run, like Inspect's log header. List queries read only these | M2 |
 
 Object paths are *(proposed)*. From M2, one `.eval` per variant is assembled once all its epochs
-finish. Which service assembles it is [not settled](#not-settled).
+finish.
+
+How a run becomes a `.eval` (`swarmeval.events.export_run`):
+
+1. Read the run's `events` and `messages` rows, and verify the chain. Rows that do not verify
+   raise `ChainError`, and nothing is written.
+2. Rebuild each event from its payload. Add `prev_hash` / `hash` (hex) to `metadata.swarmeval`,
+   and expand `ModelEvent.input` from `messages`.
+3. Wrap each agent's events in a `SpanBeginEvent` / `SpanEndEvent` with `type="agent"` and id
+   `agent:<agent_id>`, and set their `span_id`. Events with no agent stay at the top level.
+4. Build one `EvalSample`: `id` is the case id, `uuid` the run id, `input` the case task. There is
+   no target and no `messages` list, since a swarm has one conversation per agent; the
+   transcript is in `events`. A `SampleLimitEvent` becomes `sample.limit`, and model usage is
+   summed per model.
+5. Build the `EvalLog` from a `RunHeader` the worker supplies (case id, variant index and axis
+   values, epoch, agent models). `eval.model` is the first agent's model; every agent's model is
+   in `eval.metadata.swarmeval.models`. A run whose last lifecycle event is `failed` has status
+   `error`.
+6. Write the log with `inspect_ai` to a scratch file and upload it with `pyarrow.fs`. Which service assembles it is [not settled](#not-settled).
 
 The rows in `runs` are the evidence original. Exports are derived from them, and audit, replay,
 and spoofing checks use the database. Cleanup of old runs, and whether Parquet then becomes the

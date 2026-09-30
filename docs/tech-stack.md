@@ -2,7 +2,7 @@
 
 The libraries and tools SwarmEval uses. Installed today: Python 3.12, uv, ruff, pyright,
 pytest, pydantic, PyYAML (with `types-PyYAML` for pyright), `inspect_ai` (pinned), SQLAlchemy,
-Alembic, psycopg 3, `rfc8785`, and testcontainers; Go 1.27, golangci-lint, buf,
+Alembic, psycopg 3, `rfc8785`, pyarrow (with `pyarrow-stubs` for pyright), and testcontainers; Go 1.27, golangci-lint, buf,
 grpc-go, and the moby client. Everything else arrives with the service that needs it; [architecture.md](architecture.md)
 says which milestone that is.
 
