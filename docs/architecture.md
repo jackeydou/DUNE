@@ -125,7 +125,7 @@ flowchart LR
 |---|---|---|
 | Postgres `tenant` schema | Users, tenants, workspaces | `edge` |
 | Postgres `control` schema | Run queue, run status, leases (`owner_id`, `lease_until`, `owner_epoch`) | `orchestrator` |
-| Postgres `runs` schema | `events`, `messages`, `agent_state`, `deliveries`, `sandboxes` for every run, keyed by `run_id` ([event-log.md](event-log.md#tables)) | `orchestrator` |
+| Postgres `runs` schema | `events`, `messages`, `agent_state`, `extension_state`, `deliveries`, `sandboxes` for every run, keyed by `run_id` ([event-log.md](event-log.md#tables)) | `orchestrator` |
 | Postgres `analysis` schema *(proposed)* | Derived results: rule matches, judge verdicts, offline scores | `analysis` |
 | Object storage | Exported `.eval` and Parquet (with hash chain fields); large blobs such as pcaps and file snapshots, content-addressed | written by `orchestrator`, read by `analysis` |
 

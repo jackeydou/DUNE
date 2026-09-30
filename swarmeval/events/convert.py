@@ -1,0 +1,263 @@
+"""Runtime records and messages to Inspect objects (docs/event-log.md#data-model).
+
+One record becomes one Inspect `Event`. SwarmEval's own fields go under
+`metadata["swarmeval"]`, never at the top level, and a record with no Inspect counterpart becomes
+an `InfoEvent` with `source="swarmeval.<kind>"`.
+"""
+
+import json
+import shlex
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from inspect_ai.event import (
+    Event,
+    InfoEvent,
+    ModelEvent,
+    SampleLimitEvent,
+    SandboxEvent,
+    ToolEvent,
+)
+from inspect_ai.model import (
+    ChatCompletionChoice,
+    ChatMessageAssistant,
+    ChatMessageSystem,
+    ChatMessageTool,
+    ChatMessageUser,
+    Content,
+    ContentReasoning,
+    ContentText,
+    GenerateConfig,
+    ModelOutput,
+    ModelUsage,
+)
+from inspect_ai.model import (
+    ChatMessage as InspectMessage,
+)
+from inspect_ai.tool import ToolCall as InspectToolCall
+from inspect_ai.tool import ToolCallError
+from pydantic import JsonValue
+
+from swarmeval.runtime.messages import (
+    AssistantMessage,
+    ChatMessage,
+    SystemMessage,
+    ToolCall,
+    ToolMessage,
+    UserMessage,
+)
+from swarmeval.runtime.records import (
+    ExecResult,
+    LimitRecord,
+    ModelCallRecord,
+    Record,
+    SandboxExecRecord,
+    ToolCallRecord,
+)
+
+SCHEMA_VERSION = 1
+"""Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape."""
+
+Source = Literal["model-gateway", "sandboxd", "orchestrator"]
+
+_MAX_SAFE_INT = 2**53 - 1
+
+
+@dataclass(frozen=True)
+class Attribution:
+    """Where an event sits in the run. Everything here lands in `metadata.swarmeval`."""
+
+    workspace: str
+    seq: int
+    parent_id: str | None
+    agent_id: str | None
+    sandbox_id: str | None
+    extension: str | None
+
+
+def source_of(record: Record) -> Source:
+    match record:
+        case ModelCallRecord():
+            return "model-gateway"
+        case SandboxExecRecord():
+            return "sandboxd"
+        case _:
+            return "orchestrator"
+
+
+def event_type(event: Event) -> str:
+    """The `events.type` column: the Inspect event type, or an `InfoEvent`'s source."""
+    if isinstance(event, InfoEvent) and event.source is not None:
+        return event.source
+    return event.event
+
+
+def to_event(record: Record, where: Attribution) -> Event:
+    extra: dict[str, JsonValue]
+    event: Event
+    match record:
+        case ModelCallRecord():
+            event, extra = _model_event(record)
+        case ToolCallRecord():
+            event, extra = _tool_event(record)
+        case SandboxExecRecord():
+            event = SandboxEvent(
+                action="exec",
+                cmd=shlex.join(record.command.argv),
+                options={"cwd": record.command.cwd, "timeout_s": record.command.timeout_s},
+                result=record.result.exit_code,
+                output=record.result.stdout + record.result.stderr,
+            )
+            extra = {"exec": _exec_observations(record.result)}
+        case LimitRecord():
+            event = SampleLimitEvent(
+                type="turn" if record.limit == "max_turns" else "token",
+                message=f"{record.limit} reached ({record.value})",
+                limit=record.value,
+            )
+            extra = {"limit": record.limit}
+        case _:
+            event = InfoEvent(
+                source=f"swarmeval.{record.kind}",
+                data=record.model_dump(mode="json", exclude={"kind"}),
+            )
+            extra = {}
+    event.metadata = {
+        "swarmeval": {
+            "schema_version": SCHEMA_VERSION,
+            "seq": where.seq,
+            "parent_id": where.parent_id,
+            "source": source_of(record),
+            "agent_id": where.agent_id,
+            "sandbox_id": where.sandbox_id,
+            "workspace": where.workspace,
+            "extension": where.extension,
+            **extra,
+        }
+    }
+    return event
+
+
+def _model_event(record: ModelCallRecord) -> tuple[ModelEvent, dict[str, JsonValue]]:
+    options = record.options
+    stop_reason = "tool_calls" if record.response.tool_calls else "stop"
+    output = ModelOutput(
+        model=record.model,
+        choices=[
+            ChatCompletionChoice(
+                message=to_inspect_assistant(record.response), stop_reason=stop_reason
+            )
+        ],
+        usage=ModelUsage(
+            input_tokens=record.usage.input_tokens,
+            output_tokens=record.usage.output_tokens,
+            total_tokens=record.usage.total,
+        ),
+    )
+    event = ModelEvent(
+        model=record.model,
+        input=[],
+        tools=[],
+        tool_choice="auto" if options.tools else "none",
+        config=GenerateConfig(
+            temperature=options.temperature,
+            top_p=options.top_p,
+            max_tokens=options.max_output_tokens,
+            seed=options.seed,
+        ),
+        output=output,
+    )
+    extra: dict[str, JsonValue] = {
+        # `input` is stored as a reference and expanded on export (docs/event-log.md#tables).
+        "input": {"gen": record.gen, "len": record.length},
+        "tools": list(options.tools),
+        # What the model produced, byte for byte: Inspect's tool calls hold parsed arguments.
+        "raw_tool_arguments": {c.id: c.arguments for c in record.response.tool_calls},
+    }
+    return event, extra
+
+
+def _tool_event(record: ToolCallRecord) -> tuple[ToolEvent, dict[str, JsonValue]]:
+    result = record.result
+    arguments, _ = parse_arguments(record.call.arguments)
+    error: ToolCallError | None = None
+    if result.is_error:
+        timed_out = record.exec_result is not None and record.exec_result.timed_out
+        error = ToolCallError("timeout" if timed_out else "unknown", result.content)
+    event = ToolEvent(
+        id=record.call.id,
+        function=record.call.name,
+        arguments=arguments,
+        result=result.content,
+        error=error,
+        failed=result.is_error or None,
+    )
+    extra: dict[str, JsonValue] = {
+        "raw_arguments": record.call.arguments,
+        "executed_arguments": record.executed_arguments,
+        "blocked_by": record.blocked_by,
+    }
+    if record.exec_result is not None:
+        extra["exec"] = _exec_observations(record.exec_result)
+    return event, extra
+
+
+def _exec_observations(result: ExecResult) -> JsonValue:
+    """What sandboxd saw besides the output, which the event already carries."""
+    return result.model_dump(mode="json", exclude={"stdout", "stderr"})
+
+
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"`{name}` is not valid JSON")
+
+
+def _parse_int(text: str) -> int:
+    value = int(text)
+    if abs(value) > _MAX_SAFE_INT:
+        raise ValueError(f"integer {text} is outside ±(2**53 - 1)")
+    return value
+
+
+def parse_arguments(raw: str) -> tuple[dict[str, JsonValue], str | None]:
+    """Tool arguments as model output, for Inspect's `dict` field. Model output is untrusted:
+    anything JSON cannot carry exactly, or that is not an object, yields `{}` and the reason.
+    The raw text is always kept alongside."""
+    try:
+        parsed = json.loads(raw, parse_constant=_reject_constant, parse_int=_parse_int)
+    except ValueError as err:
+        return {}, str(err)
+    if not isinstance(parsed, dict):
+        return {}, f"arguments are a JSON {type(parsed).__name__}, not an object"
+    return parsed, None  # pyright: ignore[reportUnknownVariableType]
+
+
+def _inspect_tool_call(call: ToolCall) -> InspectToolCall:
+    arguments, error = parse_arguments(call.arguments)
+    return InspectToolCall(id=call.id, function=call.name, arguments=arguments, parse_error=error)
+
+
+def to_inspect_assistant(message: AssistantMessage) -> ChatMessageAssistant:
+    content: list[Content] = []
+    if message.reasoning is not None:
+        content.append(ContentReasoning(reasoning=message.reasoning))
+    content.append(ContentText(text=message.content))
+    return ChatMessageAssistant(
+        content=content,
+        tool_calls=[_inspect_tool_call(c) for c in message.tool_calls] or None,
+        source="generate",
+    )
+
+
+def to_inspect_message(message: ChatMessage) -> InspectMessage:
+    match message:
+        case SystemMessage():
+            return ChatMessageSystem(content=message.content)
+        case UserMessage():
+            return ChatMessageUser(content=message.content)
+        case AssistantMessage():
+            return to_inspect_assistant(message)
+        case ToolMessage():
+            error = ToolCallError("unknown", message.content) if message.is_error else None
+            return ChatMessageTool(
+                content=message.content, tool_call_id=message.tool_call_id, error=error
+            )
