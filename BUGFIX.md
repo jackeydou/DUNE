@@ -1,5 +1,30 @@
 # Bug fixes
 
+## 2026-09-30 — A float literal that overflows fails the event commit
+
+**Symptom.** A model tool call with arguments such as `{"x": 1e400}` made the commit of its
+`ModelEvent` or `ToolEvent` fail, which fails the run, instead of storing `{}` next to the raw text.
+**Root cause.** `parse_arguments` rejected `NaN` / `Infinity` literals and unsafe integers, but
+`json.loads` turns an overflowing float literal into `inf` without calling either hook, and
+RFC 8785 cannot hash `inf`.
+**Fix.** A `parse_float` hook rejects non-finite results. `swarmeval/events/convert.py`.
+**Guard.** `tests/events/test_convert.py::test_arguments_json_cannot_carry_exactly_are_kept_raw`
+(`1e400` case).
+**Touches.** `seal`'s RFC 8785 error, which still fails the commit for any other source of a
+non-finite value. Every place that parses untrusted JSON into a payload needs the same three hooks.
+
+## 2026-09-30 — `compact_context` can start an empty generation
+
+**Symptom.** A `compact_context` hook that returned `()` started a generation with no messages. The
+next model request had no messages, and exporting the run raised `KeyError`, because `messages`
+held no rows for that generation.
+**Root cause.** `HookDispatcher.compact_context` accepted any tuple, including an empty one.
+**Fix.** An empty tuple is an `ExtensionError`; `None` keeps the current context.
+`swarmeval/runtime/extensions/dispatch.py`.
+**Guard.** `tests/runtime/test_extensions.py::test_compacting_to_an_empty_context_fails_the_run`.
+**Touches.** Export's lookup of `(agent_id, gen)` in `swarmeval/events/export.py`, which relies on
+every generation having at least one message row.
+
 ## 2026-09-30 — A tool withheld by `before_model_request` still runs
 
 **Symptom.** An extension narrowed a turn's tools and the request omitted the tool, but when the

@@ -439,6 +439,25 @@ async def test_a_hook_returning_the_wrong_type_fails_the_run() -> None:
         await h.loop.run()
 
 
+@extension(id="t.empty_context", api_version=1)
+def empty_context(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("compact_context")
+    async def _(
+        ctx: HookContext[NoState], messages: tuple[ChatMessage, ...]
+    ) -> tuple[ChatMessage, ...] | None:
+        return ()
+
+
+async def test_compacting_to_an_empty_context_fails_the_run() -> None:
+    h = harness((agent(),), two_steps(), extensions=[empty_context])
+
+    with pytest.raises(ExtensionError, match="returned an empty context"):
+        await h.loop.run()
+
+    assert h.model.requests == []
+    assert len(h.store.generations["a"]) == 1
+
+
 @extension(id="t.background", api_version=1)
 def background(ext: ExtensionAPI[NoConfig, NoState]) -> None:
     @ext.on("on_run_start")

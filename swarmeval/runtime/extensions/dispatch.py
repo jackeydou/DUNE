@@ -271,6 +271,13 @@ class HookDispatcher:
                     f"returned {type(result).__name__}; return a tuple of messages or None.",
                 )
             new = cast(tuple[ChatMessage, ...], result)
+            if not new:
+                raise ExtensionError(
+                    instance.id,
+                    "compact_context",
+                    "returned an empty context. A generation needs at least one message; "
+                    "return None to keep the current context.",
+                )
             if new != current:
                 txn.events.append(
                     self._intervention(instance, "compact_context", "compact", None, current, new)
