@@ -377,3 +377,15 @@ def test_symlink_leaving_the_case_directory_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(CaseError, match="outside the case directory"):
         load_case(case_dir)
+
+
+@pytest.mark.parametrize(
+    "path", ["/", "/workspace/../etc", "/workspace/.", "/workspace/", "//workspace", "/a//b"]
+)
+def test_mount_path_must_be_clean_and_not_root(tmp_path: Path, path: str) -> None:
+    env = base_env()
+    env["sandbox_profiles"]["default"]["fs"] = [{"path": path}]
+
+    message = load_error(tmp_path, base_case(), env)
+
+    assert "sandbox_profiles.default.fs[0].path" in message

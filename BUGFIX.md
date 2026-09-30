@@ -52,3 +52,12 @@ so observers deterministically see nothing from the failure on. `swarmeval/runti
 **Guard.** `test_observers_see_the_terminal_event`, `test_observers_get_no_events_after_a_failure`.
 **Touches.** Previous entry. Because settling runs after the terminal event, a late failure adds a
 `failed` event after `finished`; the last lifecycle event is the outcome (docs/agent-runtime.md).
+
+## 2026-09-30 — Unclean mount paths pass case loading
+
+**Symptom.** `env.yaml` mounts such as `/`, `/workspace/..`, or `/workspace/` loaded fine and only
+failed later, when sandboxd refused them at `CreateSandbox`.
+**Root cause.** The case model only checked that a mount path was absolute.
+**Fix.** Mount paths must also be clean and not `/`. `swarmeval/core/models.py`.
+**Guard.** `tests/core/test_loader.py::test_mount_path_must_be_clean_and_not_root`.
+**Touches.** Mirrors `cleanMounts` in `go/internal/sandboxd/service.go`. Change both together.

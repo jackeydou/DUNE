@@ -5,6 +5,7 @@ These models see a file after variant substitution. Checks that span both files 
 topology) and touch the case directory (prompt files) are in the loader.
 """
 
+import posixpath
 import re
 from typing import Annotated, Literal, Self
 
@@ -39,14 +40,25 @@ def _relative(path: str) -> str:
     return path
 
 
-def _absolute(path: str) -> str:
+def _mount_path(path: str) -> str:
+    """The rule sandboxd applies to key paths, checked here so a bad case fails at load."""
     if not path.startswith("/"):
         raise ValueError(f"`{path}` is relative. Mount paths inside a sandbox are absolute.")
+    if path == "/":
+        raise ValueError(
+            "`/` cannot be a mount path. Mount a directory under it, like `/workspace`."
+        )
+    clean = posixpath.normpath(path)
+    if clean != path or path.startswith("//"):
+        raise ValueError(
+            f"`{path}` is not a clean path. Write it without `.`, `..`, repeated or trailing "
+            f"slashes: `{clean.replace('//', '/')}`."
+        )
     return path
 
 
 RelPath = Annotated[str, Field(min_length=1), AfterValidator(_relative)]
-SandboxPath = Annotated[str, AfterValidator(_absolute)]
+SandboxPath = Annotated[str, AfterValidator(_mount_path)]
 
 _COUNT = re.compile(r"^(\d+(?:\.\d+)?)([km]?)$")
 
