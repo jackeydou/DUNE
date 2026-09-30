@@ -1,7 +1,8 @@
 # Tech stack
 
 The libraries and tools SwarmEval uses. Installed today: Python 3.12, uv, ruff, pyright,
-pytest, pydantic, and PyYAML (with `types-PyYAML` for pyright). Everything else arrives with the service that needs it; [architecture.md](architecture.md)
+pytest, pydantic, and PyYAML (with `types-PyYAML` for pyright); Go 1.27, golangci-lint, buf,
+grpc-go, and the moby client. Everything else arrives with the service that needs it; [architecture.md](architecture.md)
 says which milestone that is.
 
 This page covers tooling and the choices shared across services. The libraries one service uses
@@ -15,7 +16,7 @@ shaped this way is in the v1 spec's 技术选型 table and the
 |---|---|
 | Tool versions and tasks | mise. `mise run check` is the gate for every change ([development.md](development.md)) |
 | Python | uv for dependencies and the lock file, ruff, pyright in strict mode, pytest + pytest-asyncio |
-| Go | go test, golangci-lint. They join `mise run check` when the first Go service lands |
+| Go | go test, golangci-lint (with gofumpt and goimports), all in `mise run check` |
 | gRPC contracts | buf: lint, code generation for Go, Python, and TypeScript, and breaking-change checks |
 
 ## Shared by the Python services
