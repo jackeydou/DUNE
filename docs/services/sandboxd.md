@@ -6,7 +6,11 @@ everything a run needs: sandboxes, their networks, the run's
 sandboxes and reports what each call changed on disk and left running. Its place among the
 services is in [architecture.md](../architecture.md).
 
-**Status:** not built.
+**Status:** the M0 part is built: the docker driver on runc, `CreateSandbox`, `Exec` with file
+diff and process snapshot, `ReadFile`, `FinalDiff`, and `DestroyRun`. Code: `go/cmd/sandboxd`,
+`go/internal/sandboxd`, `go/internal/fsdiff`, `go/internal/driver`. The contract is
+`proto/swarmeval/sandbox/v1/sandbox.proto`; flags and limits are in [go/README.md](../../go/README.md).
+The worker-side client is not built yet.
 
 | Milestone | Adds |
 |---|---|
@@ -21,46 +25,47 @@ Items marked *(proposed)* go beyond what the specs decided; they are listed unde
 ## Interface
 
 gRPC service `swarmeval.sandbox.v1.SandboxService`. Its only caller is the run's worker in the
-[orchestrator](orchestrator.md) *(RPC names proposed)*.
+[orchestrator](orchestrator.md). It listens on `127.0.0.1` unless told otherwise and has no
+authentication, so only the internal network may reach it.
 
-| RPC | Does |
-|---|---|
-| `CreateRun` | Creates the run's networks, net-gateway, and service containers from the compiled env |
-| `CreateSandbox` | Creates one sandbox from a profile. Places canaries (files, env vars, hostname), adds labels, sets `resolv.conf`, and takes the initial manifest |
-| `Exec` | Runs one tool call and streams back its result, file changes, and surviving processes |
-| `ReadFile` | Reads a file for final-state scorers |
-| `Freeze`, `Thaw` | Pause and resume every container of a run |
-| `ListRun` | Lists a run's containers by label, for takeover |
-| `FinalDiff` | Diffs every sandbox one last time at run end, catching background writes |
-| `DestroyRun` | Removes every resource labeled with the run |
+| RPC | Does | State |
+|---|---|---|
+| `CreateSandbox` | Creates one sandbox from a profile's image, key paths, and limits, labels it, and takes the initial manifest | Built. Canaries, `resolv.conf`, and `os_user` creation arrive in M1 |
+| `Exec` | Runs one tool call and streams back its result, file changes, and surviving processes | Built |
+| `ReadFile` | Reads a file for final-state scorers, through the engine's copy API, so nothing runs in the sandbox | Built |
+| `FinalDiff` | Diffs every sandbox one last time at run end, catching background writes | Built |
+| `DestroyRun` | Removes every container labeled with the run, and its state directory | Built |
+| `CreateRun` | Creates the run's networks, net-gateway, and service containers from the compiled env | M1 |
+| `Freeze`, `Thaw` | Pause and resume every container of a run | M2 |
+| `ListRun` | Lists a run's containers by label, for takeover | M2 |
+
+Ids are checked at the boundary: `run_id` matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`, because it
+becomes a directory name, and `sandbox_id` uses the case format's names. Errors map to
+`INVALID_ARGUMENT`, `NOT_FOUND`, and `ALREADY_EXISTS`; anything else is `INTERNAL` and is logged.
 
 ## Drivers
 
-```go
-type Driver interface {
-    CreateNetwork(ctx context.Context, spec NetworkSpec) (NetworkID, error)
-    CreateContainer(ctx context.Context, spec ContainerSpec) (ContainerID, error)
-    Exec(ctx context.Context, id ContainerID, cmd ExecSpec) (ExecResult, error)
-    Processes(ctx context.Context, id ContainerID) ([]Process, error)
-    Pause(ctx context.Context, id ContainerID) error
-    Unpause(ctx context.Context, id ContainerID) error
-    ListByLabel(ctx context.Context, labels map[string]string) ([]Resource, error)
-    Remove(ctx context.Context, r Resource) error
-}
-```
-
-Everything that differs between single machine and k8s sits behind this interface. The docker
-driver (M0) uses the Engine API. The k8s driver (M5) maps sandboxes to Pods with a gVisor
+`go/internal/driver.Driver` holds everything that differs between single machine and k8s:
+listing runtimes, exporting a path from an image, creating a container, exec, the process list,
+reading a file, listing by label, and removal. Networks (M1) and pause (M2) join it when they are
+built. The docker driver (`go/internal/driver/docker`) uses the Engine API. The k8s driver (M5) maps sandboxes to Pods with a gVisor
 `RuntimeClass`. On k8s, freezing and volume diffs have to happen on the node, and how is
 *(open, runtime spec Q10)*.
 
 ## Sandboxes
 
-- **Runtime.** `runsc` when the docker daemon lists it, otherwise `runc`. The runtime actually used
-  is reported back and recorded on the run as its isolation level.
-- **Privileges.** All capabilities dropped except what the profile grants, and never `NET_ADMIN` or
-  `NET_RAW`. IPv6 is off. CPU, memory, pids, and disk limits come from the profile and apply per
-  sandbox.
+- **Runtime.** `--runtime` picks it: `runc` (the M0 default), `runsc`, or `auto`, which takes
+  `runsc` when the daemon lists it. M1 makes `auto` the default once gVisor is validated with the
+  host-side diff. The runtime actually used is returned by `CreateSandbox` and recorded on the run
+  as its isolation level.
+- **Process.** The container runs `sleep infinity` under docker's init, which reaps orphans so
+  exited background processes do not linger as zombies. The image must provide `sleep` and
+  `/bin/sh`. sandboxd never pulls images; a missing image is an error that says to pull it on the
+  docker host.
+- **Privileges.** All capabilities dropped, `no-new-privileges`, and no network at all
+  (`network_mode: none`) until net-gateway exists in M1. CPU, memory (swap equal to memory, so
+  none extra), and pids limits apply per sandbox. A disk limit needs a storage driver that
+  supports per-container size; without one, `CreateSandbox` fails rather than ignoring it.
 - **Labels.** `swarmeval.managed=true`, `swarmeval.run_id`, `swarmeval.sandbox_id`. sandboxd never
   touches a resource without them.
 - **Key paths.** `/workspace`, shared volumes, and protected paths are bind-mounted from a state
@@ -68,6 +73,12 @@ driver (M0) uses the Engine API. The k8s driver (M5) maps sandboxes to Pods with
   at the same path inside its own container, so it reads the files from the host side and the
   sandbox cannot notice. This state is scratch: if the host goes, the sandbox goes with it, and
   fidelity is `lost` either way *(proposed)*.
+- **Initial content.** A bind mount hides what the image has at that path, so `CreateSandbox`
+  first copies the image's content at each top-level key path into its host directory, the way
+  docker fills a new named volume. A nested key path (`/workspace/tests` under `/workspace`) lives
+  inside its parent's host directory and is mounted over it, so one walk covers both. Extraction
+  goes through `os.Root` and cannot write outside the directory. Ownership is kept only when
+  sandboxd runs as root, which it does in production.
 - **Shared sandboxes.** Agents sharing an instance get one container. `os_user` maps to a unix user
   created at start, and `Exec` runs as that user.
 
@@ -89,16 +100,27 @@ Each `Exec` does the following:
    written by a background process. Those changes become `fs.*` events marked
    `attribution: ambiguous`, listing the candidate calls.
 2. List processes (the baseline).
-3. Run the command through the driver, as the agent's `os_user`, with the call's timeout. A timeout
-   kills the exec's process group.
+3. Run the command through the driver, as the agent's `os_user`, with the call's timeout. The
+   command is started as `sh -c 'echo $$ >&2; exec "$@"'`, so the first stderr line is its pid
+   inside the sandbox; sandboxd strips that line. Exec'd processes do not lead a process group of
+   their own, so a timeout instead runs a POSIX `sh` script, as the same user, that stops the
+   command and every descendant (found through `/proc`) and then kills them. A process that
+   double-forked out of the tree survives and is reported in step 5.
 4. Walk again and compare. Changed files are hashed with sha256 and become `fs.*` events carrying
    the path, the operation, the owner uid, and the before and after hashes. Contents up to a size
-   cap are streamed back as blobs; larger files are recorded by hash only.
+   cap are streamed back as blobs; larger files are recorded by hash only. An entry whose kind,
+   size, mtime, and inode are unchanged keeps its previous hash without being read again, so a
+   rewrite that preserves all four goes unseen. Directory mtimes are ignored, because they change
+   with every child and the children are reported themselves. Fifos, sockets, and devices are
+   listed but never opened.
 5. List processes again. New processes still alive become `proc.*` events with pid, ppid, user,
    and command line.
 
 The response is a stream: a header with exit code, duration, and events, then blob chunks.
-stdout and stderr are capped in the header, and the full output follows as a blob. The worker
+stdout and stderr are capped in the header, and the full output follows as a blob. Changes
+between the previous call and this one come back as `background_changes`. While a process an
+earlier call left running is alive, this call's own changes are `ambiguous` as well, and name
+both calls. Calls on one sandbox are serialized inside sandboxd too. The worker
 uploads the blobs to object storage and commits everything with the `ToolEvent` in one transaction
 ([event-log.md](../event-log.md#commit-paths)). sandboxd writes nothing to storage itself.
 
@@ -127,13 +149,16 @@ it is not built in M0–M5.
 | Docker | `github.com/moby/moby/client` | The official Engine SDK. `github.com/docker/docker` has been deprecated since Docker v29 |
 | k8s (M5) | `k8s.io/client-go` | The standard client |
 | RPC | `google.golang.org/grpc`, `google.golang.org/protobuf` | Stubs generated by buf from `proto/` |
-| Hashing, tree walk | Standard library (`crypto/sha256`, `io/fs`) | Nothing to add |
+| Hashing, tree walk, safe extraction | Standard library (`crypto/sha256`, `io/fs`, `os.Root`) | Nothing to add |
+| Not-found errors from the engine | `github.com/containerd/errdefs` | Already a dependency of the moby client, and how it reports error kinds |
 | Isolation | gVisor `runsc` | The default level; runc where gVisor is missing |
 
 ## Not settled
 
-1. RPC names of `SandboxService`.
-2. The host state directory for key paths, mounted at the same path inside sandboxd. This applies
+1. The host state directory for key paths, mounted at the same path inside sandboxd. This applies
    only to the single-machine driver; k8s needs a node-side reader (runtime spec Q10).
-3. How a sandboxd restart is attributed and recorded.
-4. Size caps for inline file contents and tool output.
+2. How a sandboxd restart is attributed and recorded. Today a restart forgets every sandbox, and
+   calls on them fail with `NOT_FOUND`.
+3. Size caps. Today's defaults: 64 KiB of stdout and stderr inline, 16 MiB kept per stream, file
+   contents sent back up to 1 MiB each and 64 MiB per call. They are constants in
+   `sandboxd.DefaultConfig`, not flags yet.

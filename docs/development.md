@@ -2,9 +2,11 @@
 
 ## Prerequisites
 
-- [mise](https://mise.jdx.dev/) — pins the uv version and runs the tasks below.
-- Docker — needed once sandboxes land (M0). On Linux, gVisor (`runsc`) gives the default isolation
-  level; see the spec's 运行平台 section.
+- [mise](https://mise.jdx.dev/) — pins uv, Go, golangci-lint, buf, and the protoc plugins, and
+  runs the tasks below.
+- Docker — for sandboxd's integration tests and for running sandboxes. `mise run check` does not
+  need it. On Linux, gVisor (`runsc`) gives the default isolation level from M1; see the spec's
+  运行平台 section.
 
 uv installs Python 3.12 itself (pinned in `.python-version`), so a system Python is not needed.
 
@@ -21,14 +23,19 @@ mise run sync
 
 | Task | What it runs |
 |---|---|
-| `mise run check` | `lint`, `typecheck`, `test`. Must pass before a change is done |
-| `mise run fmt` | `ruff format .` in place |
+| `mise run check` | `lint`, `typecheck`, `test`, `go:lint`, `go:test`, `proto:lint`. Must pass before a change is done |
+| `mise run fmt` | `ruff format`, `golangci-lint fmt`, and `buf format` in place |
 | `mise run lint` | `ruff format --check .` and `ruff check .` |
 | `mise run typecheck` | `pyright` in strict mode over `swarmeval/` and `tests/` |
 | `mise run test` | `pytest` (asyncio mode `auto`) |
+| `mise run go:lint` | `golangci-lint run` over `go/`, integration tests included |
+| `mise run go:test` | `go test ./...` in `go/` |
+| `mise run go:test-integration` | sandboxd against the local docker daemon. Needs `busybox:latest` |
+| `mise run proto:gen` | `buf generate`: Go stubs into `go/internal/gen/`. Commit them |
+| `mise run proto:lint` | `buf lint`, `buf format --diff`, and a check that the committed stubs match `proto/` |
 
 ## Dependencies
 
-Add with `uv add <pkg>` (runtime) or `uv add --dev <pkg>` (tooling), and commit `uv.lock` with the
-change. Check [AGENTS.md](../AGENTS.md) "Don't reinvent utilities" and
+Python: `uv add <pkg>` (runtime) or `uv add --dev <pkg>` (tooling), and commit `uv.lock` with the
+change. Go: `go get` inside `go/`, then `go mod tidy`, and commit `go.mod` and `go.sum`. Check [AGENTS.md](../AGENTS.md) "Don't reinvent utilities" and
 [tech-stack.md](tech-stack.md) before adding a new one.
