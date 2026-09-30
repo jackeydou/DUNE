@@ -29,6 +29,10 @@ An agent whose response has no tool calls is finished. The run ends when every a
 finished, when `max_turns` or `max_tokens` is reached (`max_tokens` is checked before each model
 call), or when a hook or an action stops it.
 
+A stop takes effect at the hook point where it is seen: after `before_turn`, `compact_context`,
+and `before_model_request`, and before each tool call. Nothing after that point runs, including
+the remaining tool calls of the same response. A tool call already executing finishes.
+
 ### Record, then admit
 
 Content reaches an agent's context in two commits. First the content as observed is recorded:
@@ -50,6 +54,8 @@ message or a new generation, so a request can always be rebuilt from `messages`.
 
 Arguments are validated against the tool's pydantic model. Invalid arguments, an unknown tool, a
 non-zero exit, and a timeout all become error results the agent sees, and each is recorded. A
+call counts as unknown unless the request that produced it offered the tool, so a tool that
+`before_model_request` withheld this turn is refused even though the agent has it. A
 `RunConfigError` is raised at construction if an agent lists a tool nobody provides, or a sandbox
 tool without having a sandbox.
 
@@ -168,6 +174,7 @@ A changed value or a non-default decision is recorded as an `intervention` event
 `on_event` handlers run in a background task, in `seq` order. They never see events their own
 instance caused. Before any hook point the loop waits until the observers have processed every
 event committed so far, so an action an observer takes always applies at the next hook point.
+Observers see every event up to and including the terminal `lifecycle` event.
 
 ### HookContext
 
@@ -182,14 +189,24 @@ event committed so far, so an action an observer takes always applies at the nex
 | `ctx.actions.inject(agent_id, content)` | Queues a user message for the agent's next `before_turn`. Recorded as an intervention |
 | `ctx.model.generate(request)` | A model call under this instance's identity, recorded like an agent's |
 | `ctx.sandbox.exec(sandbox_id, command)` | A command in a sandbox, recorded as `sandbox_exec` and attributed to this instance |
-| `ctx.spawn(coro)` | Background work. Its emits and state are committed when it finishes |
+| `ctx.spawn(coro)` | Background work. Its emits and state are committed when it finishes. The run waits for it at the end ([Run end](#run-end)) |
+
+### Run end
+
+After `on_run_end`, and again after the terminal `lifecycle` event, the loop waits until the
+observers have processed every event and every spawned task has finished and committed, including
+work those tasks spawn. Each task gets its instance's timeout, counted from the start of the wait.
+A task still running after that fails the run like a hook timeout. The failure can come after the
+terminal event, so a run's log may end `finished` then `failed`; the last `lifecycle` event is the
+run's outcome.
 
 ### Failure
 
 A hook that raises, times out, or returns the wrong type fails the run. The same applies to a
 spawned task that raises. The loop commits a `lifecycle` event with `status: failed`, the
 instance id, the hook, and the original error, then raises `ExtensionError` chained to the
-cause.
+cause. From the failure on, observers get no further events, the failed event included, and
+spawned work is cancelled without committing.
 
 The timeout is the loop's `hook_timeout_s` (default 30 s) unless the extension declares its own
 `hook_timeout_s`.

@@ -125,7 +125,7 @@ class HookDispatcher:
 
         self.stop_reason: str | None = None
         self._injections: dict[str, list[UserMessage]] = {}
-        self._spawned: set[asyncio.Task[None]] = set()
+        self._spawned: dict[asyncio.Task[None], _Instance] = {}
         self._failure: ExtensionError | None = None
         self._queue: asyncio.Queue[CommittedEvent] = asyncio.Queue()
         self._published = 0
@@ -167,8 +167,8 @@ class HookDispatcher:
             await self._writer.commit(self._drain(instance, ctx))
 
         task = asyncio.create_task(run())
-        self._spawned.add(task)
-        task.add_done_callback(lambda t: self._spawn_done(instance.id, t))
+        self._spawned[task] = instance
+        task.add_done_callback(self._spawn_done)
 
     # Lifecycle
 
@@ -188,6 +188,44 @@ class HookDispatcher:
             await self._idle.wait()
         if self._failure is not None:
             raise self._failure
+
+    async def settle(self) -> None:
+        """Waits until observers have seen every committed event and every spawned task has
+        finished and committed its effects, including work those spawn in turn. Each task gets its
+        instance's hook timeout, counted from this call; one still running after that fails the
+        run."""
+        loop = asyncio.get_running_loop()
+        deadlines: dict[asyncio.Task[None], float] = {}
+        while True:
+            for task in [t for t in self._spawned if t.done()]:
+                self._spawn_done(task)
+            await self.barrier()
+            running = [t for t in self._spawned if not t.done()]
+            if not self._spawned:
+                return
+            if not running:
+                continue
+            now = loop.time()
+            for task in running:
+                deadlines.setdefault(task, now + self._spawned[task].timeout_s)
+            first = min(running, key=deadlines.__getitem__)
+            if now >= deadlines[first]:
+                instance = self._spawned[first]
+                raise ExtensionError(
+                    instance.id,
+                    "spawn",
+                    f"spawned task still running {instance.timeout_s}s after the run ended. "
+                    "Bound its work, or raise the extension's `hook_timeout_s`.",
+                )
+            await asyncio.wait(
+                running, timeout=deadlines[first] - now, return_when=asyncio.FIRST_COMPLETED
+            )
+
+    def fail(self, err: ExtensionError) -> None:
+        """The run has failed: observers get no further events, and `close` cancels spawned
+        work."""
+        if self._failure is None:
+            self._failure = err
 
     def take_injections(self, agent_id: str) -> list[UserMessage]:
         return self._injections.pop(agent_id, [])
@@ -446,13 +484,14 @@ class HookDispatcher:
                 if self._processed >= self._published:
                     self._idle.set()
 
-    def _spawn_done(self, instance_id: str, task: asyncio.Task[None]) -> None:
-        self._spawned.discard(task)
-        if task.cancelled() or self._failure is not None:
+    def _spawn_done(self, task: asyncio.Task[None]) -> None:
+        """Done callback, also called by `settle`; the first call wins."""
+        instance = self._spawned.pop(task, None)
+        if instance is None or task.cancelled() or self._failure is not None:
             return
         exc = task.exception()
         if exc is not None:
-            failure = ExtensionError(instance_id, "spawn", f"{type(exc).__name__}: {exc}")
+            failure = ExtensionError(instance.id, "spawn", f"{type(exc).__name__}: {exc}")
             failure.__cause__ = exc
             self._failure = failure
             self._idle.set()
