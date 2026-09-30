@@ -55,7 +55,8 @@ Kind-specific fields also go under `metadata.swarmeval`. A `ModelEvent` carries 
 `gen` / `len` reference, below), the offered `tools`, and `raw_tool_arguments`, the argument
 text the model produced. A `ToolEvent` carries `raw_arguments`, `executed_arguments`,
 `blocked_by`, and `exec`. Inspect keeps tool arguments as a parsed object. Arguments that are not
-a JSON object, or hold a value JSON cannot carry exactly (NaN, an integer beyond ±(2**53 − 1)),
+a JSON object, or hold a value JSON cannot carry exactly (NaN, a number that overflows a 64-bit
+float, an integer beyond ±(2**53 − 1)),
 are stored as `{}`, and the raw text is kept.
 
 Run-level fields (`EvalSpec.metadata.swarmeval`) are `workspace`, the isolation level the run

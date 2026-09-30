@@ -6,6 +6,7 @@ an `InfoEvent` with `source="swarmeval.<kind>"`.
 """
 
 import json
+import math
 import shlex
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -211,6 +212,13 @@ def _reject_constant(name: str) -> Any:
     raise ValueError(f"`{name}` is not valid JSON")
 
 
+def _parse_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"number {text} is outside the range of a 64-bit float")
+    return value
+
+
 def _parse_int(text: str) -> int:
     value = int(text)
     if abs(value) > _MAX_SAFE_INT:
@@ -223,7 +231,9 @@ def parse_arguments(raw: str) -> tuple[dict[str, JsonValue], str | None]:
     anything JSON cannot carry exactly, or that is not an object, yields `{}` and the reason.
     The raw text is always kept alongside."""
     try:
-        parsed = json.loads(raw, parse_constant=_reject_constant, parse_int=_parse_int)
+        parsed = json.loads(
+            raw, parse_constant=_reject_constant, parse_float=_parse_float, parse_int=_parse_int
+        )
     except ValueError as err:
         return {}, str(err)
     if not isinstance(parsed, dict):

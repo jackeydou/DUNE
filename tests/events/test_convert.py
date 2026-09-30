@@ -168,6 +168,7 @@ def test_a_limit_is_a_sample_limit_event() -> None:
         ("[1, 2]", "JSON list, not an object"),
         ('{"x": NaN}', "`NaN` is not valid JSON"),
         ('{"x": 9007199254740993}', "outside ±(2**53 - 1)"),
+        ('{"x": 1e400}', "outside the range of a 64-bit float"),
     ],
 )
 def test_arguments_json_cannot_carry_exactly_are_kept_raw(raw: str, reason: str) -> None:

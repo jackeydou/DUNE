@@ -154,7 +154,7 @@ order.
 |---|---|---|---|
 | `on_run_start`, `after_turn`, `on_run_end` | Observe | — | `None` |
 | `before_turn` | Gate | `TurnInfo` | `Proceed`, `Skip`, `Inject(messages)`, `Stop(reason)` |
-| `compact_context` | Transform | Current messages | `None`, or a new message tuple (new generation) |
+| `compact_context` | Transform | Current messages | `None`, or a new, non-empty message tuple (new generation). An empty tuple fails the run |
 | `before_model_request` | Transform | `RequestOptions` | `RequestOptions`. Tools may only be narrowed |
 | `after_model_response` | Transform | `AssistantMessage` | `AssistantMessage` |
 | `before_tool_call` | Gate | `ToolCall` | `Allow`, `Rewrite(arguments)`, `Block(result)` |
