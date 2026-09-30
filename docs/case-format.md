@@ -108,6 +108,9 @@ up to 63 characters. `workspace` may also use `-` and start with a digit.
 | `sandbox_profiles` | Name → `image`, `fs` mounts (`path`, `mode: rw \| ro`, `protected`), `limits` (`cpu`, `memory`, `pids`, `disk`) |
 | `sandboxes` | Name → `profile`. Declare only instances that agents share |
 
+Mount paths are absolute and clean: no `.` or `..` segments, no repeated or trailing slashes,
+and not `/` itself. sandboxd applies the same rule, so a bad path fails at load, not at run time.
+
 Sizes use pydantic `ByteSize`: `2g` and `2gb` are 2 × 10⁹ bytes, and `2gib` is 2 × 2³⁰.
 
 ## Sandboxes
