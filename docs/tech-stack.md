@@ -1,7 +1,7 @@
 # Tech stack
 
-The libraries and tools SwarmEval uses. Installed today: Python 3.12, uv, ruff, pyright, and
-pytest. Everything else arrives with the service that needs it; [architecture.md](architecture.md)
+The libraries and tools SwarmEval uses. Installed today: Python 3.12, uv, ruff, pyright,
+pytest, pydantic, and PyYAML (with `types-PyYAML` for pyright). Everything else arrives with the service that needs it; [architecture.md](architecture.md)
 says which milestone that is.
 
 This page covers tooling and the choices shared across services. The libraries one service uses

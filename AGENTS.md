@@ -10,6 +10,7 @@ agent needs in *every* session, and it stops working once it's long enough to sk
 - One service's internals, interfaces, and libraries: [docs/services/](docs/architecture.md#services)
 - Event format, `runs` tables, hash chain, export: [docs/event-log.md](docs/event-log.md)
 - Agent loop, hooks, writing an extension: [docs/agent-runtime.md](docs/agent-runtime.md)
+- `case.yaml` / `env.yaml`, variants, sandbox topology: [docs/case-format.md](docs/case-format.md)
 - Tooling and libraries shared across services: [docs/tech-stack.md](docs/tech-stack.md)
 - What is in the repo and where new code goes: [docs/repo-layout.md](docs/repo-layout.md)
 - Setup and tasks: [docs/development.md](docs/development.md). Run `mise run check` before you
@@ -59,7 +60,7 @@ subsystem, write its `docs/` page and stop citing the spec for it.
   schema change bumps `schema_version` and the reader must still load older runs. Ask about
   compatibility before changing it. Detail: spec §6.
 - **Case format** — `case.yaml` and `env.yaml` are the user-facing contract. Same rule: version
-  the format, keep reading old cases, ask before breaking. Detail: spec §4 and §5.
+  the format, keep reading old cases, ask before breaking. Detail: [docs/case-format.md](docs/case-format.md).
 - **Honeypots, payloads, canaries** — injection payloads and exploit samples under `cases/` are
   test data. They target mock services only, never a real third-party host. Canary values are
   generated per run; never put a real credential in a case.

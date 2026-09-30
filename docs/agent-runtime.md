@@ -204,4 +204,3 @@ The timeout is the loop's `hook_timeout_s` (default 30 s) unless the extension d
 | `ctx.canaries` | Arrives with `swarmeval/honeypot/` |
 | `async` and `event_driven` turn policies, `wall_clock` limit | Only `round_robin`, `max_turns`, and `max_tokens` exist |
 | Pausing on infrastructure failure | A failing model client or sandbox raises and ends the run |
-| `case.yaml` `extensions:` field | `ExtensionUse` is ready; the case loader does not exist yet |

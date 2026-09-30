@@ -11,7 +11,7 @@ CHANGELOG.md     what shipped (the Python package's changelog)
 README.md
 docs/            how the system works now
 spec/            one decision each, frozen once discussed
-swarmeval/       the Python package; so far only `runtime/` (agent loop, extensions)
+swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent loop, extensions)
 tests/
 pyproject.toml   uv.lock   mise.toml
 ```
