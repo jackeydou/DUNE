@@ -5,8 +5,10 @@ writer of a run's events and state. Its place among the services is in
 [architecture.md](../architecture.md). The stored event format is in
 [event-log.md](../event-log.md).
 
-**Status:** not built. M0 brings the Control API, case loading, one worker, the agent loop,
-the Message Bus without interventions, the write-before rule, and export. M2 adds several workers,
+**Status:** case loading ([Case loading](#case-loading)) and the agent loop
+([agent-runtime.md](../agent-runtime.md)) are built. The rest of M0 brings the Control API, one
+worker, the Message Bus without interventions, the Postgres store for the write-before rule, and
+export. M2 adds several workers,
 leases, fencing, takeover, and pausing. M3 adds interventions, fork, the online Monitor, and the
 async and event-driven turn policies. Items marked *(proposed)* go beyond what the specs decided;
 they are listed under [Not settled](#not-settled).
@@ -62,19 +64,14 @@ exact prompts, hooks, and data a run used *(proposed)*.
 
 ### Case loading
 
-`case.yaml` and `env.yaml` are parsed with PyYAML `safe_load` into pydantic v2 models. Each file
-carries `schema_version`, and the loader keeps reading older versions. Validation happens once,
-at this boundary, and rejects the following:
+Built. `swarmeval.core.load_case` parses both files with PyYAML `safe_load` into pydantic v2
+models, expands variants, and validates every variant once, at this boundary. The control plane
+and the worker call the same function. `run_spec` turns one variant into the runtime's
+`RunSpec`. The format, the substitution rules, and what is rejected are in
+[case-format.md](../case-format.md).
 
-- Unknown keys.
-- A `sandbox:` naming an undeclared instance, or a declared instance nobody references.
-- An agent with neither `sandbox:` nor `sandbox_profile:` when `env.yaml` has no `default` profile.
-- A channel member that is not an agent.
-- An egress rule pointing at a platform address.
-
-Errors name the case, the field, and the fix. Variant expansion takes the cartesian product of
-`variants:` and substitutes `${variant.x}`. Each variant × epoch becomes one run. JSON Schema is
-exported from the models for editor validation.
+Not built yet: rejecting an egress rule that points at a platform address (with `network:`, M1),
+and exporting JSON Schema from the models for editor validation.
 
 ### Queue and claiming
 

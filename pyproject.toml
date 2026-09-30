@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.13.5",
+    "pyyaml>=6.0.3",
 ]
 
 [build-system]
@@ -41,4 +42,5 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.9",
+    "types-pyyaml>=6.0.12.20260906",
 ]
