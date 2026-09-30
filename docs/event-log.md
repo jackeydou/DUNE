@@ -6,8 +6,9 @@ and how it leaves the database. Its code is `swarmeval/events/`, inside the
 `inspect_ai`. Where events come from and who writes them is covered in
 [architecture.md](architecture.md#event-flow).
 
-**Status:** not built. The table layout, hash chain, and `.eval` export arrive in M0. Parquet and
-the run summary table arrive in M2. Items marked *(proposed)* are implementation details the specs
+**Status:** the tables, the record-to-event conversion, the hash chain, and the Postgres
+`RunStore` are built (`swarmeval/db/`, `swarmeval/events/`). The `.eval` export arrives later in
+M0; Parquet and the run summary table arrive in M2. Items marked *(proposed)* are implementation details the specs
 leave open. They are collected under [Not settled](#not-settled).
 
 ## Data model
@@ -24,13 +25,16 @@ defines a second event structure. It extends Inspect in two ways only:
 | SwarmEval event | Inspect type |
 |---|---|
 | `llm.request` / `llm.response` | `ModelEvent`. Raw output text, `reasoning_passback`, and the weight hash go in metadata |
-| `tool.call` / `tool.result` | `ToolEvent` |
-| Sandbox execution and file I/O at the tool level | `SandboxEvent` |
+| `tool.call` / `tool.result` | `ToolEvent`. The file changes and surviving processes sandboxd saw go in `metadata.swarmeval.exec` |
+| A command an extension ran through `ctx.sandbox` | `SandboxEvent` |
 | Interrupted tool call | `InterruptEvent` |
 | Recovery point, pause | `CheckpointEvent` |
 | Budget or limit hit | `SampleLimitEvent` |
 | Score | `ScoreEvent` / `Score` |
-| `msg.send` / `msg.deliver`, `net.*`, `fs.*` / `proc.*`, `env.state`, `monitor.*`, `run.lifecycle` | `InfoEvent(source="swarmeval.<type>")` |
+| `msg.send` / `msg.deliver`, `net.*`, `env.state`, `monitor.*`, `run.lifecycle` | `InfoEvent(source="swarmeval.<type>")` |
+| Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record |
+
+One record is one event. The conversion is `swarmeval.events.convert.to_event`.
 
 `metadata.swarmeval` on every event:
 
@@ -42,7 +46,17 @@ defines a second event structure. It extends Inspect in two ways only:
 | `source` | `model-gateway`, `net-gateway`, `sandboxd`, or `orchestrator` |
 | `agent_id`, `sandbox_id` | Attribution. Network events carry `sandbox_id`, because policy applies per sandbox |
 | `workspace` | Organizational field, required from the first version |
-| `prev_hash`, `hash` | Hash chain, below |
+| `extension` | Instance id of the extension that caused the event, if any |
+
+The hash chain is not in the payload, because the hash covers the payload. It lives in the
+`prev_hash` / `hash` columns and is added to `metadata.swarmeval` on export.
+
+Kind-specific fields also go under `metadata.swarmeval`. A `ModelEvent` carries `input` (the
+`gen` / `len` reference, below), the offered `tools`, and `raw_tool_arguments`, the argument
+text the model produced. A `ToolEvent` carries `raw_arguments`, `executed_arguments`,
+`blocked_by`, and `exec`. Inspect keeps tool arguments as a parsed object. Arguments that are not
+a JSON object, or hold a value JSON cannot carry exactly (NaN, an integer beyond ±(2**53 − 1)),
+are stored as `{}`, and the raw text is kept.
 
 Run-level fields (`EvalSpec.metadata.swarmeval`) are `workspace`, the isolation level the run
 actually got, `network_stealth`, and the recovery fidelity.
@@ -69,10 +83,20 @@ of `events` are never rewritten.
 | Table | Key | Columns | Written |
 |---|---|---|---|
 | `events` | `(run_id, seq)` | `event_id`, `ts`, `type`, `source`, `agent_id`, `sandbox_id`, `parent_id`, `prev_hash`, `hash`, `payload jsonb` | Append only |
-| `messages` | `(run_id, agent_id, gen, idx)` | One context message, and the `seq` that produced it | Append only |
-| `agent_state` | `(run_id, agent_id, seq)` | `gen`, `len`, turn, status, budget used | Append only, one row per step |
-| `deliveries` | `(run_id, msg_seq, recipient)` | Status, `seq` of the delivery | Updated |
-| `sandboxes` | `(run_id, sandbox_id)` | Container id, recovery fidelity | Updated |
+| `messages` | `(run_id, agent_id, gen, idx)` | One context message (the runtime's `ChatMessage` as JSON), and `seq` | Append only |
+| `agent_state` | `id`, indexed on `(run_id, agent_id, seq, id)` | `gen`, `len`, `turn`, `status`, `tokens_used` | Append only, one row per state change |
+| `extension_state` | `id`, indexed on `(run_id, instance_id, seq, id)` | An extension instance's state, `jsonb` | Append only |
+| `deliveries` | `(run_id, msg_seq, recipient)` | Status, `seq` of the delivery | Updated. Not built yet (Message Bus) |
+| `sandboxes` | `(run_id, sandbox_id)` | Container id, recovery fidelity | Updated. Not built yet |
+
+`seq` on a `messages`, `agent_state`, or `extension_state` row is the run's last event `seq` when
+the row was committed. Many transactions commit no event, so several rows can share a `seq`; the
+identity column orders them. `event_id` is the Inspect event's `uuid`. `type` is the Inspect event
+type, or an `InfoEvent`'s `swarmeval.<kind>` source. `working_start` in the payload is seconds
+since the run's first event.
+
+`control.runs` holds `run_id`, `workspace`, `status`, `owner_id`, `lease_until`, `owner_epoch`,
+and `created_at`. Every `runs` table references it.
 
 An agent's context at step *k* is the `(gen, len)` from its last `agent_state` row with
 `seq ≤ k`, followed by the first `len` rows of `messages` for that `gen`. Compaction or truncation
@@ -97,14 +121,21 @@ prev_hash of the first event = sha256("swarmeval:" || run_id)
 ```
 
 `JCS` is the RFC 8785 JSON Canonicalization Scheme. `jsonb` does not keep the bytes it was given,
-so the hash has to be over a form that can be recomputed from the stored value. Anyone holding
-the rows, or the exported Parquet, can verify the chain without our code *(proposed)*.
+so the hash has to be over a form that can be recomputed from the stored value. `payload` is the
+event serialized without `None` fields. Anyone holding the rows, or the exported Parquet, can
+verify the chain without our code; `swarmeval.events.verify` does it for us *(proposed)*.
+
+A payload JSON cannot represent exactly (NaN, infinities, integers beyond ±(2**53 − 1)) cannot be
+hashed, and the commit fails with the event's kind and agent. Strings must not contain NUL,
+which `jsonb` rejects. The model-gateway and sandboxd clients are the boundaries that must
+guarantee both.
 
 ## Commit paths
 
 Every event is committed by the run's worker, in a transaction that first checks `owner_epoch`
-([orchestrator](services/orchestrator.md#leases-fencing-and-takeover)). The worker acks the
-source only after the commit.
+([orchestrator](services/orchestrator.md#leases-fencing-and-takeover)). The check is built: a
+store holding a stale epoch raises `FencedError` and writes nothing. The worker acks the source
+only after the commit.
 
 | Events | Transaction |
 |---|---|
@@ -148,3 +179,7 @@ archive original, is *(open, runtime spec Q3)*.
 3. Export object paths.
 4. Which service assembles the per-variant `.eval` in M2: the control plane, when a variant's last
    epoch finishes, or the analysis batch job, which already reads all epochs.
+5. File changes and surviving processes ride in the `ToolEvent`'s `metadata.swarmeval.exec`,
+   one record per event. The runtime spec (decision 3) describes them as their own `fs.*` /
+   `proc.*` events. Splitting them out needs event ids assigned before commit, so a child can
+   name its `ToolEvent` as parent within one transaction.

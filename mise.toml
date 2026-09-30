@@ -26,6 +26,10 @@ run = "uv run pyright"
 description = "Run the test suite"
 run = "uv run pytest"
 
+[tasks."test:docker"]
+description = "Python tests that start containers (Postgres via testcontainers). Needs docker"
+run = "uv run pytest -m docker"
+
 [tasks."go:lint"]
 description = "golangci-lint over the Go module, integration tests included"
 dir = "go"

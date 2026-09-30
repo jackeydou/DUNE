@@ -16,3 +16,12 @@
   private and shared sandboxes, channels, limits, and `extensions:`. `${variant.x}` expands into
   one variant per combination, every variant is validated at load, and `run_spec` maps a
   variant to the runtime's `RunSpec`. Format: `docs/case-format.md`.
+- Postgres schema (`swarmeval.db`): `control.runs` and the `runs` tables `events`, `messages`,
+  `agent_state`, and `extension_state`, created by Alembic migrations through `migrate(url)`.
+- Event log (`swarmeval.events`): runtime records become Inspect events with SwarmEval fields
+  under `metadata.swarmeval`, `inspect_ai` is pinned at 0.3.273, and each run's events form a
+  SHA-256 hash chain over their RFC 8785 form, checked by `verify`.
+- `PostgresRunStore`, the production `RunStore`: commits events, context messages, agent state,
+  and extension state in one transaction, refuses writes from a stale `owner_epoch`, and sends
+  `NOTIFY swarmeval_events` for each commit with events.
+- `mise run test:docker` runs the tests that need a local docker daemon.

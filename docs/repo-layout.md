@@ -11,7 +11,8 @@ CHANGELOG.md     what shipped in the Python package
 README.md
 docs/            how the system works now
 spec/            one decision each, frozen once discussed
-swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent loop, extensions)
+swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent loop, extensions),
+                 `db/` (Postgres tables, migrations), `events/` (Inspect events, hash chain, run store)
 tests/           Python tests
 go/              the Go module: `cmd/sandboxd`, `internal/`. Its own README, CHANGELOG, BUGFIX
 proto/           gRPC contracts; buf.yaml and buf.gen.yaml sit at the repo root

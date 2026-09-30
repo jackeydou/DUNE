@@ -4,8 +4,8 @@
 
 - [mise](https://mise.jdx.dev/) — pins uv, Go, golangci-lint, buf, and the protoc plugins, and
   runs the tasks below.
-- Docker — for sandboxd's integration tests and for running sandboxes. `mise run check` does not
-  need it. On Linux, gVisor (`runsc`) gives the default isolation level from M1; see the spec's
+- Docker — for the tests that start containers (`test:docker`, `go:test-integration`) and for
+  running sandboxes. `mise run check` does not need it. On Linux, gVisor (`runsc`) gives the default isolation level from M1; see the spec's
   运行平台 section.
 
 uv installs Python 3.12 itself (pinned in `.python-version`), so a system Python is not needed.
@@ -27,7 +27,8 @@ mise run sync
 | `mise run fmt` | `ruff format`, `golangci-lint fmt`, and `buf format` in place |
 | `mise run lint` | `ruff format --check .` and `ruff check .` |
 | `mise run typecheck` | `pyright` in strict mode over `swarmeval/` and `tests/` |
-| `mise run test` | `pytest` (asyncio mode `auto`) |
+| `mise run test` | `pytest` (asyncio mode `auto`), without tests marked `docker` |
+| `mise run test:docker` | `pytest -m docker`: the Postgres store and migrations against a throwaway `postgres:18-alpine` from testcontainers. Run it before a change to `swarmeval/db/` or `swarmeval/events/` is done |
 | `mise run go:lint` | `golangci-lint run` over `go/`, integration tests included |
 | `mise run go:test` | `go test ./...` in `go/` |
 | `mise run go:test-integration` | sandboxd against the local docker daemon. Needs `busybox:latest` |

@@ -6,8 +6,8 @@ design and its rejected alternatives are in the
 [agent loop spec](../spec/2026-09-29-agent-loop-hooks/README.md).
 
 **Status:** the loop, the hooks, and the extension API below are built and tested against
-in-memory fakes. Postgres, model-gateway, and sandboxd are not built yet, so the runtime has only
-protocol boundaries for them ([Ports](#ports)). [Not built yet](#not-built-yet) lists what the
+in-memory fakes, and against the Postgres store. The model-gateway and sandboxd clients are not
+built yet, so the runtime has only protocol boundaries for them ([Ports](#ports)). [Not built yet](#not-built-yet) lists what the
 spec describes but the code does not do.
 
 ## The loop
@@ -63,7 +63,7 @@ tool without having a sandbox.
 
 | Protocol | Production implementation | Contract |
 |---|---|---|
-| `RunStore` | Postgres `runs` schema (not built) | `commit` is atomic and assigns `seq` and `event_id` in order. `context` returns `messages[gen][:len]` from the latest `agent_state` row |
+| `RunStore` | `swarmeval.events.PostgresRunStore` on the `runs` schema ([event-log.md](event-log.md#tables)) | `commit` is atomic and assigns `seq` and `event_id` in order. `context` returns `messages[gen][:len]` from the latest `agent_state` row |
 | `ModelClient` | model-gateway client (not built) | `generate` returns after the gateway's record of the call has been committed through the run's `RunWriter` |
 | `SandboxExecutor` | sandboxd client (not built) | Runs one `Exec` and returns output plus file and process observations |
 
