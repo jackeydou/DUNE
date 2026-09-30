@@ -1,0 +1,205 @@
+syntax = "proto3";
+
+package swarmeval.sandbox.v1;
+
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/sandbox/v1;sandboxv1";
+
+// SandboxService is sandboxd's API. Its only caller is the worker that owns the run.
+// Behavior: docs/services/sandboxd.md.
+//
+// Identifiers: `run_id` matches [A-Za-z0-9][A-Za-z0-9._-]{0,127}; `sandbox_id` matches
+// [a-z][a-z0-9_]{0,62} (the case format's names). Anything else is INVALID_ARGUMENT.
+service SandboxService {
+  // Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
+  // content at that path. Fails with ALREADY_EXISTS if the sandbox exists.
+  rpc CreateSandbox(CreateSandboxRequest) returns (CreateSandboxResponse);
+
+  // Runs one tool call. The stream carries exactly one header first, then the blobs the
+  // header refers to, each as one or more chunks. Calls on one sandbox run one at a time.
+  rpc Exec(ExecRequest) returns (stream ExecResponse);
+
+  // Reads one file from a sandbox without running anything inside it. For final-state scorers.
+  rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+
+  // Diffs every sandbox of a run against its last manifest, catching writes by background
+  // processes after the last call. Every change is attributed `AMBIGUOUS`.
+  rpc FinalDiff(FinalDiffRequest) returns (stream FinalDiffResponse);
+
+  // Removes every container labeled with the run, and the run's state directory.
+  rpc DestroyRun(DestroyRunRequest) returns (DestroyRunResponse);
+}
+
+message Mount {
+  // Absolute path inside the sandbox.
+  string path = 1;
+  bool read_only = 2;
+  // Changes under a protected path are flagged on the change itself.
+  bool protected = 3;
+}
+
+message Resources {
+  // Zero means no limit, for every field.
+  double cpus = 1;
+  int64 memory_bytes = 2;
+  int64 pids = 3;
+  // Needs a docker storage driver that supports a per-container size; CreateSandbox fails
+  // otherwise.
+  int64 disk_bytes = 4;
+}
+
+message CreateSandboxRequest {
+  string run_id = 1;
+  string sandbox_id = 2;
+  string image = 3;
+  // Key paths, bind-mounted from sandboxd's state directory and diffed after every call.
+  repeated Mount mounts = 4;
+  Resources resources = 5;
+}
+
+message CreateSandboxResponse {
+  // Container runtime the sandbox got, `runc` or `runsc`. Recorded as the run's isolation level.
+  string runtime = 1;
+}
+
+message ExecRequest {
+  string run_id = 1;
+  string sandbox_id = 2;
+  // The tool call this command belongs to. Changes and processes are attributed to it.
+  string call_id = 3;
+  repeated string argv = 4;
+  string cwd = 5;
+  // Empty runs as the image's user.
+  string user = 6;
+  // Required. On expiry the command and its descendants are killed.
+  google.protobuf.Duration timeout = 7;
+}
+
+message ExecResponse {
+  oneof item {
+    ExecHeader header = 1;
+    BlobChunk blob = 2;
+  }
+}
+
+message ExecHeader {
+  // -1 when timed out.
+  int32 exit_code = 1;
+  bool timed_out = 2;
+  google.protobuf.Duration duration = 3;
+  Output stdout = 4;
+  Output stderr = 5;
+  // Changed between the previous call on this sandbox and this one: written by background
+  // processes. Always `AMBIGUOUS`.
+  repeated FsChange background_changes = 6;
+  // Changed while this call ran.
+  repeated FsChange changes = 7;
+  // Started while this call ran and still alive after it.
+  repeated Process processes = 8;
+}
+
+message Output {
+  // The first bytes, up to sandboxd's inline limit.
+  bytes inline = 1;
+  // Bytes the command produced in total.
+  int64 size = 2;
+  // Set when the output is longer than `inline`: the kept output follows as a blob with this
+  // hash.
+  string blob_sha256 = 3;
+  // The output exceeded sandboxd's blob limit, and only the first limit bytes were kept.
+  bool capped = 4;
+}
+
+message FsChange {
+  enum Op {
+    OP_UNSPECIFIED = 0;
+    OP_CREATE = 1;
+    OP_MODIFY = 2;
+    OP_DELETE = 3;
+  }
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_FILE = 1;
+    KIND_DIR = 2;
+    KIND_SYMLINK = 3;
+    // A fifo, socket, or device. Never opened, so it has no hash.
+    KIND_OTHER = 4;
+  }
+  enum Attribution {
+    ATTRIBUTION_UNSPECIFIED = 0;
+    // Written by the call itself.
+    ATTRIBUTION_CALL = 1;
+    // A background process may have written it; see `candidate_calls`.
+    ATTRIBUTION_AMBIGUOUS = 2;
+  }
+  // Path inside the sandbox.
+  string path = 1;
+  Op op = 2;
+  Kind kind = 3;
+  // Owner after the change; before it for a delete.
+  uint32 uid = 4;
+  uint32 mode = 5;
+  int64 size = 6;
+  // Hash of a file's content or a symlink's target. Empty for directories and for the side
+  // that does not exist.
+  string before_sha256 = 7;
+  string after_sha256 = 8;
+  bool protected = 9;
+  Attribution attribution = 10;
+  // Calls whose processes were alive in the window. Empty when unknown.
+  repeated string candidate_calls = 11;
+  // The new content follows as a blob with hash `after_sha256`. Unset for files over the
+  // content limit.
+  bool content = 12;
+}
+
+message Process {
+  // Host-side process id, as `docker top` reports it.
+  int32 pid = 1;
+  int32 ppid = 2;
+  string user = 3;
+  string cmdline = 4;
+}
+
+message BlobChunk {
+  string sha256 = 1;
+  bytes data = 2;
+  bool last = 3;
+}
+
+message ReadFileRequest {
+  string run_id = 1;
+  string sandbox_id = 2;
+  string path = 3;
+  // Zero means sandboxd's content limit.
+  int64 max_bytes = 4;
+}
+
+message ReadFileResponse {
+  bytes content = 1;
+  int64 size = 2;
+  bool truncated = 3;
+}
+
+message FinalDiffRequest {
+  string run_id = 1;
+}
+
+message FinalDiffResponse {
+  oneof item {
+    SandboxChanges changes = 1;
+    BlobChunk blob = 2;
+  }
+}
+
+message SandboxChanges {
+  string sandbox_id = 1;
+  repeated FsChange changes = 2;
+}
+
+message DestroyRunRequest {
+  string run_id = 1;
+}
+
+message DestroyRunResponse {}
