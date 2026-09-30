@@ -7,24 +7,18 @@ run's `owner_epoch`, so a worker that lost the run cannot write to it.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
 
-import rfc8785
 from pydantic import JsonValue, TypeAdapter
 from sqlalchemy import func, insert, select, text
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from swarmeval.db import agent_state, control_runs, events, extension_state, messages
-from swarmeval.events.chain import genesis, link
-from swarmeval.events.convert import Attribution, event_type, source_of, to_event
+from swarmeval.events.seal import ChainHead, seal
 from swarmeval.runtime.messages import ChatMessage
 from swarmeval.runtime.ports import AgentContext
 from swarmeval.runtime.records import (
     CommittedEvent,
-    EventDraft,
-    SandboxExecRecord,
-    ToolCallRecord,
     Transaction,
 )
 
@@ -39,14 +33,6 @@ class RunNotFoundError(Exception):
 
 class FencedError(Exception):
     """This worker's `owner_epoch` is stale: another worker owns the run now. Stop the run."""
-
-
-@dataclass(frozen=True)
-class _Head:
-    seq: int
-    hash: bytes
-    started_at: datetime | None
-    """Timestamp of seq 1, the zero point of Inspect's `working_start`."""
 
 
 @dataclass(frozen=True)
@@ -72,7 +58,7 @@ class PostgresRunStore:
         self._workspace = workspace
         self._epoch = owner_epoch
         self._sandboxes = dict(sandboxes)
-        self._head: _Head | None = None
+        self._head: ChainHead | None = None
         self._tails: dict[str, _Tail] = {}
 
     @property
@@ -83,7 +69,13 @@ class PostgresRunStore:
         async with self._engine.begin() as conn:
             await self._fence(conn)
             head = self._head or await self._load_head(conn)
-            committed, event_rows, head = self._build_events(txn.events, head)
+            committed, event_rows, head = seal(
+                txn.events,
+                head,
+                run_id=self._run_id,
+                workspace=self._workspace,
+                sandboxes=self._sandboxes,
+            )
             if event_rows:
                 await conn.execute(insert(events), event_rows)
             tails = await self._write_messages(conn, txn, head.seq)
@@ -185,7 +177,7 @@ class PostgresRunStore:
                 "Another worker has taken the run over; stop executing it."
             )
 
-    async def _load_head(self, conn: AsyncConnection) -> _Head:
+    async def _load_head(self, conn: AsyncConnection) -> ChainHead:
         last = (
             await conn.execute(
                 select(events.c.seq, events.c.hash)
@@ -195,84 +187,13 @@ class PostgresRunStore:
             )
         ).one_or_none()
         if last is None:
-            return _Head(seq=0, hash=genesis(self._run_id), started_at=None)
+            return ChainHead.start(self._run_id)
         started_at = (
             await conn.execute(
                 select(events.c.ts).where(events.c.run_id == self._run_id, events.c.seq == 1)
             )
         ).scalar_one()
-        return _Head(seq=last.seq, hash=last.hash, started_at=started_at)
-
-    def _build_events(
-        self, drafts: list[EventDraft], head: _Head
-    ) -> tuple[list[CommittedEvent], list[dict[str, object]], _Head]:
-        committed: list[CommittedEvent] = []
-        rows: list[dict[str, object]] = []
-        for draft in drafts:
-            seq = head.seq + 1
-            sandbox_id = self._sandbox_of(draft)
-            event = to_event(
-                draft.record,
-                Attribution(
-                    workspace=self._workspace,
-                    seq=seq,
-                    parent_id=draft.parent_id,
-                    agent_id=draft.agent_id,
-                    sandbox_id=sandbox_id,
-                    extension=draft.extension,
-                ),
-            )
-            started_at = head.started_at or event.timestamp
-            event.working_start = (event.timestamp - started_at).total_seconds()
-            payload: JsonValue = event.model_dump(mode="json", exclude_none=True)
-            try:
-                digest = link(head.hash, seq, payload)
-            except rfc8785.CanonicalizationError as err:
-                raise ValueError(
-                    f"run {self._run_id}: the {draft.record.kind} event at seq {seq} (agent "
-                    f"{draft.agent_id}, extension {draft.extension}) carries a value JSON cannot "
-                    f"represent exactly: {err}. The component that produced it must send finite "
-                    "floats and integers within ±(2**53 - 1)."
-                ) from err
-            assert event.uuid is not None, "Inspect assigns a uuid at construction"
-            rows.append(
-                {
-                    "run_id": self._run_id,
-                    "seq": seq,
-                    "event_id": event.uuid,
-                    "ts": event.timestamp,
-                    "type": event_type(event),
-                    "source": source_of(draft.record),
-                    "agent_id": draft.agent_id,
-                    "sandbox_id": sandbox_id,
-                    "parent_id": draft.parent_id,
-                    "prev_hash": head.hash,
-                    "hash": digest,
-                    "payload": payload,
-                }
-            )
-            committed.append(
-                CommittedEvent(
-                    event_id=event.uuid,
-                    seq=seq,
-                    agent_id=draft.agent_id,
-                    extension=draft.extension,
-                    parent_id=draft.parent_id,
-                    record=draft.record,
-                )
-            )
-            head = _Head(seq=seq, hash=digest, started_at=started_at)
-        return committed, rows, head
-
-    def _sandbox_of(self, draft: EventDraft) -> str | None:
-        match draft.record:
-            case SandboxExecRecord(sandbox_id=sandbox_id):
-                return sandbox_id
-            case ToolCallRecord(exec_result=result) if result is not None:
-                assert draft.agent_id is not None, "the loop attributes every tool call"
-                return self._sandboxes[draft.agent_id]
-            case _:
-                return None
+        return ChainHead(seq=last.seq, hash=last.hash, started_at=started_at)
 
     async def _write_messages(
         self, conn: AsyncConnection, txn: Transaction, seq: int

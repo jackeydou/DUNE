@@ -76,6 +76,9 @@ class RequestOptions(Frozen):
 class ModelRequest(Frozen):
     model: str
     messages: tuple[ChatMessage, ...]
+    gen: int | None = None
+    """The agent context generation `messages` are the first `len(messages)` of. `None` for a
+    request not built from an agent's context, such as an extension's own model call."""
     tools: tuple[ToolSchema, ...] = ()
     options: RequestOptions
 

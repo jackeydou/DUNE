@@ -228,6 +228,12 @@ async def test_compaction_starts_a_new_generation() -> None:
     assert len(gens[0]) == 4
     _, second_request = h.model.requests[1]
     assert [m.role for m in second_request.messages] == ["system", "user"]
+    assert [request.gen for _, request in h.model.requests] == [0, 1]
+    assert [
+        (e.record.gen, e.record.length)
+        for e in h.store.records("model")
+        if isinstance(e.record, ModelCallRecord)
+    ] == [(0, 2), (1, 2)]
     assert [
         e.record.hook
         for e in h.store.records("intervention")

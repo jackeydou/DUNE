@@ -116,8 +116,8 @@ class ScriptedModel:
         response = self.scripts[key].pop(0)
         record = ModelCallRecord(
             model=request.model,
-            gen=None,
-            length=None,
+            gen=request.gen,
+            length=None if request.gen is None else len(request.messages),
             options=request.options,
             response=response.message,
             usage=response.usage,
