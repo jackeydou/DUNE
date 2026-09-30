@@ -133,6 +133,7 @@ class HookDispatcher:
         self._idle = asyncio.Event()
         self._idle.set()
         self._observer: asyncio.Task[None] | None = None
+        self._sandbox_calls: dict[str, int] = {}
         writer.subscribe(self._on_commit)
 
     # ContextHost
@@ -151,6 +152,11 @@ class HookDispatcher:
 
     def agent_ids(self) -> tuple[str, ...]:
         return self._run.agent_ids
+
+    def sandbox_call_id(self, instance_id: str) -> str:
+        n = self._sandbox_calls.get(instance_id, 0) + 1
+        self._sandbox_calls[instance_id] = n
+        return f"ext:{instance_id}:{n}"
 
     def request_stop(self, instance_id: str, reason: str) -> None:
         if self.stop_reason is None:

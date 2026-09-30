@@ -10,7 +10,10 @@ services is in [architecture.md](../architecture.md).
 diff and process snapshot, `ReadFile`, `FinalDiff`, and `DestroyRun`. Code: `go/cmd/sandboxd`,
 `go/internal/sandboxd`, `go/internal/fsdiff`, `go/internal/driver`. The contract is
 `proto/swarmeval/sandbox/v1/sandbox.proto`; flags and limits are in [go/README.md](../../go/README.md).
-The worker-side client is not built yet.
+The worker-side client is `swarmeval.sandbox.RunSandboxes`, one per run. It turns output,
+paths, and command lines into text the event log can store (invalid UTF-8 and NUL become
+U+FFFD), checks every blob against its hash, and uploads blobs to the blob store
+([event-log.md](../event-log.md#large-objects)) before `Exec` returns.
 
 | Milestone | Adds |
 |---|---|

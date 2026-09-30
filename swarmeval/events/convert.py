@@ -56,8 +56,11 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
 )
 
-SCHEMA_VERSION = 1
-"""Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape."""
+SCHEMA_VERSION = 2
+"""Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
+
+2: `exec` gained `duration_s`, `stdout_truncated` / `stderr_truncated`, `background_changes`,
+and per-change `kind`, `mode`, `size`, `protected`, `candidate_calls`, `content_stored`."""
 
 Source = Literal["model-gateway", "sandboxd", "orchestrator"]
 

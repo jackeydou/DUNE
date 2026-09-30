@@ -159,6 +159,11 @@ pcaps, file contents, and oversized tool output go to object storage under
 commits the event that references it, so a committed hash always resolves. Because keys are
 content addresses, a retried upload is harmless *(proposed)*.
 
+Built for sandboxd's blobs: `swarmeval.sandbox.S3BlobStore` writes them, and the sandboxd client
+uploads them before `Exec` or `FinalDiff` returns. In a `ToolEvent`'s `metadata.swarmeval.exec`,
+`stdout_truncated` / `stderr_truncated` name the blob holding the full output, and a change with
+`content_stored` has its new content under `after_sha256`.
+
 ## Export
 
 At run end the worker writes to the export bucket, which is created with object lock:

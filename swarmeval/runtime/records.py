@@ -52,10 +52,19 @@ class Exec(Frozen):
 class FsChange(Frozen):
     path: str
     op: Literal["create", "modify", "delete"]
+    kind: Literal["file", "dir", "symlink", "other"] = "file"
     uid: int
+    """Owner after the change; before it for a delete."""
+    mode: int = 0
+    size: int = 0
     before_sha256: str | None
     after_sha256: str | None
+    protected: bool = False
     attribution: Literal["call", "ambiguous"] = "call"
+    candidate_calls: tuple[str, ...] = ()
+    """For an ambiguous change: calls whose processes were alive in the window."""
+    content_stored: bool = False
+    """The new content is in the blob store under `after_sha256`."""
 
 
 class ProcessInfo(Frozen):
@@ -65,12 +74,30 @@ class ProcessInfo(Frozen):
     cmdline: str
 
 
+class Truncated(Frozen):
+    """Output longer than what the agent is shown."""
+
+    size: int
+    """Bytes the command produced in total."""
+    sha256: str
+    """Blob holding the kept output."""
+    capped: bool = False
+    """The kept output is itself cut at sandboxd's blob limit."""
+
+
 class ExecResult(Frozen):
     exit_code: int
     stdout: str
+    """The first bytes of output, up to sandboxd's inline limit. What the agent is shown."""
     stderr: str
     timed_out: bool = False
+    duration_s: float | None = None
+    stdout_truncated: Truncated | None = None
+    stderr_truncated: Truncated | None = None
     fs_changes: tuple[FsChange, ...] = ()
+    background_changes: tuple[FsChange, ...] = ()
+    """Changed between the previous call on this sandbox and this one, by background
+    processes. Always ambiguous."""
     processes: tuple[ProcessInfo, ...] = ()
 
 

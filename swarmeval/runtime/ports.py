@@ -63,4 +63,9 @@ class ModelClient(Protocol):
 
 
 class SandboxExecutor(Protocol):
-    async def exec(self, sandbox_id: str, os_user: str | None, command: Exec) -> ExecResult: ...
+    async def exec(
+        self, sandbox_id: str, os_user: str | None, command: Exec, *, call_id: str
+    ) -> ExecResult:
+        """`call_id` names the tool call, or other caller, that file changes and surviving
+        processes are attributed to. Unique within the run."""
+        ...
