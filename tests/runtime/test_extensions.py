@@ -535,3 +535,121 @@ async def test_randomness_is_seeded_per_run_and_instance() -> None:
         await harness((agent(),), {"a": [reply("done")]}, extensions=[dice], seed=seed).loop.run()
 
     assert draws[0] == draws[1] != draws[2]
+
+
+# Review fixes: narrowed tools, stops at every hook point, run-end settling
+
+
+async def test_a_call_to_a_tool_withheld_this_turn_is_refused() -> None:
+    h = harness((agent(),), two_steps(), extensions=[no_tools])
+
+    await h.loop.run()
+
+    assert h.sandbox.calls == []
+    message = h.store.messages("a")[3]
+    assert isinstance(message, ToolMessage)
+    assert message.is_error
+    assert "Unknown tool `shell`. Available tools: none." in message.content
+
+
+@extension(id="t.one_is_enough", api_version=1)
+def one_is_enough(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("after_tool_result")
+    async def _(ctx: HookContext[NoState], result: ToolResult) -> ToolResult:
+        ctx.actions.stop("one is enough")
+        return result
+
+
+async def test_a_stop_takes_effect_before_the_next_tool_call() -> None:
+    both = reply("", call("shell", '{"cmd": "a"}', id="c1"), call("shell", '{"cmd": "b"}', id="c2"))
+    h = harness((agent(),), {"a": [both, reply("done")]}, extensions=[one_is_enough])
+
+    outcome = await h.loop.run()
+
+    assert (outcome.status, outcome.reason) == ("stopped", "t.one_is_enough: one is enough")
+    assert [command.argv for _, _, command in h.sandbox.calls] == [("sh", "-c", "a")]
+    assert len(h.store.records("tool")) == 1
+
+
+@extension(id="t.no_model", api_version=1)
+def no_model(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("before_model_request")
+    async def _(ctx: HookContext[NoState], options: RequestOptions) -> RequestOptions:
+        ctx.actions.stop("no model calls")
+        return options
+
+
+async def test_a_stop_takes_effect_before_the_model_call() -> None:
+    h = harness((agent(),), two_steps(), extensions=[no_model])
+
+    outcome = await h.loop.run()
+
+    assert outcome.status == "stopped"
+    assert h.model.requests == []
+
+
+@extension(id="t.late_judge", api_version=1)
+def late_judge(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("on_run_end")
+    async def _(ctx: HookContext[NoState]) -> None:
+        async def judge() -> None:
+            await asyncio.sleep(0.05)
+            ctx.emit("verdict", {"ok": True})
+
+        ctx.spawn(judge())
+
+
+async def test_spawned_work_is_committed_before_the_terminal_event() -> None:
+    h = harness((agent(),), two_steps(), extensions=[late_judge])
+
+    await h.loop.run()
+
+    assert [e.record.kind for e in h.store.events][-2:] == ["extension", "lifecycle"]
+
+
+@extension(id="t.stuck", api_version=1, hook_timeout_s=0.05)
+def stuck(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("on_run_end")
+    async def _(ctx: HookContext[NoState]) -> None:
+        ctx.spawn(asyncio.sleep(10))
+
+
+async def test_spawned_work_still_running_after_its_timeout_fails_the_run() -> None:
+    h = harness((agent(),), two_steps(), extensions=[stuck])
+
+    with pytest.raises(ExtensionError, match=re.escape("still running 0.05s after the run ended")):
+        await h.loop.run()
+
+    last = h.store.events[-1]
+    assert isinstance(last.record, LifecycleRecord)
+    assert (last.record.status, last.record.hook, last.extension) == ("failed", "spawn", "t.stuck")
+
+
+lifecycle_seen: list[str] = []
+
+
+@extension(id="t.lifecycle", api_version=1)
+def lifecycle(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("on_event")
+    async def _(ctx: HookContext[NoState], event: CommittedEvent) -> None:
+        if isinstance(event.record, LifecycleRecord):
+            lifecycle_seen.append(event.record.status)
+
+
+async def test_observers_see_the_terminal_event() -> None:
+    lifecycle_seen.clear()
+    h = harness((agent(),), two_steps(), extensions=[lifecycle])
+
+    await h.loop.run()
+
+    assert lifecycle_seen == ["started", "finished"]
+
+
+async def test_observers_get_no_events_after_a_failure() -> None:
+    lifecycle_seen.clear()
+    h = harness((agent(),), two_steps(), extensions=[lifecycle, broken])
+
+    with pytest.raises(ExtensionError):
+        await h.loop.run()
+
+    assert lifecycle_seen == ["started"]

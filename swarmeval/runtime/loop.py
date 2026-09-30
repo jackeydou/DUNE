@@ -178,11 +178,13 @@ class RunLoop:
             await dispatcher.observe("on_run_start", None)
             outcome = await self._drive(dispatcher)
             await dispatcher.observe("on_run_end", None)
-            await dispatcher.barrier()
+            await dispatcher.settle()
             record = LifecycleRecord(status=outcome.status, reason=outcome.reason)
             await self._writer.commit(Transaction(events=[EventDraft(record=record)]))
+            await dispatcher.settle()
             return outcome
         except ExtensionError as err:
+            dispatcher.fail(err)
             record = LifecycleRecord(
                 status="failed", hook=err.hook, error=f"{err} (cause: {err.__cause__!r})"
             )
@@ -273,6 +275,7 @@ class RunLoop:
             txn.new_generations[agent.spec.id] = messages
             txn.agent_states.append(self._state_row(agent, "ready"))
         await self._writer.commit(txn)
+        self._check_stop(d)
 
         spec = agent.spec
         options = RequestOptions(
@@ -284,6 +287,7 @@ class RunLoop:
         )
         requested = await d.before_model_request(agent.info, options)
         await self._writer.commit(requested.txn)
+        self._check_stop(d)
         request = ModelRequest(
             model=spec.model,
             messages=messages,
@@ -302,7 +306,7 @@ class RunLoop:
         await self._writer.commit(txn)
 
         for call in response.value.tool_calls:
-            await self._tool_step(d, agent, call, model_event_id)
+            await self._tool_step(d, agent, call, model_event_id, requested.value.tools)
         if not response.value.tool_calls:
             agent.finished = True
             txn = Transaction(agent_states=[self._state_row(agent, "finished")])
@@ -310,10 +314,18 @@ class RunLoop:
         await d.observe("after_turn", agent.info)
 
     async def _tool_step(
-        self, d: HookDispatcher, agent: _AgentRun, call: ToolCall, model_event_id: str
+        self,
+        d: HookDispatcher,
+        agent: _AgentRun,
+        call: ToolCall,
+        model_event_id: str,
+        offered: tuple[str, ...],
     ) -> None:
         gate = await d.before_tool_call(agent.info, call, model_event_id)
         txn = gate.txn
+        if d.stop_reason is not None:
+            await self._writer.commit(txn)
+            raise _Stopped(d.stop_reason)
         executed: str | None = None
         exec_result: ExecResult | None = None
         blocked_by: str | None = None
@@ -330,7 +342,9 @@ class RunLoop:
                     else call.arguments
                 )
                 effective = call.model_copy(update={"arguments": arguments})
-                result, executed, exec_result = await self._execute(d, agent, effective, txn)
+                result, executed, exec_result = await self._execute(
+                    d, agent, effective, txn, offered
+                )
 
         record = ToolCallRecord(
             call=call,
@@ -353,11 +367,19 @@ class RunLoop:
         await self._writer.commit(txn)
 
     async def _execute(
-        self, d: HookDispatcher, agent: _AgentRun, call: ToolCall, txn: Transaction
+        self,
+        d: HookDispatcher,
+        agent: _AgentRun,
+        call: ToolCall,
+        txn: Transaction,
+        offered: tuple[str, ...],
     ) -> tuple[ToolResult, str | None, ExecResult | None]:
-        tool = self._tools.get(call.name) if call.name in agent.spec.tools else None
+        """`offered` is the tool list of the request that produced the call, after
+        `before_model_request` narrowed it. A call outside it is refused even if the agent
+        otherwise has the tool."""
+        tool = self._tools.get(call.name) if call.name in offered else None
         if tool is None:
-            available = ", ".join(agent.spec.tools) or "none"
+            available = ", ".join(offered) or "none"
             content = f"Unknown tool `{call.name}`. Available tools: {available}."
             return (
                 ToolResult(call_id=call.id, tool=call.name, content=content, is_error=True),
