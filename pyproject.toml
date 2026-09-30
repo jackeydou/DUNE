@@ -4,7 +4,9 @@ version = "0.0.1"
 description = "Launch LLM agent swarms in controlled environments and record their trajectories for safety analysis."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2.13.5",
+]
 
 [build-system]
 requires = ["uv_build>=0.10,<0.11"]

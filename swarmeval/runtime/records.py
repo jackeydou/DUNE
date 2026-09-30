@@ -1,0 +1,212 @@
+"""What the loop commits: event records, committed events, and transactions.
+
+A record says what happened; the events package turns it into an Inspect `Event` when it is
+written (see docs/event-log.md). The runtime never builds Inspect objects itself.
+"""
+
+from dataclasses import dataclass, field
+from typing import Annotated, Literal
+
+from pydantic import Field, JsonValue
+
+from swarmeval.runtime.messages import (
+    AssistantMessage,
+    ChatMessage,
+    Frozen,
+    RequestOptions,
+    ToolCall,
+    Usage,
+)
+
+HookName = Literal[
+    "on_run_start",
+    "before_turn",
+    "compact_context",
+    "before_model_request",
+    "after_model_response",
+    "before_tool_call",
+    "after_tool_result",
+    "after_turn",
+    "on_event",
+    "on_run_end",
+]
+
+
+class ToolResult(Frozen):
+    """A tool's outcome as the agent will see it, before `after_tool_result` hooks."""
+
+    call_id: str
+    tool: str
+    content: str
+    is_error: bool = False
+
+
+class Exec(Frozen):
+    """A command for sandboxd to run inside a sandbox."""
+
+    argv: tuple[str, ...]
+    cwd: str | None = None
+    timeout_s: float = 60.0
+
+
+class FsChange(Frozen):
+    path: str
+    op: Literal["create", "modify", "delete"]
+    uid: int
+    before_sha256: str | None
+    after_sha256: str | None
+    attribution: Literal["call", "ambiguous"] = "call"
+
+
+class ProcessInfo(Frozen):
+    pid: int
+    ppid: int
+    user: str
+    cmdline: str
+
+
+class ExecResult(Frozen):
+    exit_code: int
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+    fs_changes: tuple[FsChange, ...] = ()
+    processes: tuple[ProcessInfo, ...] = ()
+
+
+class ModelCallRecord(Frozen):
+    """Written by the model-gateway path, not by the loop."""
+
+    kind: Literal["model"] = "model"
+    model: str
+    gen: int | None
+    length: int | None
+    options: RequestOptions
+    response: AssistantMessage
+    usage: Usage
+
+
+class ToolCallRecord(Frozen):
+    kind: Literal["tool"] = "tool"
+    call: ToolCall
+    executed_arguments: str | None
+    """What actually ran. `None` when the call was blocked or never reached execution."""
+    result: ToolResult
+    blocked_by: str | None = None
+    exec_result: ExecResult | None = None
+
+
+class SandboxExecRecord(Frozen):
+    """A command an extension ran in a sandbox through `ctx.sandbox`."""
+
+    kind: Literal["sandbox_exec"] = "sandbox_exec"
+    sandbox_id: str
+    command: Exec
+    result: ExecResult
+
+
+class InterventionRecord(Frozen):
+    kind: Literal["intervention"] = "intervention"
+    hook: HookName | Literal["tool"]
+    action: str
+    target_event_id: str | None
+    before_sha256: str | None
+    after: JsonValue
+
+
+class ExtensionEmitRecord(Frozen):
+    kind: Literal["extension"] = "extension"
+    name: str
+    data: JsonValue
+
+
+class AlertRecord(Frozen):
+    kind: Literal["alert"] = "alert"
+    message: str
+    severity: Literal["low", "medium", "high"]
+    event_ids: tuple[str, ...] = ()
+
+
+class LimitRecord(Frozen):
+    kind: Literal["limit"] = "limit"
+    limit: Literal["max_turns", "max_tokens"]
+    value: int
+
+
+class LifecycleRecord(Frozen):
+    kind: Literal["lifecycle"] = "lifecycle"
+    status: Literal["started", "finished", "stopped", "limit", "failed"]
+    reason: str | None = None
+    hook: HookName | Literal["tool", "spawn"] | None = None
+    error: str | None = None
+
+
+Record = Annotated[
+    ModelCallRecord
+    | ToolCallRecord
+    | SandboxExecRecord
+    | InterventionRecord
+    | ExtensionEmitRecord
+    | AlertRecord
+    | LimitRecord
+    | LifecycleRecord,
+    Field(discriminator="kind"),
+]
+
+
+class CommittedEvent(Frozen):
+    event_id: str
+    seq: int
+    agent_id: str | None
+    extension: str | None
+    """Instance id of the extension that caused this event, if any."""
+    parent_id: str | None
+    record: Record
+
+
+@dataclass(frozen=True)
+class EventDraft:
+    record: Record
+    agent_id: str | None = None
+    extension: str | None = None
+    parent_id: str | None = None
+
+
+@dataclass(frozen=True)
+class AgentStateRow:
+    agent_id: str
+    gen: int
+    length: int
+    turn: int
+    status: Literal["awaiting_admit", "ready", "finished"]
+    tokens_used: int
+
+
+@dataclass
+class Transaction:
+    """One atomic commit. `messages` are appended to each agent's current generation, after
+    `new_generations` (if any) has started a fresh one."""
+
+    events: list[EventDraft] = field(default_factory=list[EventDraft])
+    new_generations: dict[str, tuple[ChatMessage, ...]] = field(
+        default_factory=dict[str, tuple[ChatMessage, ...]]
+    )
+    messages: list[tuple[str, ChatMessage]] = field(default_factory=list[tuple[str, ChatMessage]])
+    agent_states: list[AgentStateRow] = field(default_factory=list[AgentStateRow])
+    extension_states: dict[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+
+    def extend(self, other: "Transaction") -> None:
+        self.events.extend(other.events)
+        self.new_generations.update(other.new_generations)
+        self.messages.extend(other.messages)
+        self.agent_states.extend(other.agent_states)
+        self.extension_states.update(other.extension_states)
+
+    def is_empty(self) -> bool:
+        return not (
+            self.events
+            or self.new_generations
+            or self.messages
+            or self.agent_states
+            or self.extension_states
+        )
