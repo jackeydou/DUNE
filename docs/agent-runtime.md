@@ -6,8 +6,8 @@ design and its rejected alternatives are in the
 [agent loop spec](../spec/2026-09-29-agent-loop-hooks/README.md).
 
 **Status:** the loop, the hooks, and the extension API below are built and tested against
-in-memory fakes, and against the Postgres store. The model-gateway and sandboxd clients are not
-built yet, so the runtime has only protocol boundaries for them ([Ports](#ports)). [Not built yet](#not-built-yet) lists what the
+in-memory fakes, and against the Postgres store. The sandboxd client is built; the model-gateway
+client is not, so the runtime has only a protocol boundary for it ([Ports](#ports)). [Not built yet](#not-built-yet) lists what the
 spec describes but the code does not do.
 
 ## The loop
@@ -52,6 +52,11 @@ message or a new generation, so a request can always be rebuilt from `messages`.
 | `SandboxTool` | sandboxd, in the calling agent's sandbox. Its `build` only turns arguments into an `Exec` | The runtime, or an extension with `runs_in="sandbox"` |
 | `WorkerTool` | The worker, with only its extension's `HookContext`. It must not do its own I/O | An extension with `runs_in="worker"` |
 
+The runtime provides one tool itself, `shell` (`swarmeval.runtime.tools.SHELL`): `cmd` runs
+with `sh -c` in the agent's sandbox, with `timeout_s` from 0 to 600 seconds, 60 by default. The
+agent sees stdout then stderr, each cut at sandboxd's inline limit with a note giving the full
+size; the full output is in the blob store.
+
 Arguments are validated against the tool's pydantic model. Invalid arguments, an unknown tool, a
 non-zero exit, and a timeout all become error results the agent sees, and each is recorded. A
 call counts as unknown unless the request that produced it offered the tool, so a tool that
@@ -65,7 +70,7 @@ tool without having a sandbox.
 |---|---|---|
 | `RunStore` | `swarmeval.events.PostgresRunStore` on the `runs` schema ([event-log.md](event-log.md#tables)) | `commit` is atomic and assigns `seq` and `event_id` in order. `context` returns `messages[gen][:len]` from the latest `agent_state` row |
 | `ModelClient` | model-gateway client (not built) | `generate` returns after the gateway's record of the call has been committed through the run's `RunWriter`. The record's `gen` / `length` come from `ModelRequest.gen` and the request's message count |
-| `SandboxExecutor` | sandboxd client (not built) | Runs one `Exec` and returns output plus file and process observations |
+| `SandboxExecutor` | `swarmeval.sandbox.RunSandboxes` ([sandboxd](services/sandboxd.md)) | Runs one `Exec` under a run-unique `call_id` and returns output plus file and process observations. Blobs the result names are stored before it returns. The loop passes the tool call's id; `ctx.sandbox` passes `ext:<instance>:<n>` |
 
 `RunWriter` is the run's only writer. The loop and the model-gateway stream handler share one
 instance, so every event of the run lands in one sequence. Its subscribers (the observer queue)

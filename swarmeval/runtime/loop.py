@@ -407,7 +407,9 @@ class RunLoop:
                 tool.owner, "tool", f"building `{tool.name}` failed: {err}"
             ) from err
         assert agent.spec.sandbox_id is not None, "checked in _check_tools"
-        result = await self._sandbox.exec(agent.spec.sandbox_id, agent.spec.os_user, command)
+        result = await self._sandbox.exec(
+            agent.spec.sandbox_id, agent.spec.os_user, command, call_id=call.id
+        )
         return exec_output(call, result), call.arguments, result
 
     def _admit(self, txn: Transaction, agent: _AgentRun, messages: Sequence[ChatMessage]) -> None:

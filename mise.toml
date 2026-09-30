@@ -46,8 +46,11 @@ dir = "go"
 run = "go test -tags integration -count=1 ./..."
 
 [tasks."proto:gen"]
-description = "Generate gRPC stubs from proto/"
-run = "buf generate"
+description = "Generate gRPC stubs from proto/: Go with buf, Python with grpcio-tools"
+run = [
+  "buf generate",
+  "rm -rf swarmeval/proto && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=. --grpc_python_out=. --mypy_out=quiet:. --mypy_grpc_out=quiet:. $(find proto -name '*.proto')",
+]
 
 [tasks."proto:lint"]
 description = "buf lint, buf format, and a check that generated stubs match proto/"
@@ -55,6 +58,7 @@ run = [
   "buf lint",
   "buf format --diff --exit-code",
   "tmp=$(mktemp -d) && buf generate -o \"$tmp\" && diff -r \"$tmp/go/internal/gen\" go/internal/gen && rm -rf \"$tmp\"",
+  "tmp=$(mktemp -d) && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=\"$tmp\" --grpc_python_out=\"$tmp\" --mypy_out=quiet:\"$tmp\" --mypy_grpc_out=quiet:\"$tmp\" $(find proto -name '*.proto') && diff -r -x __pycache__ \"$tmp/swarmeval/proto\" swarmeval/proto && rm -rf \"$tmp\"",
 ]
 
 [tasks.check]

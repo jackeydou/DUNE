@@ -2,7 +2,8 @@
 
 The libraries and tools SwarmEval uses. Installed today: Python 3.12, uv, ruff, pyright,
 pytest, pydantic, PyYAML (with `types-PyYAML` for pyright), `inspect_ai` (pinned), SQLAlchemy,
-Alembic, psycopg 3, `rfc8785`, pyarrow (with `pyarrow-stubs` for pyright), and testcontainers; Go 1.27, golangci-lint, buf,
+Alembic, psycopg 3, `rfc8785`, pyarrow (with `pyarrow-stubs` for pyright), grpcio and protobuf
+(with grpcio-tools and mypy-protobuf for stubs), and testcontainers; Go 1.27, golangci-lint, buf,
 grpc-go, and the moby client. Everything else arrives with the service that needs it; [architecture.md](architecture.md)
 says which milestone that is.
 
@@ -18,7 +19,7 @@ shaped this way is in the v1 spec's 技术选型 table and the
 | Tool versions and tasks | mise. `mise run check` is the gate for every change ([development.md](development.md)) |
 | Python | uv for dependencies and the lock file, ruff, pyright in strict mode, pytest + pytest-asyncio |
 | Go | go test, golangci-lint (with gofumpt and goimports), all in `mise run check` |
-| gRPC contracts | buf: lint, code generation for Go, Python, and TypeScript, and breaking-change checks |
+| gRPC contracts | buf: lint, Go code generation, and breaking-change checks. Python stubs come from grpcio-tools, with `.pyi` from mypy-protobuf, because Python protobuf generation is built into `protoc` and buf would need a separate `protoc` install for it |
 
 ## Shared by the Python services
 
@@ -30,7 +31,7 @@ shaped this way is in the v1 spec's 技术选型 table and the
 | Case, env, and event models | pydantic v2 + PyYAML. JSON Schema is exported for editor validation |
 | Event format | `inspect_ai` data models at a pinned version, imported only in `swarmeval/events/` ([event-log.md](event-log.md)) |
 | Database | Postgres through SQLAlchemy 2.0, Alembic migrations, and the psycopg 3 driver |
-| gRPC | grpcio, asyncio API |
+| gRPC | grpcio, asyncio API, with `types-grpcio` and `types-protobuf` for pyright. Stubs in `swarmeval/proto/`, whose import path is `swarmeval.proto.<proto package>` |
 | Export and offline queries | pyarrow for Parquet, DuckDB |
 | Tests | testcontainers for a throwaway Postgres and RustFS. A mock OpenAI-compatible server replays scripted responses |
 

@@ -140,6 +140,10 @@ class ContextHost(Protocol):
     @property
     def writer(self) -> RunWriter: ...
     def agent_ids(self) -> tuple[str, ...]: ...
+    def sandbox_call_id(self, instance_id: str) -> str:
+        """A run-unique id for a command the instance runs through `ctx.sandbox`."""
+        ...
+
     def request_stop(self, instance_id: str, reason: str) -> None: ...
     def queue_inject(self, instance_id: str, agent_id: str, message: UserMessage) -> None: ...
     def spawn(self, ctx: "HookContext[Any]", coro: Coroutine[Any, Any, None]) -> None: ...
@@ -171,7 +175,10 @@ class ExtensionSandbox:
         self._instance_id = instance_id
 
     async def exec(self, sandbox_id: str, command: Exec, os_user: str | None = None) -> ExecResult:
-        result = await self._host.sandbox_executor.exec(sandbox_id, os_user, command)
+        call_id = self._host.sandbox_call_id(self._instance_id)
+        result = await self._host.sandbox_executor.exec(
+            sandbox_id, os_user, command, call_id=call_id
+        )
         record = SandboxExecRecord(sandbox_id=sandbox_id, command=command, result=result)
         draft = EventDraft(record=record, extension=self._instance_id)
         await self._host.writer.commit(Transaction(events=[draft]))

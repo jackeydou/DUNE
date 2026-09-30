@@ -28,11 +28,11 @@ mise run sync
 | `mise run lint` | `ruff format --check .` and `ruff check .` |
 | `mise run typecheck` | `pyright` in strict mode over `swarmeval/` and `tests/` |
 | `mise run test` | `pytest` (asyncio mode `auto`), without tests marked `docker` |
-| `mise run test:docker` | `pytest -m docker`: the Postgres store, migrations, and export against a throwaway `postgres:18-alpine` and `rustfs/rustfs` from testcontainers. Run it before a change to `swarmeval/db/` or `swarmeval/events/` is done |
+| `mise run test:docker` | `pytest -m docker`: the Postgres store, migrations, and export against a throwaway `postgres:18-alpine` and `rustfs/rustfs` from testcontainers, and the sandboxd client against a sandboxd it builds from `go/` (needs `busybox:latest`). Run it before a change to `swarmeval/db/`, `swarmeval/events/`, or `swarmeval/sandbox/` is done |
 | `mise run go:lint` | `golangci-lint run` over `go/`, integration tests included |
 | `mise run go:test` | `go test ./...` in `go/` |
 | `mise run go:test-integration` | sandboxd against the local docker daemon. Needs `busybox:latest` |
-| `mise run proto:gen` | `buf generate`: Go stubs into `go/internal/gen/`. Commit them |
+| `mise run proto:gen` | Go stubs into `go/internal/gen/` with `buf generate`, and Python stubs with typed `.pyi` into `swarmeval/proto/` with grpcio-tools and mypy-protobuf. Commit both |
 | `mise run proto:lint` | `buf lint`, `buf format --diff`, and a check that the committed stubs match `proto/` |
 
 ## Dependencies

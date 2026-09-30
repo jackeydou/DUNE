@@ -12,7 +12,8 @@ README.md
 docs/            how the system works now
 spec/            one decision each, frozen once discussed
 swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent loop, extensions),
-                 `db/` (Postgres tables, migrations), `events/` (Inspect events, hash chain, run store)
+                 `db/` (Postgres tables, migrations), `events/` (Inspect events, hash chain, run store),
+                 `sandbox/` (sandboxd client, blob store), `proto/` (generated gRPC stubs)
 tests/           Python tests
 go/              the Go module: `cmd/sandboxd`, `internal/`. Its own README, CHANGELOG, BUGFIX
 proto/           gRPC contracts; buf.yaml and buf.gen.yaml sit at the repo root
@@ -34,7 +35,7 @@ A change to `proto/` goes in the ledger of each project whose generated code it 
 |---|---|
 | `orchestrator`, `model-gateway`, `analysis` | Subpackages of `swarmeval/`: one uv project, one entry point per service. `openai` is imported only in `swarmeval/gateway/model/` |
 | `edge`, `net-gateway`, `sandboxd`, the CLI | The Go module in `go/`: one `go/cmd/<name>` per binary, shared code under `go/internal/` |
-| gRPC contracts | `proto/`, managed with buf. Go stubs are generated into `go/internal/gen/` and committed |
+| gRPC contracts | `proto/`, managed with buf. Go stubs are generated into `go/internal/gen/`, Python stubs into `swarmeval/proto/`; both are committed |
 | Web console and replay | `console/` (M4) |
 | docker compose and Helm chart | `deploy/` |
 | Cases and suites | `cases/` and `suites/` |

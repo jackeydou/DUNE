@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel, JsonValue
+from pydantic import JsonValue
 
 from swarmeval.runtime.extensions import Extension, ExtensionUse, load_extensions
 from swarmeval.runtime.loop import AgentSpec, Limits, RunLoop, RunSpec
@@ -32,7 +32,7 @@ from swarmeval.runtime.records import (
     ModelCallRecord,
     Transaction,
 )
-from swarmeval.runtime.tools import SandboxTool
+from swarmeval.runtime.tools import SHELL
 from swarmeval.runtime.writer import RunWriter
 
 
@@ -139,23 +139,14 @@ class FakeSandbox:
     calls: list[tuple[str, str | None, Exec]] = field(
         default_factory=list[tuple[str, str | None, Exec]]
     )
+    call_ids: list[str] = field(default_factory=list[str])
 
-    async def exec(self, sandbox_id: str, os_user: str | None, command: Exec) -> ExecResult:
+    async def exec(
+        self, sandbox_id: str, os_user: str | None, command: Exec, *, call_id: str
+    ) -> ExecResult:
         self.calls.append((sandbox_id, os_user, command))
+        self.call_ids.append(call_id)
         return self.handler(command)
-
-
-class ShellArgs(BaseModel):
-    cmd: str
-
-
-def _build_shell(args: ShellArgs) -> Exec:
-    return Exec(argv=("sh", "-c", args.cmd))
-
-
-SHELL = SandboxTool(
-    name="shell", description="Run a shell command.", args=ShellArgs, build=_build_shell
-)
 
 
 def agent(id: str = "a", tools: tuple[str, ...] = ("shell",), **kwargs: Any) -> AgentSpec:

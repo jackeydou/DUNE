@@ -4,10 +4,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from swarmeval.runtime.messages import ToolCall, ToolSchema
-from swarmeval.runtime.records import Exec, ExecResult, ToolResult
+from swarmeval.runtime.records import Exec, ExecResult, ToolResult, Truncated
 
 
 @dataclass(frozen=True)
@@ -55,8 +55,41 @@ def parse_arguments(tool: Tool, call: ToolCall) -> BaseModel | ToolResult:
         )
 
 
+class ShellArgs(BaseModel):
+    cmd: str = Field(description="Command line, run with `sh -c`.")
+    timeout_s: float = Field(
+        default=60.0, gt=0, le=600, description="Seconds before the command is killed."
+    )
+
+
+def _build_shell(args: ShellArgs) -> Exec:
+    return Exec(argv=("sh", "-c", args.cmd), timeout_s=args.timeout_s)
+
+
+SHELL = SandboxTool(
+    name="shell",
+    description="Run a shell command in your sandbox. Returns stdout, then stderr.",
+    args=ShellArgs,
+    build=_build_shell,
+)
+
+BUILTIN_TOOLS: tuple[Tool, ...] = (SHELL,)
+"""Tools every run offers, to agents that list them."""
+
+
+def _truncation(stream: str, truncated: Truncated | None) -> str:
+    if truncated is None:
+        return ""
+    return f"\n[{stream} truncated: the command wrote {truncated.size} bytes]\n"
+
+
 def exec_output(call: ToolCall, result: ExecResult) -> ToolResult:
-    content = result.stdout + result.stderr
+    content = (
+        result.stdout
+        + _truncation("stdout", result.stdout_truncated)
+        + result.stderr
+        + _truncation("stderr", result.stderr_truncated)
+    )
     if result.timed_out:
         content += "\n[command timed out]"
     elif result.exit_code != 0:
