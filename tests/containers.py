@@ -1,7 +1,16 @@
-"""Throwaway Postgres and RustFS for tests marked `docker`, started once per session."""
+"""Throwaway Postgres, RustFS, and sandboxd for tests marked `docker`, started once per session.
 
+sandboxd is built from `go/`, so it needs the Go toolchain (`mise run test:docker` provides it)
+and `busybox:latest` on the docker host.
+"""
+
+import os
+import socket
+import subprocess
+import time
 from collections.abc import AsyncIterator, Iterator
 from itertools import count
+from pathlib import Path
 
 import pytest
 from pyarrow.fs import S3FileSystem
@@ -18,6 +27,7 @@ POSTGRES_IMAGE = "postgres:18-alpine"
 RUSTFS_IMAGE = "rustfs/rustfs:latest"
 _RUSTFS_KEY = "swarmeval-test"
 _run_ids = count(1)
+REPO = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(scope="session")
@@ -83,3 +93,39 @@ async def run_id(engine: AsyncEngine) -> str:
     run_id = f"run_{next(_run_ids)}"
     await create_run(engine, run_id)
     return run_id
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port: int = s.getsockname()[1]
+        return port
+
+
+@pytest.fixture(scope="session")
+def sandboxd(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    bin_dir = tmp_path_factory.mktemp("bin")
+    binary = bin_dir / "sandboxd"
+    subprocess.run(
+        ["go", "build", "-o", str(binary), "./cmd/sandboxd"], cwd=REPO / "go", check=True
+    )
+    # The docker daemon must see the state directory at the same path; resolve macOS's
+    # /var -> /private/var symlink the way the Go integration tests do.
+    state = os.path.realpath(tmp_path_factory.mktemp("state"))
+    port = _free_port()
+    address = f"127.0.0.1:{port}"
+    proc = subprocess.Popen([binary, "--state-dir", state, "--listen", address])
+    try:
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=1).close()
+                break
+            except OSError:
+                if proc.poll() is not None or time.monotonic() > deadline:
+                    raise
+                time.sleep(0.1)
+        yield address
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)

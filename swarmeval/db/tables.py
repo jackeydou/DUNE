@@ -44,7 +44,29 @@ control_runs = Table(
     Column("lease_until", DateTime(timezone=True)),
     Column("owner_epoch", BigInteger, nullable=False, server_default="0"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("started_at", DateTime(timezone=True)),
+    Column("finished_at", DateTime(timezone=True)),
+    Column("isolation", Text),
+    Column("error", Text),
     CheckConstraint("status IN (" + ", ".join(f"'{s}'" for s in RUN_STATUSES) + ")", name="status"),
+    Index(None, "status", "created_at"),
+    schema="control",
+)
+
+run_specs = Table(
+    "run_specs",
+    metadata,
+    Column("run_id", Text, primary_key=True),
+    Column("submission_id", Text, nullable=False),
+    Column("case_id", Text, nullable=False),
+    Column("case_sha256", Text, nullable=False),
+    Column("overrides", JSONB, nullable=False),
+    Column("variant", Integer, nullable=False),
+    Column("task_args", JSONB, nullable=False),
+    Column("epoch", Integer, nullable=False),
+    Column("epochs", Integer, nullable=False),
+    ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
+    Index(None, "submission_id"),
     schema="control",
 )
 

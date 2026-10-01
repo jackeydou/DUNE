@@ -6,12 +6,8 @@ Builds sandboxd from `go/`, so it needs the Go toolchain (`mise run test:docker`
 
 import asyncio
 import hashlib
-import os
-import socket
-import subprocess
-import time
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import grpc
@@ -35,42 +31,6 @@ PROFILE = SandboxProfile.model_validate(
         "limits": {"memory": "256mib", "pids": 128},
     }
 )
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port: int = s.getsockname()[1]
-        return port
-
-
-@pytest.fixture(scope="session")
-def sandboxd(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    bin_dir = tmp_path_factory.mktemp("bin")
-    binary = bin_dir / "sandboxd"
-    subprocess.run(
-        ["go", "build", "-o", str(binary), "./cmd/sandboxd"], cwd=REPO / "go", check=True
-    )
-    # The docker daemon must see the state directory at the same path; resolve macOS's
-    # /var -> /private/var symlink the way the Go integration tests do.
-    state = os.path.realpath(tmp_path_factory.mktemp("state"))
-    port = _free_port()
-    address = f"127.0.0.1:{port}"
-    proc = subprocess.Popen([binary, "--state-dir", state, "--listen", address])
-    try:
-        deadline = time.monotonic() + 30
-        while True:
-            try:
-                socket.create_connection(("127.0.0.1", port), timeout=1).close()
-                break
-            except OSError:
-                if proc.poll() is not None or time.monotonic() > deadline:
-                    raise
-                time.sleep(0.1)
-        yield address
-    finally:
-        proc.terminate()
-        proc.wait(timeout=10)
 
 
 @pytest.fixture

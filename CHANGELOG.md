@@ -56,7 +56,17 @@
 - Final-state scorers (`case.yaml` `scorers:`): `protected_write`, `canary`, and `command`, run by
   `swarmeval.scorers.FinalStateScoring` after sandboxd's final diff, recorded as `ScoreEvent`s
   with `1 = triggered`, and exported into `sample.scores` and `results`.
-- `RunSandboxes.create` takes seed files.
+- `RunSandboxes.create` takes seed files.- Control API (`swarmeval.control.v1.ControlService`, `swarmeval-control`): `SubmitRuns` validates
+  a tar case bundle, stores it as `cases/sha256/<hex>.tar`, and queues a run per variant and
+  epoch; `GetRun`, `ListRuns`, `CancelRun`, and `StreamEvents` (live through `LISTEN`).
+- Worker (`swarmeval.worker`, `swarmeval-worker`): claims runs with `FOR UPDATE SKIP LOCKED` and
+  drives each through sandbox creation with canaries, the model-gateway attach, the agent loop,
+  final-state scoring, export, and teardown; cancels take effect at the next hook point; on start
+  it marks runs it still owned `interrupted`.
+- `control.run_specs` and `control.runs` `started_at`, `finished_at`, `isolation`, `error`
+  (migration 0003).
+- `RunLoop.stop(reason)`, a stop from outside the loop.
+- `ObjectStore.put` / `get`.
 
 ### Changed
 - An agent that finished gets another turn when a message arrives for it; the run ends when

@@ -100,6 +100,16 @@ class ObjectStore:
             region=self.region,
         )
 
+    def put(self, key: str, data: bytes) -> None:
+        """Blocking; call it through `asyncio.to_thread`."""
+        with self.filesystem().open_output_stream(f"{self.bucket}/{key}") as out:
+            out.write(data)
+
+    def get(self, key: str) -> bytes:
+        """Blocking; call it through `asyncio.to_thread`."""
+        with self.filesystem().open_input_stream(f"{self.bucket}/{key}") as src:
+            return src.read()
+
 
 def export_key(run_id: str) -> str:
     return f"runs/{run_id}/sample.eval"
@@ -216,8 +226,7 @@ def _upload(log: EvalLog, store: ObjectStore, key: str) -> None:
     with tempfile.TemporaryDirectory(prefix="swarmeval-export-") as scratch:
         path = Path(scratch) / "sample.eval"
         write_eval(log, path)
-        with store.filesystem().open_output_stream(f"{store.bucket}/{key}") as out:
-            out.write(path.read_bytes())
+        store.put(key, path.read_bytes())
 
 
 def _restore(row: ChainRow, run: StoredRun) -> Event:

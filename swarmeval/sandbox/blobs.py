@@ -26,9 +26,4 @@ class S3BlobStore:
     store: ObjectStore
 
     async def put(self, sha256: str, data: bytes) -> None:
-        await asyncio.to_thread(self._put, sha256, data)
-
-    def _put(self, sha256: str, data: bytes) -> None:
-        path = f"{self.store.bucket}/{blob_key(sha256)}"
-        with self.store.filesystem().open_output_stream(path) as out:
-            out.write(data)
+        await asyncio.to_thread(self.store.put, blob_key(sha256), data)

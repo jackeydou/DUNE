@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package swarmeval.control.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1;controlv1";
+
+// ControlService is the orchestrator control plane's API. Until edge exists (M4) it is bound to
+// the internal network and has no authentication. Behavior: docs/services/orchestrator.md.
+service ControlService {
+  // Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
+  // A case that does not load is INVALID_ARGUMENT, with the loader's message.
+  rpc SubmitRuns(SubmitRunsRequest) returns (SubmitRunsResponse);
+  rpc GetRun(GetRunRequest) returns (GetRunResponse);
+  // Newest first.
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  // A queued run never starts; a running one stops at its owner's next step, keeps its events,
+  // and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
+  rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+  // A run's events with seq greater than `after_seq`, live while the run is going. The stream
+  // ends once the run has finished and every event was sent.
+  rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
+}
+
+message SubmitRunsRequest {
+  // The case directory as an uncompressed tar archive, with `case.yaml` at its root.
+  bytes case_bundle = 1;
+  // Variant axis → list of values, replacing that axis's values in the case.
+  google.protobuf.Struct overrides = 2;
+  // Runs per variant. Zero means the case's `epochs`.
+  int32 epochs = 3;
+}
+
+message SubmitRunsResponse {
+  string submission_id = 1;
+  repeated string run_ids = 2;
+}
+
+message Run {
+  string run_id = 1;
+  string submission_id = 2;
+  string case_id = 3;
+  string workspace = 4;
+  // `queued`, `running`, `paused`, `interrupted`, `done`, `failed`, or `cancelled`.
+  string status = 5;
+  int32 variant = 6;
+  // The variant's axis values.
+  google.protobuf.Struct task_args = 7;
+  int32 epoch = 8;
+  int32 epochs = 9;
+  string case_sha256 = 10;
+  string owner_id = 11;
+  // Container runtime the run's sandboxes got: `runc` or `runsc`. Empty until they exist.
+  string isolation = 12;
+  // Why the run failed or was interrupted.
+  string error = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp started_at = 15;
+  google.protobuf.Timestamp finished_at = 16;
+}
+
+message GetRunRequest {
+  string run_id = 1;
+}
+
+message GetRunResponse {
+  Run run = 1;
+}
+
+message ListRunsRequest {
+  // Filters; empty matches everything.
+  string submission_id = 1;
+  string case_id = 2;
+  string status = 3;
+  // Zero means 100.
+  int32 limit = 4;
+}
+
+message ListRunsResponse {
+  repeated Run runs = 1;
+}
+
+message CancelRunRequest {
+  string run_id = 1;
+}
+
+message CancelRunResponse {
+  Run run = 1;
+}
+
+message StreamEventsRequest {
+  string run_id = 1;
+  int64 after_seq = 2;
+}
+
+message StreamEventsResponse {
+  int64 seq = 1;
+  string event_id = 2;
+  // The Inspect event type, or an InfoEvent's `swarmeval.<kind>` source.
+  string type = 3;
+  string agent_id = 4;
+  // The stored Inspect event, as JSON.
+  string payload_json = 5;
+}

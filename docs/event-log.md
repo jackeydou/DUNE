@@ -97,7 +97,9 @@ type, or an `InfoEvent`'s `swarmeval.<kind>` source. `working_start` in the payl
 since the run's first event.
 
 `control.runs` holds `run_id`, `workspace`, `status`, `owner_id`, `lease_until`, `owner_epoch`,
-and `created_at`. Every `runs` table references it.
+`created_at`, `started_at`, `finished_at`, `isolation`, and `error`. Every `runs` table references
+it. `control.run_specs` holds each run's `submission_id`, `case_id`, `case_sha256`, `overrides`,
+`variant`, `task_args`, `epoch`, and `epochs`.
 
 An agent's context at step *k* is the `(gen, len)` from its last `agent_state` row with
 `seq ≤ k`, followed by the first `len` rows of `messages` for that `gen`. Compaction or truncation

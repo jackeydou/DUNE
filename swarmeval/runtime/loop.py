@@ -151,6 +151,7 @@ class RunLoop:
         self._turns = 0
         self._extensions = extensions
         self._hook_timeout_s = hook_timeout_s
+        self._stop_reason: str | None = None
 
     def _check_tools(self) -> None:
         for agent in self._spec.agents:
@@ -246,9 +247,19 @@ class RunLoop:
         except _Stopped as stop:
             return self._outcome("stopped", stop.reason)
 
+    def stop(self, reason: str) -> None:
+        """Asks the run to stop, from outside the loop (a cancel). Takes effect at the next hook
+        point, like a stop an extension requests."""
+        if self._stop_reason is None:
+            self._stop_reason = reason
+
+    def _stop_requested(self, dispatcher: HookDispatcher) -> str | None:
+        return self._stop_reason or dispatcher.stop_reason
+
     def _check_stop(self, dispatcher: HookDispatcher) -> None:
-        if dispatcher.stop_reason is not None:
-            raise _Stopped(dispatcher.stop_reason)
+        reason = self._stop_requested(dispatcher)
+        if reason is not None:
+            raise _Stopped(reason)
 
     async def _limit(self, limit: Literal["max_turns", "max_tokens"], value: int) -> RunOutcome:
         record = LimitRecord(limit=limit, value=value)
@@ -344,9 +355,10 @@ class RunLoop:
     ) -> None:
         gate = await d.before_tool_call(agent.info, call, model_event_id)
         txn = gate.txn
-        if d.stop_reason is not None:
+        reason = self._stop_requested(d)
+        if reason is not None:
             await self._writer.commit(txn)
-            raise _Stopped(d.stop_reason)
+            raise _Stopped(reason)
         executed: str | None = None
         exec_result: ExecResult | None = None
         blocked_by: str | None = None

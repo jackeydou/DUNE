@@ -5,18 +5,27 @@ writer of a run's events and state. Its place among the services is in
 [architecture.md](../architecture.md). The stored event format is in
 [event-log.md](../event-log.md).
 
-**Status:** case loading ([Case loading](#case-loading)), the agent loop
-([agent-runtime.md](../agent-runtime.md)), and the Postgres store for the write-before rule
-([event-log.md](../event-log.md#tables)), and the Message Bus without interventions are built. The
-rest of M0 brings the Control API and one worker. Export of the per-run `.eval` is built
-([event-log.md](../event-log.md#export)); the worker does not call it yet. M2 adds several workers,
+**Status:** the M0 part is built: case loading, the Control API, the queue, one worker that drives
+each run from claim to export, the agent loop ([agent-runtime.md](../agent-runtime.md)), the
+Message Bus without interventions, canaries, and final-state scorers. M2 adds several workers,
 leases, fencing, takeover, and pausing. M3 adds interventions, fork, the online Monitor, and the
 async and event-driven turn policies. Items marked *(proposed)* go beyond what the specs decided;
 they are listed under [Not settled](#not-settled).
 
 ## Roles
 
-One image, two entry points. They scale separately.
+One image, two entry points (`swarmeval-control`, `swarmeval-worker`). They scale separately.
+
+```bash
+export SWARMEVAL_DATABASE_URL=postgresql://swarmeval:…@db:5432/swarmeval
+export SWARMEVAL_S3_ACCESS_KEY=… SWARMEVAL_S3_SECRET_KEY=…
+swarmeval-control --s3-endpoint rustfs:9000 --s3-bucket swarmeval --listen 0.0.0.0:7090
+swarmeval-worker --s3-endpoint rustfs:9000 --s3-bucket swarmeval \
+  --sandboxd sandboxd:7071 --gateway-http http://model-gateway:7080 --gateway-grpc model-gateway:7081
+```
+
+The control plane migrates the database when it starts. One bucket holds case bundles, blobs,
+and exports. Credentials come only from the environment.
 
 | Role | Replicas | State | Does |
 |---|---|---|---|
@@ -31,11 +40,13 @@ inference, so one asyncio process per worker is enough.
 
 | Package | Holds |
 |---|---|
-| `swarmeval/core/` | Case and env models, loader, variant expansion, Control API servicer, queue |
-| `swarmeval/runtime/` | Worker main loop, run lifecycle, turn policies, the ReAct agent loop, tool dispatch |
+| `swarmeval/core/` | Case and env models, loader, variant expansion |
+| `swarmeval/control/` | Control API servicer, case bundles, the queue (shared with the worker), live event wakeups |
+| `swarmeval/worker/` | Worker main loop and run lifecycle |
+| `swarmeval/runtime/` | Turn policies, the ReAct agent loop, tool dispatch, extensions. Knows no database or service |
 | `swarmeval/gateway/bus/` | Message Bus: channel ACLs, deliveries, interventions |
 | `swarmeval/monitor/` | Online detectors and their actions |
-| `swarmeval/honeypot/` | Canary generation and matching (with decoding), honeypot templates |
+| `swarmeval/honeypot/` | Canary generation and matching (decoding from M1), the `swarmeval.canary` and `swarmeval.env_state` extensions, honeypot templates (M1) |
 | `swarmeval/db/` | Table definitions for `control` and `runs`, engines, Alembic migrations (`migrate(url)`) |
 | `swarmeval/events/` | Records to Inspect events, the hash chain, the Postgres `RunStore`, export. The only `inspect_ai` import |
 | `swarmeval/scorers/` | Final-state scorers. Event-rule and judge scorers are shared with [analysis](analysis.md) |
@@ -47,23 +58,29 @@ The sandboxd client is `swarmeval/sandbox/`.
 
 ### Control API
 
-gRPC service `swarmeval.control.v1.ControlService` on the internal network. It has no
-authentication until [edge](edge.md) exists in M4 *(RPC names proposed)*.
+gRPC service `swarmeval.control.v1.ControlService` (`proto/swarmeval/control/v1/control.proto`)
+on the internal network. It has no authentication until [edge](edge.md) exists in M4 *(RPC names
+proposed)*. Messages may be up to 64 MiB, for case bundles.
 
 | RPC | Does | From |
 |---|---|---|
-| `SubmitRuns` | Takes a case bundle, variant overrides, and epochs; validates, expands, and enqueues; returns run ids | M0 |
-| `GetRun`, `ListRuns` | Status, variant, owner, fidelity, isolation level | M0 |
-| `CancelRun` | Marks cancelled; the owning worker stops at its next step and tears down | M0 |
-| `StreamEvents` | Server stream of a run's events from a given `seq` onward, live while it runs | M0 |
+| `SubmitRuns` | Takes a case bundle, variant overrides (axis → list of values), and epochs (0 = the case's); validates, stores the bundle, and enqueues one run per variant and epoch; returns the submission id and run ids. A case that does not load is `INVALID_ARGUMENT` with the loader's message | Built |
+| `GetRun`, `ListRuns` | Status, variant and its values, epoch, owner, isolation level, error, timestamps. `ListRuns` filters by submission, case, and status, newest first | Built. Fidelity arrives with recovery (M2) |
+| `CancelRun` | Marks cancelled. A queued run never starts; a running one stops at its owner's next hook point, is not scored, and is still exported. A finished run is `FAILED_PRECONDITION` | Built |
+| `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent | Built |
 | Case CRUD | Read and write `case.yaml` / `env.yaml` for the console | M4 |
+
+Run ids are `<case>.<submission>.v<variant>.e<epoch>`. Override numbers travel as protobuf doubles;
+a whole number becomes an int again.
 
 ### Case bundles
 
 `SubmitRuns` carries the case directory as a tar archive. The control plane validates it with
 the same loader the worker uses and stores it in object storage as `cases/sha256/<hex>.tar`.
 Each run row references that hash. Control plane and workers share no disk, and the hash pins the
-exact prompts, hooks, and data a run used *(proposed)*.
+exact prompts, hooks, and data a run used *(proposed)*. Bundles are extracted with tarfile's
+`data` filter: `..`, links that leave the directory, and device files are refused, and absolute
+member paths land inside the directory. `case.yaml` must be at the archive's root.
 
 ### Case loading
 
@@ -78,13 +95,17 @@ and exporting JSON Schema from the models for editor validation.
 
 ### Queue and claiming
 
-Runs are rows in `control.runs` with `status`, `owner_id`, `lease_until`, and `owner_epoch`. The
+Runs are rows in `control.runs` with `status`, `owner_id`, `lease_until`, and `owner_epoch`;
+`control.run_specs` holds what to run (case hash, overrides, variant, epoch). The
 control plane only enqueues. Workers claim with `FOR UPDATE SKIP LOCKED`, which sets the owner and
 lease and increments `owner_epoch` in the same statement. "The control plane assigns a run" is
 therefore a claimable row, not a push, and the control plane holds no state of its own. Limits on
 concurrency per submission and per model backend are conditions in the claim query *(proposed)*.
 
 Status values are `queued`, `running`, `paused`, `interrupted`, `done`, `failed`, and `cancelled`.
+In M0 a run ends `done` (finished, or stopped by a limit or an extension), `cancelled`, `failed`
+(the case no longer loads, an extension failed, or a bug), or `interrupted` (sandboxd or
+model-gateway failed; M2 pauses instead). Leases are not taken yet (M2).
 
 ### Live events
 
@@ -107,6 +128,13 @@ are the data, so a lost notification costs latency, never an event.
 6. Run the final-state scorers while the sandboxes still exist.
 7. Export ([event-log.md](../event-log.md#export)), tear down through sandboxd, and mark the
    run `done`.
+
+Built in `swarmeval.worker` for M0, without the M1 steps. Sandboxes are destroyed whatever
+happens. A cancel is seen by polling the run's status every 2 s, so it takes effect at the first
+hook point after that. A failed or interrupted run keeps its events but is not exported. The
+worker runs up to `--max-runs` runs at once (default 4); `--worker-id` (default the hostname)
+must stay the same across restarts, because on start the worker marks the runs it still owned
+`interrupted`.
 
 ### Agent loop
 
