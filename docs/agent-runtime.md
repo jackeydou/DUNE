@@ -6,8 +6,8 @@ design and its rejected alternatives are in the
 [agent loop spec](../spec/2026-09-29-agent-loop-hooks/README.md).
 
 **Status:** the loop, the hooks, and the extension API below are built and tested against
-in-memory fakes, and against the Postgres store. The sandboxd client is built; the model-gateway
-client is not, so the runtime has only a protocol boundary for it ([Ports](#ports)). [Not built yet](#not-built-yet) lists what the
+in-memory fakes, against the Postgres store, and through the model-gateway and sandboxd clients
+([Ports](#ports)). [Not built yet](#not-built-yet) lists what the
 spec describes but the code does not do.
 
 ## The loop
@@ -69,7 +69,7 @@ tool without having a sandbox.
 | Protocol | Production implementation | Contract |
 |---|---|---|
 | `RunStore` | `swarmeval.events.PostgresRunStore` on the `runs` schema ([event-log.md](event-log.md#tables)) | `commit` is atomic and assigns `seq` and `event_id` in order. `context` returns `messages[gen][:len]` from the latest `agent_state` row |
-| `ModelClient` | model-gateway client (not built) | `generate` returns after the gateway's record of the call has been committed through the run's `RunWriter`. The record's `gen` / `length` come from `ModelRequest.gen` and the request's message count |
+| `ModelClient` | `swarmeval.gateway.model.client.GatewaySession` ([model-gateway](services/model-gateway.md)) | `generate` returns after the gateway's record of the call has been committed through the run's `RunWriter`. The record's `gen` / `length` come from `ModelRequest.gen` and the request's message count |
 | `SandboxExecutor` | `swarmeval.sandbox.RunSandboxes` ([sandboxd](services/sandboxd.md)) | Runs one `Exec` under a run-unique `call_id` and returns output plus file and process observations. Blobs the result names are stored before it returns. The loop passes the tool call's id; `ctx.sandbox` passes `ext:<instance>:<n>` |
 
 `RunWriter` is the run's only writer. The loop and the model-gateway stream handler share one

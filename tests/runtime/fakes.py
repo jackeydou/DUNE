@@ -29,8 +29,10 @@ from swarmeval.runtime.records import (
     EventDraft,
     Exec,
     ExecResult,
+    GatewayRecord,
     ModelCallRecord,
     Transaction,
+    Upstream,
 )
 from swarmeval.runtime.tools import SHELL
 from swarmeval.runtime.writer import RunWriter
@@ -89,6 +91,25 @@ class FakeStore:
         return self.generations[agent_id][-1]
 
 
+GATEWAY = GatewayRecord(
+    request_sha256="0" * 64,
+    upstream=Upstream(
+        backend="scripted",
+        model="test-model",
+        served_model="test-model",
+        reasoning_passback="none",
+        weights_hash=None,
+        system_fingerprint=None,
+        sampling={},
+        reasoning_visibility="full",
+    ),
+    upstream_response_json="{}",
+    latency_s=0.0,
+    attempts=1,
+)
+"""What the scripted model reports as the gateway's record of every call."""
+
+
 def reply(content: str = "", *tool_calls: ToolCall, tokens: int = 10) -> ModelResponse:
     return ModelResponse(
         message=AssistantMessage(content=content, tool_calls=tuple(tool_calls)),
@@ -121,6 +142,7 @@ class ScriptedModel:
             options=request.options,
             response=response.message,
             usage=response.usage,
+            gateway=GATEWAY,
         )
         draft = EventDraft(
             record=record,
@@ -149,10 +171,12 @@ class FakeSandbox:
         return self.handler(command)
 
 
-def agent(id: str = "a", tools: tuple[str, ...] = ("shell",), **kwargs: Any) -> AgentSpec:
+def agent(
+    id: str = "a", tools: tuple[str, ...] = ("shell",), model: str = "test-model", **kwargs: Any
+) -> AgentSpec:
     return AgentSpec(
         id=id,
-        model="test-model",
+        model=model,
         system_prompt=f"You are {id}.",
         task="Do the task.",
         tools=tools,

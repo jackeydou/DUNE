@@ -26,6 +26,7 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
     ToolResult,
 )
+from tests.runtime.fakes import GATEWAY
 
 EVENT = TypeAdapter[Event](Event)
 WHERE = Attribution(
@@ -76,6 +77,7 @@ def test_a_model_call_is_a_model_event_with_input_by_reference() -> None:
             tool_calls=(ToolCall(id="c1", name="shell", arguments='{"cmd": "ls"}'),),
         ),
         usage=Usage(input_tokens=7, output_tokens=3),
+        gateway=GATEWAY,
     )
 
     event = roundtrip(record)
@@ -97,6 +99,7 @@ def test_a_model_call_is_a_model_event_with_input_by_reference() -> None:
     assert ours["input"] == {"gen": 0, "len": 3}
     assert ours["tools"] == ["shell"]
     assert ours["raw_tool_arguments"] == {"c1": '{"cmd": "ls"}'}
+    assert ours["gateway"]["upstream"]["backend"] == "scripted"
 
 
 def test_a_tool_call_is_a_tool_event_with_sandbox_observations() -> None:

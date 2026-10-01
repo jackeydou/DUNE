@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package swarmeval.modelgw.v1;
+
+option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/modelgw/v1;modelgwv1";
+
+// RecorderService carries model-gateway's record of every model call back to the worker that owns the
+// run, so the worker commits it before the caller gets the response.
+// Behavior: docs/services/model-gateway.md.
+service RecorderService {
+  // One stream per run, dialed by the run's worker. The worker's first message is a `Hello`;
+  // the gateway answers `Attached` once the run's keys accept calls. After that the gateway
+  // sends one `CallRecord` per completed call and holds the HTTP response until the worker
+  // answers with an `Ack` or `Reject` for it. A stream for the same run with a higher
+  // `owner_epoch` replaces this one; a lower or equal one is refused with FAILED_PRECONDITION.
+  rpc Attach(stream AttachRequest) returns (stream AttachResponse);
+}
+
+message AttachRequest {
+  oneof item {
+    Hello hello = 1;
+    Ack ack = 2;
+    Reject reject = 3;
+  }
+}
+
+message AttachResponse {
+  oneof item {
+    Attached attached = 1;
+    CallRecord record = 2;
+  }
+}
+
+message Hello {
+  string run_id = 1;
+  int64 owner_epoch = 2;
+  repeated CallerKey keys = 3;
+}
+
+// A virtual key and who calls with it. Valid only while this stream is attached.
+message CallerKey {
+  string key = 1;
+  // `agent:<agent_id>` or `extension:<instance_id>`.
+  string caller = 2;
+}
+
+message Attached {}
+
+message CallRecord {
+  // The worker's id for the call, from the request's `X-SwarmEval-Call-Id` header.
+  string call_id = 1;
+  string caller = 2;
+  // sha256 of the HTTP request body exactly as the gateway received it.
+  string request_sha256 = 3;
+  // The response the caller will get: an OpenAI Chat Completions response, as JSON.
+  string response_json = 4;
+  // The backend's response body, as JSON, before the gateway normalized it.
+  string upstream_response_json = 5;
+  Upstream upstream = 6;
+  double latency_seconds = 7;
+  // HTTP attempts the call took, retries included.
+  int32 attempts = 8;
+}
+
+// What the gateway sent to, and learned from, the backend.
+message Upstream {
+  // Deployment name of the backend.
+  string backend = 1;
+  // Model name the backend was asked for.
+  string model = 2;
+  // Model name or version the backend reported.
+  string served_model = 3;
+  // `none`, `within_turn`, or `all`.
+  string reasoning_passback = 4;
+  // Set for self-hosted backends.
+  string weights_hash = 5;
+  string system_fingerprint = 6;
+  // Sampling parameters actually sent, request values and backend defaults merged, as a JSON
+  // object.
+  string sampling_json = 7;
+  // `full` while only open-weight models are supported.
+  string reasoning_visibility = 8;
+}
+
+message Ack {
+  string call_id = 1;
+  // Id of the committed event that holds the record.
+  string event_id = 2;
+}
+
+// The worker could not commit the record. The gateway fails the call with 503.
+message Reject {
+  string call_id = 1;
+  string reason = 2;
+}
