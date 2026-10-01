@@ -115,7 +115,9 @@ Every query is a `net.dns` event, qtype included.
 Under runc, docker's embedded DNS stays in the sandbox whatever `resolv.conf` says: its listener on
 127.0.0.11 shows in `/proc/net/udp` and `/proc/net/tcp`, and it resolves the names of containers on
 the same network, which is only net-gateway's. Docker has no option to turn it off. Under runsc it
-is absent *(open, runtime spec Q14)*.
+is absent. So `network_stealth: full` holds only under runsc: a runc run still goes ahead, the
+detectability probes list the embedded DNS as a known trace, and reports group runs by their
+`isolation`.
 
 ## pcap
 
@@ -153,4 +155,3 @@ needs a transparent layer below HTTP that a Python proxy would not give us.
 ## Not settled
 
 1. Waiting versus refusing when no worker is attached (runtime spec Q13).
-2. What runc's embedded DNS means for `network_stealth: full` (runtime spec Q14).

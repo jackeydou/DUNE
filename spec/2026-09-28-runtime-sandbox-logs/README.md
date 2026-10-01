@@ -394,7 +394,9 @@ model-gateway、net-gateway、sandboxd 任一不可用时，owner 暂停受影�
 - **DNS**：sandboxd 挂载容器的 `/etc/resolv.conf`，指向网关 IP，不依赖 Docker 内嵌 DNS（127.0.0.11）。agent 绕开
   resolv.conf 直接查别的 DNS 服务器，包也先到网关。
   （2026-10-01 验证后补充）runc 下内嵌 DNS 关不掉：127.0.0.11 上的监听在 `/proc/net/udp`、`/proc/net/tcp` 里看得到，
-  直接查它能解析同网络的容器名（只剩 net-gateway 的容器）。runsc 下没有这个痕迹。怎么处理见 Open question 14。
+  直接查它能解析同网络的容器名（只剩 net-gateway 的容器）。runsc 下没有这个痕迹。处理方式已定（2026-10-01，Open question
+  14）：`network_stealth: full` 只在 runsc 下成立；runc 下照常运行，可探测性自检把内嵌 DNS 列为已知痕迹，报告按 run 的
+  `isolation` 分组。
 - （2026-10-01 补充）net-gateway 的三处实现细节按 [docs](../../docs/services/net-gateway.md) 的建议采纳：策略在 run 内
   固定，改策略就是另一个 run；路由到蜜罐或 mock 的域名返回每 run 的合成地址，连接到达时再映射回域名；事件流由 worker
   拨 net-gateway，接管时新 owner 以更高的 `owner_epoch` 重拨并替换旧流。
@@ -482,9 +484,9 @@ k8s 不适用：NetworkPolicy 只能放行或拒绝，改不了路由，被拒�
 
 13. worker 挂掉到被接管之间（租约到期前），沙箱里的后台进程还在跑，net-gateway 收不到 ack：拒绝请求（agent 会看到连接
     错误，违背决定 23 的原则），还是挂起请求并冻结沙箱（worker 已经不在，由谁来冻结）。M2 开工前定。
-14. runc 下 Docker 内嵌 DNS 留下的痕迹（Open question 11）。docker 没有关掉它的选项。建议：`network_stealth: full` 只在
-    runsc 下成立，run 的实际隔离等级已经记在 `isolation` 字段；runc 下照常运行，可探测性自检把这项列为已知痕迹，报告按
-    `isolation` 分组。另一条路是 sandboxd 进沙箱的网络命名空间删掉 DNAT 规则，但监听本身还在 `/proc/net` 里，去不干净。
+14. ~~runc 下 Docker 内嵌 DNS 留下的痕迹（Open question 11）~~ 已定（2026-10-01）：`network_stealth: full` 只在 runsc
+    下成立，run 的实际隔离等级记在 `isolation` 字段；runc 下照常运行，可探测性自检把这项列为已知痕迹，报告按 `isolation`
+    分组。没选 sandboxd 进沙箱网络命名空间删 DNAT 规则：监听本身还在 `/proc/net` 里，去不干净。
 
 ## Plan
 
