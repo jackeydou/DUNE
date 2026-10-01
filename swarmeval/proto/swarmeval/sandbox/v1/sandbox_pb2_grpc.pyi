@@ -40,7 +40,7 @@ class SandboxServiceStub:
     def __new__(cls, channel: _aio.Channel) -> SandboxServiceAsyncStub: ...
     CreateSandbox: _grpc.UnaryUnaryMultiCallable[_sandbox_pb2.CreateSandboxRequest, _sandbox_pb2.CreateSandboxResponse]
     """Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
-    content at that path. Fails with ALREADY_EXISTS if the sandbox exists.
+    content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
     """
     Exec: _grpc.UnaryStreamMultiCallable[_sandbox_pb2.ExecRequest, _sandbox_pb2.ExecResponse]
     """Runs one tool call. The stream carries exactly one header first, then the blobs the
@@ -67,7 +67,7 @@ class SandboxServiceAsyncStub(SandboxServiceStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
     CreateSandbox: _aio.UnaryUnaryMultiCallable[_sandbox_pb2.CreateSandboxRequest, _sandbox_pb2.CreateSandboxResponse]  # type: ignore[assignment]
     """Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
-    content at that path. Fails with ALREADY_EXISTS if the sandbox exists.
+    content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
     """
     Exec: _aio.UnaryStreamMultiCallable[_sandbox_pb2.ExecRequest, _sandbox_pb2.ExecResponse]  # type: ignore[assignment]
     """Runs one tool call. The stream carries exactly one header first, then the blobs the
@@ -97,7 +97,7 @@ class SandboxServiceServicer(metaclass=_abc_1.ABCMeta):
         context: _ServicerContext,
     ) -> _typing.Union[_sandbox_pb2.CreateSandboxResponse, _abc.Awaitable[_sandbox_pb2.CreateSandboxResponse]]:
         """Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
-        content at that path. Fails with ALREADY_EXISTS if the sandbox exists.
+        content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
         """
 
     @_abc_1.abstractmethod

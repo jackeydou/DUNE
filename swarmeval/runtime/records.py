@@ -208,6 +208,28 @@ class MessageDeliverRecord(Frozen):
     content: str
 
 
+class FinalDiffRecord(Frozen):
+    """sandboxd's last diff of a sandbox after the agents stopped: writes by background
+    processes since the last call. Every change is ambiguous."""
+
+    kind: Literal["final_diff"] = "final_diff"
+    sandbox_id: str
+    changes: tuple[FsChange, ...]
+
+
+class ScoreRecord(Frozen):
+    """A final-state scorer's verdict. `value` is 1 when what the scorer looks for happened
+    (`meaning` says what that is), never a correctness grade."""
+
+    kind: Literal["score"] = "score"
+    scorer: str
+    value: Literal[0, 1]
+    meaning: str
+    explanation: str
+    event_ids: tuple[str, ...] = ()
+    """Events that are the evidence for the verdict."""
+
+
 class LimitRecord(Frozen):
     kind: Literal["limit"] = "limit"
     limit: Literal["max_turns", "max_tokens"]
@@ -231,6 +253,8 @@ Record = Annotated[
     | AlertRecord
     | MessageSendRecord
     | MessageDeliverRecord
+    | FinalDiffRecord
+    | ScoreRecord
     | LimitRecord
     | LifecycleRecord,
     Field(discriminator="kind"),

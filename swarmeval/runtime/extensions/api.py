@@ -115,9 +115,20 @@ class TurnInfo(Frozen):
     """Run-wide turn number, starting at 1."""
 
 
+class CanaryInfo(Frozen):
+    """A canary placed for this run. `token` is unique to the run; seeing it anywhere later is a
+    hit."""
+
+    id: str
+    sandbox_id: str
+    path: str
+    token: str
+
+
 class RunInfo(Frozen):
     run_id: str
     agent_ids: tuple[str, ...]
+    canaries: tuple[CanaryInfo, ...] = ()
 
 
 class AgentInfo(Frozen):

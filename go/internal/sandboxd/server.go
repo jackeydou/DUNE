@@ -41,6 +41,10 @@ func (s *Server) CreateSandbox(ctx context.Context, req *sandboxv1.CreateSandbox
 	for i, m := range req.GetMounts() {
 		mounts[i] = Mount{Path: m.GetPath(), ReadOnly: m.GetReadOnly(), Protected: m.GetProtected()}
 	}
+	files := make([]SeedFile, len(req.GetFiles()))
+	for i, f := range req.GetFiles() {
+		files[i] = SeedFile{Path: f.GetPath(), Content: f.GetContent(), Mode: fs.FileMode(f.GetMode()).Perm()}
+	}
 	runtime, err := s.svc.CreateSandbox(ctx, CreateRequest{
 		RunID:     req.GetRunId(),
 		SandboxID: req.GetSandboxId(),
@@ -52,6 +56,7 @@ func (s *Server) CreateSandbox(ctx context.Context, req *sandboxv1.CreateSandbox
 			Pids:        res.GetPids(),
 			DiskBytes:   res.GetDiskBytes(),
 		},
+		Files: files,
 	})
 	if err != nil {
 		return nil, s.status("CreateSandbox", err)

@@ -7,7 +7,12 @@ from typing import Any
 from pydantic import JsonValue
 
 from swarmeval.gateway.bus import ChannelSpec
-from swarmeval.runtime.extensions import Extension, ExtensionUse, load_extensions
+from swarmeval.runtime.extensions import (
+    CanaryInfo,
+    Extension,
+    ExtensionUse,
+    load_extensions,
+)
 from swarmeval.runtime.loop import AgentSpec, Limits, RunLoop, RunSpec
 from swarmeval.runtime.messages import (
     AssistantMessage,
@@ -212,6 +217,7 @@ def harness(
     store: FakeStore | None = None,
     seed: int = 7,
     channels: tuple[ChannelSpec, ...] = (),
+    canaries: tuple[CanaryInfo, ...] = (),
 ) -> Harness:
     store = store or FakeStore()
     writer = RunWriter(store)
@@ -224,7 +230,14 @@ def harness(
         resolve=resolver(*(e for e, _ in exts)),
     )
     loop = RunLoop(
-        RunSpec(run_id="run_1", seed=seed, agents=agents, limits=limits, channels=channels),
+        RunSpec(
+            run_id="run_1",
+            seed=seed,
+            agents=agents,
+            limits=limits,
+            channels=channels,
+            canaries=canaries,
+        ),
         writer=writer,
         model_client=model,
         sandbox_executor=sandbox,

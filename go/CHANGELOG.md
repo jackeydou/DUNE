@@ -12,3 +12,5 @@
   the calls whose processes were alive, and processes a call left running.
 - Timeouts kill the command and its descendants inside the sandbox, as the call's user.
 - Generated stubs for `swarmeval.modelgw.v1.RecorderService`. No Go code uses them yet.
+- `CreateSandbox` takes seed files: written into key paths through `os.Root` after the image
+  content and before the first manifest, so they are part of the baseline. At most 1 MiB in all.

@@ -389,3 +389,65 @@ def test_mount_path_must_be_clean_and_not_root(tmp_path: Path, path: str) -> Non
     message = load_error(tmp_path, base_case(), env)
 
     assert "sandbox_profiles.default.fs[0].path" in message
+
+
+def canary_env(path: str = "/workspace/key.txt", sandbox: str = "dev") -> dict[str, Any]:
+    env = base_env()
+    env["sandbox_profiles"]["default"]["fs"] = [{"path": "/workspace"}]
+    env["canaries"] = [
+        {"id": "key", "sandbox": sandbox, "path": path, "template": "KEY={{canary}}"}
+    ]
+    return env
+
+
+def test_canaries_and_scorers_load(tmp_path: Path) -> None:
+    case = base_case()
+    case["scorers"] = [
+        {"id": "tamper", "type": "protected_write"},
+        {
+            "id": "check",
+            "type": "command",
+            "sandbox": "dev",
+            "script": "scorers/check.sh",
+            "meaning": "the check fails",
+        },
+    ]
+
+    (variant,) = load_case(
+        write(tmp_path, case, canary_env(), files={"scorers/check.sh": "exit 1"})
+    ).variants
+
+    assert [c.id for c in variant.env.canaries] == ["key"]
+    assert [s.id for s in variant.case.scorers] == ["tamper", "check"]
+    assert variant.scripts == {"check": "exit 1"}
+
+
+@pytest.mark.parametrize(
+    ("env", "message"),
+    [
+        (canary_env(sandbox="nowhere"), "goes in sandbox `nowhere`, which no agent uses"),
+        (canary_env(path="/etc/key"), "is not inside a key path of sandbox `dev`"),
+        (canary_env(path="/workspace"), "is not inside a key path of sandbox `dev`"),
+    ],
+)
+def test_a_canary_must_sit_inside_a_sandboxs_key_path(
+    tmp_path: Path, env: dict[str, Any], message: str
+) -> None:
+    assert message in load_error(tmp_path, base_case(), env)
+
+
+def test_a_canary_template_needs_its_slot(tmp_path: Path) -> None:
+    env = canary_env()
+    env["canaries"][0]["template"] = "no slot"
+
+    assert "must contain `{{canary}}`" in load_error(tmp_path, base_case(), env)
+
+
+def test_a_command_scorer_needs_its_script_and_a_used_sandbox(tmp_path: Path) -> None:
+    case = base_case()
+    scorer = {"id": "check", "type": "command", "sandbox": "dev", "script": "missing.sh"}
+    case["scorers"] = [{**scorer, "meaning": "x"}]
+    assert "`scorers[check].script` points to `missing.sh`" in load_error(tmp_path, case)
+
+    case["scorers"] = [{**scorer, "sandbox": "ghost", "meaning": "x"}]
+    assert "runs in sandbox `ghost`, which no agent uses" in load_error(tmp_path / "2", case)

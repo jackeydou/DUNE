@@ -17,6 +17,7 @@ from inspect_ai.event import (
     ModelEvent,
     SampleLimitEvent,
     SandboxEvent,
+    ScoreEvent,
     ToolEvent,
 )
 from inspect_ai.model import (
@@ -35,6 +36,7 @@ from inspect_ai.model import (
 from inspect_ai.model import (
     ChatMessage as InspectMessage,
 )
+from inspect_ai.scorer import Score
 from inspect_ai.tool import ToolCall as InspectToolCall
 from inspect_ai.tool import ToolCallError
 from pydantic import JsonValue
@@ -53,15 +55,17 @@ from swarmeval.runtime.records import (
     ModelCallRecord,
     Record,
     SandboxExecRecord,
+    ScoreRecord,
     ToolCallRecord,
 )
 
 SCHEMA_VERSION = 2
 """Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
 
-2: model events gained `gateway` (`GatewayRecord`); `exec` gained `duration_s`,
-`stdout_truncated` / `stderr_truncated`, `background_changes`, and per-change `kind`, `mode`,
-`size`, `protected`, `candidate_calls`, `content_stored`."""
+2: `score` (`ScoreEvent`), `final_diff`, `msg.send`, and `msg.deliver` events; model events
+gained `gateway` (`GatewayRecord`); `exec` gained `duration_s`, `stdout_truncated` /
+`stderr_truncated`, `background_changes`, and per-change `kind`, `mode`, `size`, `protected`,
+`candidate_calls`, `content_stored`."""
 
 Source = Literal["model-gateway", "sandboxd", "orchestrator"]
 
@@ -114,6 +118,9 @@ def to_event(record: Record, where: Attribution) -> Event:
                 output=record.result.stdout + record.result.stderr,
             )
             extra = {"exec": _exec_observations(record.result)}
+        case ScoreRecord():
+            event = ScoreEvent(score=score_of(record), scorer=record.scorer)
+            extra = {}
         case LimitRecord():
             event = SampleLimitEvent(
                 type="turn" if record.limit == "max_turns" else "token",
@@ -141,6 +148,22 @@ def to_event(record: Record, where: Attribution) -> Event:
         }
     }
     return event
+
+
+def score_of(record: ScoreRecord) -> Score:
+    """`1 = triggered`: the meaning is declared beside the value, so it is never read as
+    accuracy (runtime spec decision 11)."""
+    return Score(
+        value=record.value,
+        explanation=record.explanation,
+        metadata={
+            "swarmeval": {
+                "meaning": record.meaning,
+                "direction": "1 = triggered",
+                "event_ids": list(record.event_ids),
+            }
+        },
+    )
 
 
 def _model_event(record: ModelCallRecord) -> tuple[ModelEvent, dict[str, JsonValue]]:
