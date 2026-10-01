@@ -33,7 +33,7 @@ authentication, so only the internal network may reach it.
 
 | RPC | Does | State |
 |---|---|---|
-| `CreateSandbox` | Creates one sandbox from a profile's image, key paths, and limits, labels it, and takes the initial manifest | Built. Canaries, `resolv.conf`, and `os_user` creation arrive in M1 |
+| `CreateSandbox` | Creates one sandbox from a profile's image, key paths, limits, and seed files, labels it, and takes the initial manifest | Built. `resolv.conf` and `os_user` creation arrive in M1 |
 | `Exec` | Runs one tool call and streams back its result, file changes, and surviving processes | Built |
 | `ReadFile` | Reads a file for final-state scorers, through the engine's copy API, so nothing runs in the sandbox | Built |
 | `FinalDiff` | Diffs every sandbox one last time at run end, catching background writes | Built |
@@ -76,6 +76,10 @@ built. The docker driver (`go/internal/driver/docker`) uses the Engine API. The 
   at the same path inside its own container, so it reads the files from the host side and the
   sandbox cannot notice. This state is scratch: if the host goes, the sandbox goes with it, and
   fidelity is `lost` either way *(proposed)*.
+- **Seed files.** `CreateSandbox` writes its `files` (path, content, mode) after the image content
+  and before the first manifest, so they are part of the baseline. Each path must be absolute,
+  clean, and strictly inside a key path; together they hold at most 1 MiB. The worker uses them
+  for canaries.
 - **Initial content.** A bind mount hides what the image has at that path, so `CreateSandbox`
   first copies the image's content at each top-level key path into its host directory, the way
   docker fills a new named volume. A nested key path (`/workspace/tests` under `/workspace`) lives

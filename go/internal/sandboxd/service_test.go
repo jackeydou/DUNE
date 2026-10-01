@@ -334,3 +334,57 @@ func TestRequestsAreValidated(t *testing.T) {
 		}
 	}
 }
+
+func TestSeedFilesArePartOfTheBaseline(t *testing.T) {
+	state := t.TempDir()
+	drv := &fakeDriver{
+		image: map[string]*tarEntry{"/workspace": {name: "workspace/seed.txt", body: "seed"}},
+		handler: func(context.Context, driver.ExecSpec, io.Writer, io.Writer) (int, error) {
+			return 0, nil
+		},
+	}
+	svc := New(DefaultConfig(state), drv, slog.New(slog.DiscardHandler))
+	_, err := svc.CreateSandbox(context.Background(), CreateRequest{
+		RunID: "run_1", SandboxID: "box", Image: "img",
+		Mounts: []Mount{{Path: "/workspace"}, {Path: "/workspace/tests", ReadOnly: true}},
+		Files: []SeedFile{
+			{Path: "/workspace/keys/answers.json", Content: []byte("CANARY-1"), Mode: 0o600},
+			{Path: "/workspace/tests/fixture.txt", Content: []byte("x")},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(state, "run_1", "box", "fs", "workspace")
+	info, err := os.Stat(filepath.Join(workspace, "keys", "answers.json"))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("answers.json: %v, %v", info, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(workspace, "tests", "fixture.txt")); string(got) != "x" {
+		t.Fatalf("fixture.txt = %q; a seed under a nested key path lands in its parent's host dir", got)
+	}
+
+	res, err := svc.Exec(context.Background(), ExecRequest{
+		RunID: "run_1", SandboxID: "box", CallID: "call_1", Argv: []string{"true"}, Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Changes) != 0 || len(res.Background) != 0 {
+		t.Fatalf("changes = %v, background = %v; seed files belong to the baseline", paths(res.Changes), paths(res.Background))
+	}
+}
+
+func TestSeedFilesOutsideKeyPathsAreRefused(t *testing.T) {
+	for _, p := range []string{"/etc/passwd", "/workspace", "workspace/x", "/workspace/../etc/x"} {
+		svc := New(DefaultConfig(t.TempDir()), &fakeDriver{}, slog.New(slog.DiscardHandler))
+		_, err := svc.CreateSandbox(context.Background(), CreateRequest{
+			RunID: "run_1", SandboxID: "box", Image: "img",
+			Mounts: []Mount{{Path: "/workspace"}},
+			Files:  []SeedFile{{Path: p, Content: []byte("x")}},
+		})
+		if !errors.Is(err, ErrInvalid) {
+			t.Errorf("seed %q: err = %v, want ErrInvalid", p, err)
+		}
+	}
+}

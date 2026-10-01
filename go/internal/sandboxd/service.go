@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -54,6 +55,8 @@ type Config struct {
 	ContentBudget int64
 	// KillTimeout bounds killing a timed-out command.
 	KillTimeout time.Duration
+	// SeedLimit caps the total content of a CreateSandbox's seed files.
+	SeedLimit int
 }
 
 // DefaultConfig returns the limits sandboxd uses unless flags override them.
@@ -66,6 +69,7 @@ func DefaultConfig(stateDir string) Config {
 		ContentLimit:  1 << 20,
 		ContentBudget: 64 << 20,
 		KillTimeout:   10 * time.Second,
+		SeedLimit:     1 << 20,
 	}
 }
 
@@ -112,6 +116,14 @@ type CreateRequest struct {
 	Image     string
 	Mounts    []Mount
 	Resources driver.Resources
+	Files     []SeedFile
+}
+
+// SeedFile is written into a key path before the first manifest.
+type SeedFile struct {
+	Path    string
+	Content []byte
+	Mode    fs.FileMode
 }
 
 // CreateSandbox creates and starts a sandbox and takes its first manifest. It returns the
@@ -125,6 +137,9 @@ func (s *Service) CreateSandbox(ctx context.Context, req CreateRequest) (string,
 	}
 	mounts, err := cleanMounts(req.Mounts)
 	if err != nil {
+		return "", fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+	}
+	if err := checkSeeds(req.Files, mounts, s.cfg.SeedLimit); err != nil {
 		return "", fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
 	}
 	runtime, err := s.runtime(ctx)
@@ -175,6 +190,9 @@ func (s *Service) create(ctx context.Context, req CreateRequest, sb *sandbox, ru
 			return fmt.Errorf("create key path %s for sandbox %s: %w", m.Path, req.SandboxID, err)
 		}
 		binds = append(binds, driver.Bind{HostPath: host, ContainerPath: m.Path, ReadOnly: m.ReadOnly})
+	}
+	if err := seed(sb.mounts, fsDir, req.Files); err != nil {
+		return fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
 	}
 
 	id, err := s.drv.CreateContainer(ctx, driver.ContainerSpec{
@@ -587,4 +605,29 @@ func protected(mounts []Mount, p string) bool {
 
 func under(p, dir string) bool {
 	return p == dir || strings.HasPrefix(p, dir+"/")
+}
+
+func checkSeeds(files []SeedFile, mounts []Mount, limit int) error {
+	total := 0
+	seen := map[string]bool{}
+	for _, f := range files {
+		if !path.IsAbs(f.Path) || path.Clean(f.Path) != f.Path {
+			return fmt.Errorf("%w: seed file %q must be absolute and clean", ErrInvalid, f.Path)
+		}
+		if !slices.ContainsFunc(mounts, func(m Mount) bool { return strings.HasPrefix(f.Path, m.Path+"/") }) {
+			return fmt.Errorf("%w: seed file %s is not inside a key path", ErrInvalid, f.Path)
+		}
+		if slices.ContainsFunc(mounts, func(m Mount) bool { return m.Path == f.Path }) {
+			return fmt.Errorf("%w: seed file %s is a key path itself", ErrInvalid, f.Path)
+		}
+		if seen[f.Path] {
+			return fmt.Errorf("%w: seed file %s is listed twice", ErrInvalid, f.Path)
+		}
+		seen[f.Path] = true
+		total += len(f.Content)
+	}
+	if total > limit {
+		return fmt.Errorf("%w: seed files hold %d bytes, over the %d byte limit", ErrInvalid, total, limit)
+	}
+	return nil
 }

@@ -14,6 +14,7 @@ from swarmeval.gateway.bus import ChannelSpec, MessageBus
 from swarmeval.runtime.extensions.api import (
     AgentInfo,
     Block,
+    CanaryInfo,
     ExtensionError,
     Inject,
     Rewrite,
@@ -89,6 +90,7 @@ class RunSpec:
     agents: tuple[AgentSpec, ...]
     limits: Limits = Limits()
     channels: tuple[ChannelSpec, ...] = ()
+    canaries: tuple[CanaryInfo, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -170,7 +172,11 @@ class RunLoop:
         """Runs a fresh run to its end. Raises `ExtensionError` after recording the failure."""
         dispatcher = HookDispatcher(
             extensions=self._extensions,
-            run=RunInfo(run_id=self._spec.run_id, agent_ids=tuple(self._agents)),
+            run=RunInfo(
+                run_id=self._spec.run_id,
+                agent_ids=tuple(self._agents),
+                canaries=self._spec.canaries,
+            ),
             agents={a.spec.id: a.info for a in self._agents.values()},
             seed=self._spec.seed,
             states=await self._store.extension_states(),

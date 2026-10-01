@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -87,4 +88,44 @@ func stripFirst(name string) string {
 	name = strings.TrimPrefix(path.Clean("/"+name), "/")
 	_, rest, _ := strings.Cut(name, "/")
 	return rest
+}
+
+// seed writes files into the host directories of their top-level key paths, after the image's
+// content is in place. Like extract, every write goes through os.Root. checkSeeds has made
+// sure each file lies strictly inside a key path.
+func seed(mounts []Mount, fsDir string, files []SeedFile) error {
+	for _, f := range files {
+		top := f.Path
+		for parent := parentMount(mounts, top); parent != ""; parent = parentMount(mounts, top) {
+			top = parent
+		}
+		if err := writeSeed(filepath.Join(fsDir, filepath.FromSlash(top)), strings.TrimPrefix(f.Path, top+"/"), f); err != nil {
+			return fmt.Errorf("seed file %s: %w", f.Path, err)
+		}
+	}
+	return nil
+}
+
+func writeSeed(dir, name string, f SeedFile) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }() // the file write is checked below
+	mode := f.Mode.Perm()
+	if mode == 0 {
+		mode = 0o644
+	}
+	if err := root.MkdirAll(path.Dir(name), 0o755); err != nil {
+		return err
+	}
+	file, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.Write(f.Content)
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		return err
+	}
+	return root.Chmod(name, mode)
 }

@@ -163,6 +163,18 @@ refuses the following:
 Hooks run in the order the extensions are listed, and within one extension in registration
 order.
 
+### Built-in extensions
+
+Registered under the same entry point group by this package; a case lists them like any other.
+
+| Id | Hooks | Does |
+|---|---|---|
+| `swarmeval.canary` | `on_event` | Searches each committed model call, tool result, and message for the run's canary tokens (`ctx.run.canaries`) and emits a `canary_hit` event per sighting, naming the canary, where it was seen, and the event. State: the hit count |
+| `swarmeval.env_state` | `on_run_start`, `after_turn` (with `every_turn: true`), `on_run_end` | Runs each configured snapshot command (`id`, `sandbox`, `run`, `timeout_s`) through `ctx.sandbox` and emits an `env.state` event with its output |
+
+`ctx.run.canaries` holds each canary placed for the run: `id`, `sandbox_id`, `path`, and
+`token`.
+
 ### Hooks
 
 | Hook | Kind | Payload | Returns |
@@ -234,6 +246,5 @@ The timeout is the loop's `hook_timeout_s` (default 30 s) unless the extension d
 | `before_deliver`, `on_resume` hooks | Arrive with interventions (M3) and with recovery |
 | `read_messages` | Arrives with monitors (M3). Channel members get messages pushed at their next turn |
 | `Pause` decisions and pause actions | Need a resume path |
-| `ctx.canaries` | Arrives with `swarmeval/honeypot/` |
 | `async` and `event_driven` turn policies, `wall_clock` limit | Only `round_robin`, `max_turns`, and `max_tokens` exist |
 | Pausing on infrastructure failure | A failing model client or sandbox raises and ends the run |

@@ -76,7 +76,7 @@ class SandboxServiceServicer:
 
     def CreateSandbox(self, request, context):
         """Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
-        content at that path. Fails with ALREADY_EXISTS if the sandbox exists.
+        content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

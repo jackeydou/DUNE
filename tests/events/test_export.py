@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 from inspect_ai.event import ModelEvent, SpanBeginEvent, SpanEndEvent
 from inspect_ai.log import EvalLog, read_eval_log
+from inspect_ai.scorer import Score
 from pydantic import JsonValue
 
 from swarmeval.events import (
@@ -21,7 +22,7 @@ from swarmeval.events import (
 from swarmeval.events.seal import ChainHead, seal
 from swarmeval.runtime import Limits
 from swarmeval.runtime.messages import ChatMessage
-from swarmeval.runtime.records import EventDraft, LifecycleRecord
+from swarmeval.runtime.records import EventDraft, LifecycleRecord, ScoreRecord, Transaction
 from tests.runtime.fakes import NO_LIMITS, FakeStore, agent, call, harness, reply
 
 RUN = "run_x"
@@ -201,3 +202,28 @@ async def test_a_header_missing_an_agent_is_refused() -> None:
 def test_a_run_without_events_is_refused() -> None:
     with pytest.raises(ValueError, match="no events"):
         assemble(HEADER, StoredRun(workspace="ws", events=[], messages={}))
+
+
+async def test_scores_land_in_the_sample_and_the_results(tmp_path: Path) -> None:
+    fake = await two_agent_run()
+    verdict = ScoreRecord(
+        scorer="tamper",
+        value=1,
+        meaning="something wrote under a protected path",
+        explanation="modify box_a:/workspace/tests/t.py",
+        event_ids=("evt_3",),
+    )
+    await fake.commit(Transaction(events=[EventDraft(record=verdict)]))
+
+    log = read_back(assemble(HEADER, stored(fake)), tmp_path)
+
+    assert log.samples is not None
+    scores = log.samples[0].scores
+    assert scores is not None
+    score: Score = scores["tamper"]
+    assert score.value == 1
+    assert score.metadata is not None
+    assert score.metadata["swarmeval"]["direction"] == "1 = triggered"
+    assert log.results is not None
+    (result,) = log.results.scores
+    assert (result.name, result.metrics["mean"].value) == ("tamper", 1.0)

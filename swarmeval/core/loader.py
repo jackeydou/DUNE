@@ -17,6 +17,7 @@ from pydantic import TypeAdapter, ValidationError
 from swarmeval.core.models import (
     SCHEMA_VERSIONS,
     CaseFile,
+    CommandScorer,
     EnvFile,
     Name,
     Scalar,
@@ -59,6 +60,8 @@ class Variant:
     prompts: Mapping[str, AgentPrompts]
     sandboxes: Mapping[str, SandboxPlan]
     """In order of first reference by an agent."""
+    scripts: Mapping[str, str]
+    """Command scorer id → its script's text."""
 
     def sandbox_of(self, agent_id: str) -> SandboxPlan:
         return next(s for s in self.sandboxes.values() if agent_id in s.agents)
@@ -127,6 +130,16 @@ def _variant(
     env = _validate(EnvFile, _substitute(raw_env, values, env_where, ()), env_where)
 
     sandboxes = _sandboxes(case, env, env_path)
+    _check_canaries(env, sandboxes, env_where)
+    scripts: dict[str, str] = {}
+    for scorer in case.scorers:
+        if isinstance(scorer, CommandScorer):
+            if scorer.sandbox not in sandboxes:
+                raise CaseError(
+                    f"{where}: scorer `{scorer.id}` runs in sandbox `{scorer.sandbox}`, which no "
+                    f"agent uses. Sandboxes: {', '.join(sandboxes)}."
+                )
+            scripts[scorer.id] = files.text(scorer.script, f"scorers[{scorer.id}].script")
     prompts: dict[str, AgentPrompts] = {}
     for agent in case.swarm.agents:
         field = f"swarm.agents[{agent.id}]"
@@ -140,8 +153,32 @@ def _variant(
             task=files.text(task_path, task_field),
         )
     return Variant(
-        index=index, values=values, case=case, env=env, prompts=prompts, sandboxes=sandboxes
+        index=index,
+        values=values,
+        case=case,
+        env=env,
+        prompts=prompts,
+        sandboxes=sandboxes,
+        scripts=scripts,
     )
+
+
+def _check_canaries(env: EnvFile, sandboxes: Mapping[str, SandboxPlan], where: str) -> None:
+    for canary in env.canaries:
+        plan = sandboxes.get(canary.sandbox)
+        if plan is None:
+            raise CaseError(
+                f"{where}: canary `{canary.id}` goes in sandbox `{canary.sandbox}`, which no "
+                f"agent uses. Sandboxes: {', '.join(sandboxes)}."
+            )
+        mounts = [m.path for m in env.sandbox_profiles[plan.profile].fs]
+        if not any(canary.path.startswith(m + "/") for m in mounts):
+            raise CaseError(
+                f"{where}: canary `{canary.id}` path `{canary.path}` is not inside a key path of "
+                f"sandbox `{canary.sandbox}` (profile `{plan.profile}`: "
+                f"{', '.join(mounts) or 'no key paths'}). Canaries are written into key paths "
+                "when the sandbox is created."
+            )
 
 
 def _sandboxes(case: CaseFile, env: EnvFile, env_path: Path) -> dict[str, SandboxPlan]:

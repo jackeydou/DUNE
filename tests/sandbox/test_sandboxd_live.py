@@ -19,7 +19,7 @@ import pytest
 
 from swarmeval.core.models import SandboxProfile
 from swarmeval.runtime.records import Exec
-from swarmeval.sandbox import RunSandboxes
+from swarmeval.sandbox import RunSandboxes, SeedFile
 from tests.sandbox.test_client import MemoryBlobs
 
 pytestmark = pytest.mark.docker
@@ -112,6 +112,22 @@ async def test_two_agents_writes_in_a_shared_sandbox_are_attributed_per_call(
     assert qa.fs_changes[0].after_sha256 == hashlib.sha256(b"qa\n").hexdigest()
     file = await run.read_file("team_box", "/workspace/dev.txt")
     assert file.content == b"dev\n"
+
+
+async def test_seed_files_are_in_place_and_not_reported_as_changes(run: RunSandboxes) -> None:
+    await run.create(
+        "box", PROFILE, [SeedFile(path="/workspace/keys/answers.json", content=b"CANARY-7")]
+    )
+
+    result = await run.exec(
+        "box",
+        None,
+        Exec(argv=("sh", "-c", "cat /workspace/keys/answers.json"), timeout_s=10),
+        call_id="c1",
+    )
+
+    assert result.stdout == "CANARY-7"
+    assert result.fs_changes == () and result.background_changes == ()
 
 
 async def test_background_writes_surface_in_the_final_diff(run: RunSandboxes) -> None:

@@ -30,9 +30,9 @@ defines a second event structure. It extends Inspect in two ways only:
 | Interrupted tool call | `InterruptEvent` |
 | Recovery point, pause | `CheckpointEvent` |
 | Budget or limit hit | `SampleLimitEvent` |
-| Score | `ScoreEvent` / `Score` |
+| Score | `ScoreEvent` / `Score`, with `Score.metadata.swarmeval` holding `meaning`, `direction` (`1 = triggered`), and `event_ids` |
 | `msg.send` / `msg.deliver`, `net.*`, `env.state`, `monitor.*`, `run.lifecycle` | `InfoEvent(source="swarmeval.<type>")` |
-| Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record |
+| Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert`, `final_diff` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record |
 
 One record is one event. The conversion is `swarmeval.events.convert.to_event`.
 
@@ -188,8 +188,9 @@ How a run becomes a `.eval` (`swarmeval.events.export_run`):
    `agent:<agent_id>`, and set their `span_id`. Events with no agent stay at the top level.
 4. Build one `EvalSample`: `id` is the case id, `uuid` the run id, `input` the case task. There is
    no target and no `messages` list, since a swarm has one conversation per agent; the
-   transcript is in `events`. A `SampleLimitEvent` becomes `sample.limit`, and model usage is
-   summed per model.
+   transcript is in `events`. A `SampleLimitEvent` becomes `sample.limit`, model usage is
+   summed per model, and each scorer's last `ScoreEvent` becomes `sample.scores[<scorer>]` and
+   an `EvalScore` in `results` with a `mean` metric.
 5. Build the `EvalLog` from a `RunHeader` the worker supplies (case id, variant index and axis
    values, epoch, agent models). `eval.model` is the first agent's model; every agent's model is
    in `eval.metadata.swarmeval.models`. A run whose last lifecycle event is `failed` has status

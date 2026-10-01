@@ -21,6 +21,10 @@ dependencies = [
     "uvicorn>=0.54.0",
 ]
 
+[project.entry-points."swarmeval.extensions"]
+"swarmeval.canary" = "swarmeval.honeypot.canary:setup"
+"swarmeval.env_state" = "swarmeval.honeypot.env_state:setup"
+
 [project.scripts]
 swarmeval-model-gateway = "swarmeval.gateway.model.server:main"
 

@@ -88,6 +88,7 @@ class CreateSandboxRequest(_message.Message):
     IMAGE_FIELD_NUMBER: _builtins.int
     MOUNTS_FIELD_NUMBER: _builtins.int
     RESOURCES_FIELD_NUMBER: _builtins.int
+    FILES_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     sandbox_id: _builtins.str
     image: _builtins.str
@@ -97,6 +98,13 @@ class CreateSandboxRequest(_message.Message):
 
     @_builtins.property
     def resources(self) -> Global___Resources: ...
+    @_builtins.property
+    def files(self) -> _containers.RepeatedCompositeFieldContainer[Global___SeedFile]:
+        """Written into key paths after the image's content is copied and before the first manifest,
+        so they are part of the baseline and never reported as a change. For per-run content such
+        as canaries.
+        """
+
     def __init__(
         self,
         *,
@@ -105,14 +113,42 @@ class CreateSandboxRequest(_message.Message):
         image: _builtins.str = ...,
         mounts: _abc.Iterable[Global___Mount] | None = ...,
         resources: Global___Resources | None = ...,
+        files: _abc.Iterable[Global___SeedFile] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["resources", b"resources"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["image", b"image", "mounts", b"mounts", "resources", b"resources", "run_id", b"run_id", "sandbox_id", b"sandbox_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["files", b"files", "image", b"image", "mounts", b"mounts", "resources", b"resources", "run_id", b"run_id", "sandbox_id", b"sandbox_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___CreateSandboxRequest: _TypeAlias = CreateSandboxRequest  # noqa: Y015
+
+@_typing.final
+class SeedFile(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PATH_FIELD_NUMBER: _builtins.int
+    CONTENT_FIELD_NUMBER: _builtins.int
+    MODE_FIELD_NUMBER: _builtins.int
+    path: _builtins.str
+    """Absolute and clean, strictly inside a key path."""
+    content: _builtins.bytes
+    mode: _builtins.int
+    """Permission bits; zero means 0644."""
+    def __init__(
+        self,
+        *,
+        path: _builtins.str = ...,
+        content: _builtins.bytes = ...,
+        mode: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["content", b"content", "mode", b"mode", "path", b"path"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SeedFile: _TypeAlias = SeedFile  # noqa: Y015
 
 @_typing.final
 class CreateSandboxResponse(_message.Message):

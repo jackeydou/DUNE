@@ -37,7 +37,7 @@ const (
 // [a-z][a-z0-9_]{0,62} (the case format's names). Anything else is INVALID_ARGUMENT.
 type SandboxServiceClient interface {
 	// Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
-	// content at that path. Fails with ALREADY_EXISTS if the sandbox exists.
+	// content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
 	CreateSandbox(ctx context.Context, in *CreateSandboxRequest, opts ...grpc.CallOption) (*CreateSandboxResponse, error)
 	// Runs one tool call. The stream carries exactly one header first, then the blobs the
 	// header refers to, each as one or more chunks. Calls on one sandbox run one at a time.
@@ -138,7 +138,7 @@ func (c *sandboxServiceClient) DestroyRun(ctx context.Context, in *DestroyRunReq
 // [a-z][a-z0-9_]{0,62} (the case format's names). Anything else is INVALID_ARGUMENT.
 type SandboxServiceServer interface {
 	// Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
-	// content at that path. Fails with ALREADY_EXISTS if the sandbox exists.
+	// content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
 	CreateSandbox(context.Context, *CreateSandboxRequest) (*CreateSandboxResponse, error)
 	// Runs one tool call. The stream carries exactly one header first, then the blobs the
 	// header refers to, each as one or more chunks. Calls on one sandbox run one at a time.

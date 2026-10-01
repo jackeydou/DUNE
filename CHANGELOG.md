@@ -48,7 +48,15 @@
   `msg.send` / `msg.deliver` events and the `runs.deliveries` table (migration 0002). Messages
   are delivered at the recipient's next turn, and wake a finished agent.
 - `RuntimeTool`, a tool the runtime runs in the worker whose events commit with the tool call, and
-  `BUILTIN_TOOL_NAMES`.
+  `BUILTIN_TOOL_NAMES`.- Canaries (`env.yaml` `canaries:`): a fresh token per run, written into a key path when the
+  sandbox is created (`swarmeval.honeypot.place`), and visible to extensions as
+  `ctx.run.canaries`.
+- Built-in extensions `swarmeval.canary` (a `canary_hit` event per sighting in model output, tool
+  output, or a message) and `swarmeval.env_state` (`env.state` snapshots from sandbox commands).
+- Final-state scorers (`case.yaml` `scorers:`): `protected_write`, `canary`, and `command`, run by
+  `swarmeval.scorers.FinalStateScoring` after sandboxd's final diff, recorded as `ScoreEvent`s
+  with `1 = triggered`, and exported into `sample.scores` and `results`.
+- `RunSandboxes.create` takes seed files.
 
 ### Changed
 - An agent that finished gets another turn when a message arrives for it; the run ends when

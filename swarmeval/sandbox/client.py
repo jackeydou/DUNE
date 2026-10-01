@@ -7,7 +7,7 @@ it reaches the blob store.
 """
 
 import hashlib
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
@@ -29,6 +29,15 @@ class SandboxdError(Exception):
     def __init__(self, message: str, code: grpc.StatusCode | None = None) -> None:
         super().__init__(message)
         self.code = code
+
+
+@dataclass(frozen=True)
+class SeedFile:
+    """Written into a key path when the sandbox is created, as part of its baseline."""
+
+    path: str
+    content: bytes
+    mode: int = 0o644
 
 
 @dataclass(frozen=True)
@@ -78,7 +87,9 @@ class RunSandboxes:
         self._blobs = blobs
         self._exec_margin_s = exec_margin_s
 
-    async def create(self, sandbox_id: str, profile: SandboxProfile) -> str:
+    async def create(
+        self, sandbox_id: str, profile: SandboxProfile, files: Sequence[SeedFile] = ()
+    ) -> str:
         """Creates and starts one sandbox. Returns the container runtime it got."""
         limits = profile.limits
         request = pb.CreateSandboxRequest(
@@ -95,6 +106,7 @@ class RunSandboxes:
                 pids=limits.pids or 0,
                 disk_bytes=limits.disk or 0,
             ),
+            files=[pb.SeedFile(path=f.path, content=f.content, mode=f.mode) for f in files],
         )
         try:
             response = await self._stub.CreateSandbox(request)

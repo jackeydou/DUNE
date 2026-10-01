@@ -19,6 +19,7 @@ from inspect_ai.event import (
     InfoEvent,
     ModelEvent,
     SampleLimitEvent,
+    ScoreEvent,
     SpanBeginEvent,
     SpanEndEvent,
 )
@@ -27,12 +28,16 @@ from inspect_ai.log import (
     EvalDataset,
     EvalError,
     EvalLog,
+    EvalMetric,
+    EvalResults,
     EvalSample,
     EvalSampleLimit,
+    EvalScore,
     EvalSpec,
     write_eval_log,
 )
 from inspect_ai.model import ModelUsage
+from inspect_ai.scorer import Score
 from pyarrow.fs import S3FileSystem
 from pydantic import JsonValue, TypeAdapter
 from sqlalchemy import select
@@ -136,6 +141,7 @@ def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
     sample_events = _with_agent_spans(stored, tuple(header.models))
     first, last = stored[0].timestamp, stored[-1].timestamp
     status, error = _outcome(stored)
+    scores = _scores(stored)
     sample = EvalSample(
         id=header.case_id,
         epoch=header.epoch,
@@ -149,6 +155,7 @@ def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
         uuid=header.run_id,
         error=error,
         limit=_limit(stored),
+        scores=scores or None,
         metadata={"swarmeval": {"schema_version": SCHEMA_VERSION, "run_id": header.run_id}},
     )
     spec = EvalSpec(
@@ -169,7 +176,28 @@ def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
             }
         },
     )
-    return EvalLog(eval=spec, status=status, samples=[sample], error=error)
+    results = EvalResults(
+        total_samples=1,
+        completed_samples=1 if status == "success" else 0,
+        scores=[
+            EvalScore(
+                name=name,
+                scorer=name,
+                reducer="mean",
+                scored_samples=1,
+                metrics={"mean": EvalMetric(name="mean", value=float(score.as_float()))},
+                metadata=score.metadata,
+            )
+            for name, score in scores.items()
+        ],
+    )
+    return EvalLog(eval=spec, status=status, samples=[sample], error=error, results=results)
+
+
+def _scores(stored: list[Event]) -> dict[str, Score]:
+    """The last score each scorer wrote. One sample per log until M2 assembles epochs, so a
+    scorer's mean is its one value."""
+    return {e.scorer: e.score for e in stored if isinstance(e, ScoreEvent) and e.scorer}
 
 
 def write_eval(log: EvalLog, path: Path) -> None:
