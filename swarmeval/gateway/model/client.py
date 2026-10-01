@@ -61,6 +61,9 @@ from swarmeval.runtime.records import (
 )
 from swarmeval.runtime.writer import RunWriter
 
+UPSTREAM_ERROR_STATUS = 502
+"""model-gateway's status for a call the model backend failed after retries."""
+
 
 class ModelGatewayError(Exception):
     """model-gateway failed a call, or broke the recording protocol. `status` is the HTTP status

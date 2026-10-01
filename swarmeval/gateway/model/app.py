@@ -9,6 +9,7 @@ from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 
+from swarmeval.gateway.model.client import UPSTREAM_ERROR_STATUS
 from swarmeval.gateway.model.recorder import Attachments, NotAttachedError
 from swarmeval.gateway.model.upstream import UnknownModelError, UpstreamError, Upstreams
 from swarmeval.gateway.model.wire import (
@@ -69,7 +70,7 @@ def create_app(attachments: Attachments, upstreams: Upstreams) -> FastAPI:
             return _error(404, "model_not_found", str(err))
         except UpstreamError as err:
             log.warning("run %s call %s: %s", attachment.run_id, call_id, err)
-            return _error(502, "upstream_error", str(err))
+            return _error(UPSTREAM_ERROR_STATUS, "upstream_error", str(err))
         response_json = result.response.model_dump_json()
         upstream = pb.Upstream(
             backend=result.backend,

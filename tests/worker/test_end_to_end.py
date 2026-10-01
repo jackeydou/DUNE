@@ -177,3 +177,18 @@ async def test_a_case_that_does_not_load_is_refused(platform: Platform, tmp_path
 
     assert info.value.code() == grpc.StatusCode.INVALID_ARGUMENT
     assert "task.md" in str(info.value.details())
+
+
+async def test_a_model_backend_error_fails_the_run(platform: Platform, tmp_path: Path) -> None:
+    platform.backend.reply({"error": {"message": "context length exceeded"}}, status=400)
+
+    submitted = await platform.control.SubmitRuns(
+        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
+    )
+    (run_id,) = submitted.run_ids
+    outcomes = await platform.worker.drain()
+
+    assert outcomes[run_id].status == "failed"
+    run = (await platform.control.GetRun(pb.GetRunRequest(run_id=run_id))).run
+    assert run.status == "failed"
+    assert "context length exceeded" in run.error
