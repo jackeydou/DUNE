@@ -5,8 +5,8 @@ run. It sees every packet a sandbox sends, applies the case's network policy, in
 answers DNS, and reports every connection, request, and query to the run's worker. Its place
 among the services is in [architecture.md](../architecture.md).
 
-**Status:** not built. Arrives in M1, after the docker prerequisites in runtime spec Q11 are
-verified. Items marked *(proposed)* go beyond what the specs decided; they are listed under
+**Status:** not built. Arrives in M1. The docker behavior it depends on was verified on 2026-10-01
+(runtime spec Q11, [script and output](../../spec/2026-09-28-runtime-sandbox-logs/q11/)). Items marked *(proposed)* go beyond what the specs decided; they are listed under
 [Not settled](#not-settled).
 
 ## Topology
@@ -17,6 +17,13 @@ verified. Items marked *(proposed)* go beyond what the specs decided; they are l
 | Honeypot network | net-gateway and the run's honeypot and mock containers | Reached only through net-gateway |
 | Upstream network | net-gateway | Internet traffic that the policy allows |
 | Platform link | net-gateway and its run's worker | The event stream, over mTLS with a per-run certificate |
+
+A sandbox network is a docker bridge created with `com.docker.network.bridge.inhibit_ipv4=true`,
+so the host has neither an address on it nor a route to it. It is not `--internal`: on an internal
+network docker gives containers no default route. Docker's IPAM reserves the gateway address and
+will not assign it to a container, so net-gateway joins with an ordinary address and then adds the
+gateway address to that interface itself. IPAM never hands the reserved address to anyone else.
+With net-gateway stopped or frozen, nothing a sandbox sends reaches the host.
 
 Putting sandboxes on one shared internal network was rejected for three reasons:
 
@@ -40,7 +47,7 @@ sandboxd starts the container with a read-only config mount holding the followin
 - The interception CA's certificate and key.
 - The per-run mTLS certificate.
 
-The config is fixed for the life of the run; a different policy is a different run *(proposed)*.
+The config is fixed for the life of the run; a different policy is a different run.
 net-gateway runs with `NET_ADMIN` in its own network namespace. Sandboxes never get it.
 
 ## Packet path
@@ -49,9 +56,9 @@ net-gateway runs with `NET_ADMIN` in its own network namespace. Sandboxes never 
    packet from a sandbox subnet to local TPROXY listeners, keeping the original destination. The
    host's iptables are never touched.
 2. **Accept.** TCP listens with `IP_TRANSPARENT`. UDP reads the original destination with
-   `IP_RECVORIGDSTADDR`. If UDP original destinations turn out not to work, the fallback is a
-   user-space stack built on gVisor's netstack *(open, runtime spec Q11)*. ICMP and other
-   protocols are logged and dropped.
+   `IP_RECVORIGDSTADDR` and replies from a transparent socket bound to that address, so the reply
+   comes from where the sandbox sent it. Both work under runc and runsc. ICMP and other protocols
+   are logged and dropped.
 3. **Classify.** Peek at the first bytes: a TLS ClientHello (take the SNI), HTTP (take `Host`),
    DNS on port 53, or raw.
 4. **Decide.** Match the policy and act (below). Every TCP connection, UDP datagram flow, HTTP
@@ -99,11 +106,16 @@ resolver reaches net-gateway anyway through the packet path.
 
 | Name | Answer |
 |---|---|
-| Routed to a mock or honeypot | An address from a per-run synthetic pool, which net-gateway maps back to the name when a connection arrives *(proposed)* |
+| Routed to a mock or honeypot | An address from a per-run synthetic pool, which net-gateway maps back to the name when a connection arrives |
 | Allowed | Resolved upstream |
 | Anything else | `NXDOMAIN`, with latency close to a real resolver's, so the absence of a name does not give the gateway away |
 
 Every query is a `net.dns` event, qtype included.
+
+Under runc, docker's embedded DNS stays in the sandbox whatever `resolv.conf` says: its listener on
+127.0.0.11 shows in `/proc/net/udp` and `/proc/net/tcp`, and it resolves the names of containers on
+the same network, which is only net-gateway's. Docker has no option to turn it off. Under runsc it
+is absent *(open, runtime spec Q14)*.
 
 ## pcap
 
@@ -116,7 +128,7 @@ event refers to it by hash.
 gRPC service `swarmeval.netgw.v1.NetEvents` on the platform link. Mutual TLS uses a certificate
 issued for this run only, so the connection can carry this run's events and nothing else. The
 worker dials net-gateway, and on takeover the new owner dials again with a higher `owner_epoch`,
-which replaces the old stream *(direction proposed)*.
+which replaces the old stream.
 
 Each connection, request, or query is held until its event is acked. The worker commits `net.*`
 events in groups about every 100 ms and acks each group *(open, runtime spec Q2)*. With no stream
@@ -140,7 +152,5 @@ needs a transparent layer below HTTP that a Python proxy would not give us.
 
 ## Not settled
 
-1. The policy fixed for the life of a run.
-2. Synthetic DNS answers for routed names.
-3. The worker dialing net-gateway, rather than the reverse.
-4. Waiting versus refusing when no worker is attached (runtime spec Q13).
+1. Waiting versus refusing when no worker is attached (runtime spec Q13).
+2. What runc's embedded DNS means for `network_stealth: full` (runtime spec Q14).

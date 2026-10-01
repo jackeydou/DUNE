@@ -2,8 +2,10 @@
 
 ## Status
 
-draft · 2026-09-29 · 决定 13、16 已定（2026-09-29 改为状态存库、只用 Postgres），决定 3、23 已定（决定 3 于 2026-09-29
-改为工具调用后由 sandboxd 采集，去掉 Tetragon），决定 24 已定、前提待 M1 验证（Open question 11）；决定 12 的两处细节和决定 17、18、20
+draft · 2026-10-01 · M0 部分已实现并合并（#1–#3，至 `bbb04f1`）；M0 门槛待 v1 spec §9 的真实模型运行验证。
+
+2026-09-29 · 决定 13、16 已定（2026-09-29 改为状态存库、只用 Postgres），决定 3、23 已定（决定 3 于 2026-09-29
+改为工具调用后由 sandboxd 采集，去掉 Tetragon），决定 24 已定、前提于 2026-10-01 验证通过（Open question 11）；决定 12 的两处细节和决定 17、18、20
 按讨论中的推荐项落稿，尚待确认（见 Open questions）
 
 ## Request
@@ -380,6 +382,9 @@ model-gateway、net-gateway、sandboxd 任一不可用时，owner 暂停受影�
   agent 共用这张网卡（决定 4）。
 - **网关地址给 net-gateway**：bridge 不给宿主侧分配地址，net-gateway 容器占用网络的网关 IP。沙箱的默认路由因此指向
   net-gateway；宿主、Postgres、平台服务在这个网络上没有可连的地址。
+  （2026-10-01 验证后补充）bridge 用 `com.docker.network.bridge.inhibit_ipv4=true`，宿主侧没有地址，也没有到沙箱网段的
+  路由。docker 的 IPAM 仍然保留网关地址，容器拿不到它，所以 net-gateway 先从 docker 拿一个普通地址，再用自己命名空间里的
+  `NET_ADMIN` 把网关地址加到这张网卡上；IPAM 不会把它分给别人。网络不能建成 `--internal`：那样沙箱没有默认路由。
 - **透明接收任意目的地址**：net-gateway 在自己容器的网络命名空间里用 TPROXY 接收发往任意 IP、任意端口的 TCP 和 UDP，保留
   原始目的地址。有 SNI 的 TLS 连接按 host 匹配策略，直接用 IP、没有 SNI 的按 IP 匹配；ICMP 和其他协议记录后丢弃。规则只
   装在 net-gateway 自己的命名空间里，不改宿主的全局 iptables。
@@ -388,6 +393,11 @@ model-gateway、net-gateway、sandboxd 任一不可用时，owner 暂停受影�
 - **蜜罐和 mock 在另一个网络**：只有 net-gateway 连得到，访问蜜罐必经网关。跨 run 共享的蜜罐同样只由 net-gateway 连接。
 - **DNS**：sandboxd 挂载容器的 `/etc/resolv.conf`，指向网关 IP，不依赖 Docker 内嵌 DNS（127.0.0.11）。agent 绕开
   resolv.conf 直接查别的 DNS 服务器，包也先到网关。
+  （2026-10-01 验证后补充）runc 下内嵌 DNS 关不掉：127.0.0.11 上的监听在 `/proc/net/udp`、`/proc/net/tcp` 里看得到，
+  直接查它能解析同网络的容器名（只剩 net-gateway 的容器）。runsc 下没有这个痕迹。怎么处理见 Open question 14。
+- （2026-10-01 补充）net-gateway 的三处实现细节按 [docs](../../docs/services/net-gateway.md) 的建议采纳：策略在 run 内
+  固定，改策略就是另一个 run；路由到蜜罐或 mock 的域名返回每 run 的合成地址，连接到达时再映射回域名；事件流由 worker
+  拨 net-gateway，接管时新 owner 以更高的 `owner_epoch` 重拨并替换旧流。
 - **权限**：沙箱不给 `NET_ADMIN`、`NET_RAW`，改不了路由和地址；伪造源地址也只能发给网关。沙箱网络关闭 IPv6，不留一条没人
   管的路径。
 - **平台侧只有一条连接**：net-gateway 除了沙箱网络和蜜罐网络，只接一个上游网络，用于放行规则允许的外网。在平台侧它只连
@@ -458,17 +468,23 @@ k8s 不适用：NetworkPolicy 只能放行或拒绝，改不了路由，被拒�
 10. k8s 下两件要在节点上做的事：决定 23 的冻结沙箱（k8s 没有原生的 Pod 暂停），决定 3 的宿主侧卷 diff。sandboxd
     不在节点上。候选是一个轻量的节点组件（操作 cgroup freezer、读卷，不用 eBPF），或者用 runsc 的 pause 加 exec 进 Pod
     采集；在 M5（k8s 后端）验证。
-11. 决定 24 的前提，M1 验证：
-    - docker 的 bridge 能否不给宿主侧分配网关地址，并让容器占用网关 IP（Docker 28 的
-      `com.docker.network.bridge.inhibit_ipv4`，需要实测版本和语义）。不行的话，runc 下可以由 sandboxd 进沙箱的网络命名
-      空间改默认路由；gVisor 在启动时读取网络配置，这条路是否可行要实测。
-    - gVisor 下沙箱的 IP 和默认路由按预期生效。
-    - 覆盖 `resolv.conf` 之后，Docker 内嵌 DNS 还剩多少痕迹（它能解析同网络的容器名，这里只剩网关一个）。
-    - TPROXY 下 UDP 取原始目的地址；不行就改用 gVisor 的 netstack 库做用户态协议栈（tun2socks 的做法）。
+11. ~~决定 24 的前提，M1 验证~~ 已验证（2026-10-01，docker 29.8.2、runsc release-20260928.0，OrbStack 的 arm64 Linux
+    虚拟机）。脚本和完整输出在 [q11/](q11/)，`run.sh` 可在任何装了 runsc 的 Linux docker 主机上重跑：
+    - `inhibit_ipv4` 生效：宿主侧 bridge 没有地址，也没有到沙箱网段的路由。容器拿不到网关地址（IPAM 保留，报
+      `Address already in use`），由网关容器自己把它加到网卡上可行，runc 和 runsc 下沙箱都以它为默认路由。`--internal`
+      网络下沙箱没有默认路由，不能用。决定 24 已按此补充。
+    - gVisor 下沙箱的 IP 和默认路由与 runc 一致，只有回环上的 IPv6。
+    - 内嵌 DNS：runc 下仍在，runsc 下没有，见决定 24 的 DNS 一条和 Open question 14。
+    - TPROXY 下 TCP 和 UDP 都拿到原始目的地址，UDP 可以用原始目的地址回包，runc 和 runsc 一样，不需要 netstack 兜底。
+      发往宿主 IP、docker0 地址、其他沙箱网段的连接都落到网关。
+    - 网关冻结时，发往宿主和网关的连接都超时，没有一个落到宿主：失败时是关闭的。
 12. k8s 下怎么让 net-gateway 成为 Pod 的出口（决定 24）；在 M5（k8s 后端）验证。
 
 13. worker 挂掉到被接管之间（租约到期前），沙箱里的后台进程还在跑，net-gateway 收不到 ack：拒绝请求（agent 会看到连接
     错误，违背决定 23 的原则），还是挂起请求并冻结沙箱（worker 已经不在，由谁来冻结）。M2 开工前定。
+14. runc 下 Docker 内嵌 DNS 留下的痕迹（Open question 11）。docker 没有关掉它的选项。建议：`network_stealth: full` 只在
+    runsc 下成立，run 的实际隔离等级已经记在 `isolation` 字段；runc 下照常运行，可探测性自检把这项列为已知痕迹，报告按
+    `isolation` 分组。另一条路是 sandboxd 进沙箱的网络命名空间删掉 DNAT 规则，但监听本身还在 `/proc/net` 里，去不干净。
 
 ## Plan
 
@@ -483,7 +499,7 @@ k8s 不适用：NetworkPolicy 只能放行或拒绝，改不了路由，被拒�
     写前规则。表结构按可恢复设计，恢复逻辑在 M2。
   - 门槛：`.eval` 能被 `inspect view` 打开；共享沙箱里两个 agent 的文件写入能正确归属。
 - **M1**
-  - 决定 24：每沙箱网络与 net-gateway 透明网关，先做 Open question 11 的验证。
+  - 决定 24：每沙箱网络与 net-gateway 透明网关。Open question 11 的验证已完成（2026-10-01）。
   - 决定 6：每沙箱 canary、按拓扑生成的隔离自检；`os_user`（Open question 7）。
   - 门槛：隔离的两个沙箱之间探针全部失败；探针直接连任意 IP 时事件流里出现对应的 `net.*` 事件，连宿主和平台服务全部失败。
 - **M2**

@@ -1,6 +1,6 @@
 # SwarmEval：多智能体安全评估框架 Spec（草案 v0.1）
 
-> **Status**：draft · 最后更新：2026-09-29 · 讨论稿：[Claude Docs](https://claude.ai/code/artifact/13160375-c86b-4606-b379-f6a0a52aad66)
+> **Status**：draft · 最后更新：2026-10-01 · M0 已实现并合并（#1–#3，至 `bbb04f1`），门槛（真实开源模型跑 `scorer_misbelief`）未过 · 讨论稿：[Claude Docs](https://claude.ai/code/artifact/13160375-c86b-4606-b379-f6a0a52aad66)
 
 ## 1. 背景与目标
 
@@ -530,7 +530,7 @@ edge、net-gateway、sandboxd、`swarm` CLI 在一个 Go 模块里，模块放�
 - M0–M3 不做任何对外客户端：run 通过 orchestrator 的 gRPC Control API 触发（集成测试、grpcurl），这个接口在 M4 之前只
   绑定内部网络、不带认证。M4 在 M0–M3 完成后开始，一次做齐对外的部分：edge、Web 前端与回放、CLI（待讨论问题 7、9），
   部署只做单机。
-- 开工前要定：M1 之前做完 [run 恢复](../2026-09-28-runtime-sandbox-logs/README.md) Open question 11 的验证；M2 之前定 Open question 6（中断与补跑的统计口径）
+- 开工前要定：M1 之前做完 [run 恢复](../2026-09-28-runtime-sandbox-logs/README.md) Open question 11 的验证（2026-10-01 已完成）；M2 之前定 Open question 6（中断与补跑的统计口径）
   和 Open question 13（worker 挂掉到被接管之间，net-gateway 怎么处理沙箱的请求）。
 - 不在 M0–M5 里：闭源模型（第二期，见第 1 节）、系统调用级审计（run 恢复决定 3 留的接口）、macOS 适配。
 
