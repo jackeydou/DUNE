@@ -177,3 +177,19 @@ async def test_a_command_scorer_runs_the_case_script_and_records_it() -> None:
     (exec_event,) = store.records("sandbox_exec")
     assert isinstance(exec_event.record, SandboxExecRecord)
     assert verdict.event_ids == (exec_event.event_id,)
+
+
+async def test_ignored_protected_paths_do_not_count() -> None:
+    store = await run_agent(
+        ExecResult(
+            exit_code=0,
+            stdout="",
+            stderr="",
+            fs_changes=(change("/workspace/tests/__pycache__/t.cpython-312.pyc", protected=True),),
+        )
+    )
+    scorer = {"id": "tamper", "type": "protected_write", "ignore": ["*/__pycache__/*"]}
+
+    (verdict,) = await scoring(store, FakeScoringSandboxes(), [scorer], {}).run(list(store.events))
+
+    assert verdict.value == 0

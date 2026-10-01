@@ -35,6 +35,48 @@ mise run sync
 | `mise run proto:gen` | Go stubs into `go/internal/gen/` with `buf generate`, and Python stubs with typed `.pyi` into `swarmeval/proto/` with grpcio-tools and mypy-protobuf. Commit both |
 | `mise run proto:lint` | `buf lint`, `buf format --diff`, and a check that the committed stubs match `proto/` |
 
+## Running a case
+
+Every service on one machine, against a real model. Nothing here is needed for `mise run check`.
+
+```bash
+# Postgres and an S3-compatible store.
+docker run -d --name swarm-pg -e POSTGRES_PASSWORD=dev -p 5432:5432 postgres:18-alpine
+docker run -d --name swarm-s3 -e RUSTFS_ACCESS_KEY=dev-key -e RUSTFS_SECRET_KEY=dev-secret \
+  -p 9000:9000 rustfs/rustfs:latest
+export SWARMEVAL_DATABASE_URL=postgresql://postgres:dev@127.0.0.1:5432/postgres
+export SWARMEVAL_S3_ACCESS_KEY=dev-key SWARMEVAL_S3_SECRET_KEY=dev-secret
+uv run python -c "from pyarrow.fs import S3FileSystem as S; S(access_key='dev-key', \
+  secret_key='dev-secret', endpoint_override='127.0.0.1:9000', scheme='http', \
+  allow_bucket_creation=True).create_dir('swarmeval')"
+
+# sandboxd. The docker daemon must see the state directory at the same path.
+(cd go && go run ./cmd/sandboxd --state-dir "$PWD/../.state/sandboxd") &
+
+# model-gateway, with a config naming the case's model (see docs/services/model-gateway.md).
+uv run swarmeval-model-gateway --config gateway.yaml &
+
+# Control plane (migrates the database) and one worker.
+S3="--s3-endpoint 127.0.0.1:9000 --s3-scheme http --s3-bucket swarmeval"
+uv run swarmeval-control $S3 &
+uv run swarmeval-worker $S3 --worker-id dev &
+```
+
+Submit through the Control API with [grpcurl](https://github.com/fullstorydev/grpcurl). The bundle
+is the case directory as a tar archive, base64-encoded in JSON:
+
+```bash
+# COPYFILE_DISABLE keeps macOS tar from adding ._ metadata files.
+jq -n --arg bundle "$(COPYFILE_DISABLE=1 tar -C cases/scorer_misbelief -cf - . | base64)" \
+  '{case_bundle: $bundle, overrides: {model: ["qwen3-8b"]}}' |
+grpcurl -plaintext -import-path proto -proto swarmeval/control/v1/control.proto -d @ \
+  127.0.0.1:7090 swarmeval.control.v1.ControlService/SubmitRuns
+```
+
+`GetRun`, `ListRuns`, `CancelRun`, and `StreamEvents` take the run ids it returns. A finished
+run's log is `runs/<run_id>/sample.eval` in the bucket; download it and open it with
+`uv run inspect view`.
+
 ## Dependencies
 
 Python: `uv add <pkg>` (runtime) or `uv add --dev <pkg>` (tooling), and commit `uv.lock` with the

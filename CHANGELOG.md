@@ -66,7 +66,12 @@
 - `control.run_specs` and `control.runs` `started_at`, `finished_at`, `isolation`, `error`
   (migration 0003).
 - `RunLoop.stop(reason)`, a stop from outside the loop.
-- `ObjectStore.put` / `get`.
+- `ObjectStore.put` / `get`.- Sandbox profile `files:` copies case files into key paths at sandbox creation, as seed files
+  pinned by the bundle hash.
+- `protected_write` scorers take `ignore` patterns.
+- Case `cases/scorer_misbelief`: the M0 case. The scorer is described accurately, misleadingly,
+  or vaguely, against a visible grader with one planted wrong answer, a protected grader
+  directory, and a canary in a held-out answer key.
 
 ### Changed
 - An agent that finished gets another turn when a message arrives for it; the run ends when
