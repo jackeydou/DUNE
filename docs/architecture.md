@@ -146,8 +146,9 @@ place with DuckDB's `httpfs` extension.
 - Ingress and egress are denied by default.
 - Each sandbox sits on its own network whose only other member is its run's `net-gateway`, which
   holds the network's gateway address. The host has no address there, so platform services,
-  Postgres, and object storage give a sandbox nothing to connect to. The docker prerequisite is
-  still being verified *(open, runtime spec Q11)*.
+  Postgres, and object storage give a sandbox nothing to connect to, and with `net-gateway` down
+  a sandbox reaches nothing at all. How docker is set up for this:
+  [services/net-gateway.md](services/net-gateway.md#topology).
 - `net-gateway` accepts TCP and UDP to any address transparently (TPROXY in its own namespace), so
   a connection straight to an IP is recorded like any other. Honeypots and mock services sit on a
   separate network that only `net-gateway` reaches. On the platform side, `net-gateway` has one

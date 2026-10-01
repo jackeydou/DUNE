@@ -2,7 +2,7 @@
 
 ## Status
 
-draft · 2026-09-29
+draft · 2026-10-01 · M0 部分已实现并合并（#1–#3，至 `bbb04f1`）；M0 门槛待 v1 spec §9 的真实模型运行验证。
 
 ## Request
 
@@ -458,7 +458,6 @@ hook 调度自己写，不用库：需要的语义是 async、三种合并方式
   - 门槛：
     - 一个测试扩展在 `after_tool_result` 改写结果：agent 看到改写后的内容，库里同时有原样的 `ToolEvent` 和
       `intervention` 事件，导出的 `.eval` 能被 `inspect view` 打开。
-    - fork 到第 k 步时，扩展状态回到第 k 步的值。
     - 扩展抛异常时 run 标记为 `failed`，事件里有实例 id 和原始异常。
 - **M2**
   - 恢复时处理 `awaiting_admit`：从已提交的原样内容重跑 hook 链再采纳。
@@ -468,7 +467,9 @@ hook 调度自己写，不用库：需要的语义是 async、三种合并方式
   - 信道干预（`log`、`drop`、`delay`、`paraphrase`、`inject`）和在线 Monitor 做成内置扩展，信道上的
     `interventions:` 展开成扩展配置。
   - `ctx.actions` 的暂停、停止、注入；`async` 轮次下多个 agent 并发触发 hook。
-  - 门槛：v1 spec §9 M3 的门槛，即 paraphrase 对照报告；告警可按 `parent_id` 回溯，并从告警点 fork 重跑。
+  - 门槛：
+    - v1 spec §9 M3 的门槛，即 paraphrase 对照报告；告警可按 `parent_id` 回溯，并从告警点 fork 重跑。
+    - fork 到第 k 步时，扩展状态回到第 k 步的值（2026-10-01 从 M0 移来：fork 按 v1 spec §9 在 M3 做）。
 - **M4**：Open question 1 的 `allow_case_code`。
 - spec 接受后：更新 [docs/event-log.md](../../docs/event-log.md) 的提交路径、`extension_state` 表和事件字段，以及
   [docs/services/orchestrator.md](../../docs/services/orchestrator.md) 的 agent 循环一节。

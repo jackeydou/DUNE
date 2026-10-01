@@ -94,8 +94,9 @@ built. The docker driver (`go/internal/driver/docker`) uses the Engine API. The 
 One network per sandbox, whose only other member is net-gateway at the network's gateway
 address. Honeypots and mocks sit on a separate network that only net-gateway joins, and
 net-gateway has one more upstream network for allowed internet traffic. `resolv.conf` is mounted
-pointing at the gateway address. Whether docker can give up the gateway address this way is still
-being verified *(open, runtime spec Q11)*. The design reasons are in
+pointing at the gateway address. Sandbox networks are bridges with
+`com.docker.network.bridge.inhibit_ipv4=true` and not `--internal`; net-gateway takes the gateway
+address itself, since docker will not assign it. The setup and the design reasons are in
 [net-gateway.md](net-gateway.md#topology).
 
 ## Exec, diff, and process snapshot
