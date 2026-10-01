@@ -6,6 +6,7 @@ same way everywhere.
 """
 
 import itertools
+import posixpath
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -36,6 +37,17 @@ class CaseError(Exception):
     """A case directory cannot be loaded. The message names the file, the field, and the fix."""
 
 
+SEED_LIMIT = 1 << 20
+"""sandboxd's limit on the files written into one sandbox at creation, canaries included."""
+
+
+@dataclass(frozen=True)
+class FileSeed:
+    path: str
+    content: bytes
+    mode: int
+
+
 @dataclass(frozen=True)
 class AgentPrompts:
     system: str
@@ -62,6 +74,8 @@ class Variant:
     """In order of first reference by an agent."""
     scripts: Mapping[str, str]
     """Command scorer id → its script's text."""
+    files: Mapping[str, tuple[FileSeed, ...]]
+    """Sandbox instance → the case files its profile copies in."""
 
     def sandbox_of(self, agent_id: str) -> SandboxPlan:
         return next(s for s in self.sandboxes.values() if agent_id in s.agents)
@@ -131,6 +145,7 @@ def _variant(
 
     sandboxes = _sandboxes(case, env, env_path)
     _check_canaries(env, sandboxes, env_where)
+    seeds = _seeds(env, sandboxes, files, env_where)
     scripts: dict[str, str] = {}
     for scorer in case.scorers:
         if isinstance(scorer, CommandScorer):
@@ -160,6 +175,7 @@ def _variant(
         prompts=prompts,
         sandboxes=sandboxes,
         scripts=scripts,
+        files=seeds,
     )
 
 
@@ -233,6 +249,46 @@ def _sandboxes(case: CaseFile, env: EnvFile, env_path: Path) -> dict[str, Sandbo
     }
 
 
+def _seeds(
+    env: EnvFile, sandboxes: Mapping[str, SandboxPlan], files: "_Files", where: str
+) -> dict[str, tuple[FileSeed, ...]]:
+    by_profile: dict[str, tuple[FileSeed, ...]] = {}
+    for name, profile in env.sandbox_profiles.items():
+        mounts = [m.path for m in profile.fs]
+        seeds: list[FileSeed] = []
+        for i, copy in enumerate(profile.files):
+            field = f"sandbox_profiles.{name}.files[{i}]"
+            for rel, path in files.tree(copy.source, f"{field}.from"):
+                target = posixpath.join(copy.to, rel) if rel else copy.to
+                if not any(target.startswith(m + "/") for m in mounts):
+                    raise CaseError(
+                        f"{where}: `{field}` copies to `{target}`, which is not inside a key path "
+                        f"of profile `{name}` ({', '.join(mounts) or 'none'}). Files are written "
+                        "into key paths when the sandbox is created."
+                    )
+                seeds.append(FileSeed(target, path.read_bytes(), path.stat().st_mode & 0o777))
+        by_profile[name] = tuple(seeds)
+    result: dict[str, tuple[FileSeed, ...]] = {}
+    for plan in sandboxes.values():
+        copied = by_profile[plan.profile]
+        paths = {s.path for s in copied}
+        canaries = [c for c in env.canaries if c.sandbox == plan.id]
+        for canary in canaries:
+            if canary.path in paths:
+                raise CaseError(
+                    f"{where}: canary `{canary.id}` and a copied case file both write "
+                    f"`{canary.path}` in sandbox `{plan.id}`. Move one of them."
+                )
+        size = sum(len(s.content) for s in copied) + sum(len(c.template) + 64 for c in canaries)
+        if size > SEED_LIMIT:
+            raise CaseError(
+                f"{where}: sandbox `{plan.id}` would get {size} bytes of case files and canaries, "
+                f"over the {SEED_LIMIT} byte limit. Put large data in the sandbox image instead."
+            )
+        result[plan.id] = copied
+    return result
+
+
 class _Files:
     """Reads files inside the case directory, once each. A path that leaves it is an error:
     case bundles are uploaded, and a bundle must not read the host."""
@@ -255,6 +311,30 @@ class _Files:
                 "is not a file."
             )
         return path
+
+    def tree(self, relative: str, field: str) -> list[tuple[str, Path]]:
+        """A file as `[("", path)]`, or every file under a directory with its path relative to
+        it, in order. Nothing may resolve outside the case directory."""
+        root = (self._dir / relative).resolve()
+        if not root.is_relative_to(self._dir) or not root.exists():
+            raise CaseError(
+                f"case {self._dir}: `{field}` points to `{relative}`, which is outside the case "
+                "directory or does not exist."
+            )
+        if root.is_file():
+            return [("", root)]
+        found: list[tuple[str, Path]] = []
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            resolved = path.resolve()
+            if not resolved.is_relative_to(self._dir):
+                raise CaseError(
+                    f"case {self._dir}: `{field}` contains `{path.relative_to(self._dir)}`, a "
+                    "link to outside the case directory."
+                )
+            found.append((path.relative_to(root).as_posix(), resolved))
+        return found
 
     def yaml(self, path: Path) -> dict[str, object]:
         if path not in self._yaml:

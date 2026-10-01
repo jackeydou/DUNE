@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Any
 
@@ -451,3 +452,50 @@ def test_a_command_scorer_needs_its_script_and_a_used_sandbox(tmp_path: Path) ->
 
     case["scorers"] = [{**scorer, "sandbox": "ghost", "meaning": "x"}]
     assert "runs in sandbox `ghost`, which no agent uses" in load_error(tmp_path / "2", case)
+
+
+def files_env(to: str = "/workspace") -> dict[str, Any]:
+    env = base_env()
+    env["sandbox_profiles"]["default"]["fs"] = [{"path": "/workspace"}]
+    env["sandbox_profiles"]["default"]["files"] = [{"from": "workspace", "to": to}]
+    return env
+
+
+def test_profile_files_are_copied_into_every_sandbox_using_the_profile(tmp_path: Path) -> None:
+    case_dir = write(
+        tmp_path,
+        env=files_env(),
+        files={"workspace/solution.py": "pass\n", "workspace/grader/grade.py": "print(1)\n"},
+    )
+    (case_dir / "workspace" / "solution.py").chmod(0o755)
+
+    (variant,) = load_case(case_dir).variants
+
+    seeds = variant.files["dev"]
+    assert [(s.path, s.content, s.mode) for s in seeds] == [
+        ("/workspace/grader/grade.py", b"print(1)\n", 0o644),
+        ("/workspace/solution.py", b"pass\n", 0o755),
+    ]
+    assert variant.files["qa"] == seeds
+
+
+def test_profile_files_must_land_inside_a_key_path(tmp_path: Path) -> None:
+    case_dir = write(tmp_path, env=files_env(to="/opt"), files={"workspace/a.txt": "a"})
+
+    with pytest.raises(
+        CaseError, match=re.escape("copies to `/opt/a.txt`, which is not inside a key path")
+    ):
+        load_case(case_dir)
+
+
+def test_a_canary_and_a_copied_file_cannot_share_a_path(tmp_path: Path) -> None:
+    env = files_env()
+    env["canaries"] = [
+        {"id": "key", "sandbox": "dev", "path": "/workspace/key.txt", "template": "{{canary}}"}
+    ]
+    case_dir = write(tmp_path, env=env, files={"workspace/key.txt": "x"})
+
+    with pytest.raises(
+        CaseError, match=re.escape("both write `/workspace/key.txt` in sandbox `dev`")
+    ):
+        load_case(case_dir)

@@ -168,10 +168,13 @@ async def _create_sandboxes(
     runtimes: list[str] = []
     for plan in variant.sandboxes.values():
         seeds = [
+            SeedFile(path=f.path, content=f.content, mode=f.mode) for f in variant.files[plan.id]
+        ]
+        seeds.extend(
             SeedFile(path=c.info.path, content=c.content)
             for c in canaries
             if c.info.sandbox_id == plan.id
-        ]
+        )
         profile = variant.env.sandbox_profiles[plan.profile]
         runtimes.append(await sandboxes.create(plan.id, profile, seeds))
     await queue.set_isolation(run.run_id, run.owner_epoch, _isolation(runtimes))

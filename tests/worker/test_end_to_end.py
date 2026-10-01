@@ -4,40 +4,22 @@ model-gateway, scored, and exported as an `.eval` Inspect reads back."""
 
 import io
 import json
-from collections.abc import AsyncIterator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import grpc
-import httpx2
 import pytest
 import yaml
 from inspect_ai.log import read_eval_log
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.control.bundles import pack
-from swarmeval.control.live import EventListener
-from swarmeval.control.queue import Queue
-from swarmeval.control.service import ControlService
-from swarmeval.events import ObjectStore, export_key
-from swarmeval.gateway.model.app import create_app
-from swarmeval.gateway.model.config import GatewayConfig
-from swarmeval.gateway.model.recorder import Attachments, Recorder
-from swarmeval.gateway.model.upstream import Upstreams
+from swarmeval.events import export_key
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
-from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import (
-    ControlServiceStub,
-    add_ControlServiceServicer_to_server,
-)
-from swarmeval.proto.swarmeval.modelgw.v1.recorder_pb2_grpc import (
-    add_RecorderServiceServicer_to_server,
-)
-from swarmeval.worker import Worker, WorkerDeps
-from tests.gateway.mock_backend import MockBackend, completion, tool_call
+from tests.gateway.mock_backend import completion, tool_call
+from tests.worker.conftest import Platform
 
 if TYPE_CHECKING:
-    from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import ControlServiceAsyncStub
+    pass
 
 pytestmark = pytest.mark.docker
 
@@ -114,64 +96,6 @@ def write_case(root: Path) -> Path:
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text)
     return root
-
-
-@dataclass
-class Platform:
-    control: "ControlServiceAsyncStub"
-    worker: Worker
-    backend: MockBackend
-    store: ObjectStore
-
-
-@pytest.fixture
-async def platform(
-    postgres_url: str, engine: AsyncEngine, object_store: ObjectStore, sandboxd: str
-) -> AsyncIterator[Platform]:
-    backend = MockBackend()
-    config = GatewayConfig.model_validate(
-        {
-            "backends": {"mock": {"base_url": "http://backend/v1", "max_retries": 0}},
-            "models": {"mock-model": {"backend": "mock", "upstream_model": "Org/Mock"}},
-        }
-    )
-    upstreams = Upstreams(config, transports={"mock": httpx2.ASGITransport(app=backend.app())})
-    attachments = Attachments(ack_timeout_s=30)
-    listener = EventListener(postgres_url)
-    await listener.start()
-    queue = Queue(engine)
-    server = grpc.aio.server()
-    add_RecorderServiceServicer_to_server(Recorder(attachments), server)
-    add_ControlServiceServicer_to_server(
-        ControlService(queue=queue, engine=engine, store=object_store, listener=listener), server
-    )
-    port = server.add_insecure_port("127.0.0.1:0")
-    await server.start()
-    gateway_app = create_app(attachments, upstreams)
-    async with (
-        grpc.aio.insecure_channel(f"127.0.0.1:{port}") as local,
-        grpc.aio.insecure_channel(sandboxd) as sandboxd_channel,
-        httpx2.AsyncClient(
-            transport=httpx2.ASGITransport(app=gateway_app), base_url="http://gw", timeout=None
-        ) as http,
-    ):
-        deps = WorkerDeps(
-            engine=engine,
-            queue=queue,
-            store=object_store,
-            sandboxd=sandboxd_channel,
-            gateway_http=http,
-            gateway_grpc=local,
-        )
-        yield Platform(
-            control=ControlServiceStub(local),
-            worker=Worker(deps, owner_id="worker_e2e"),
-            backend=backend,
-            store=object_store,
-        )
-    await server.stop(None)
-    await listener.close()
-    await upstreams.close()
 
 
 async def test_a_submitted_case_runs_scores_and_exports(platform: Platform, tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ The format is documented in docs/case-format.md.
 from swarmeval.core.loader import (
     AgentPrompts,
     CaseError,
+    FileSeed,
     LoadedCase,
     SandboxPlan,
     Variant,
@@ -19,6 +20,7 @@ __all__ = [
     "CaseError",
     "CaseFile",
     "EnvFile",
+    "FileSeed",
     "LoadedCase",
     "SandboxPlan",
     "Variant",

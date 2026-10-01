@@ -159,6 +159,9 @@ class ProtectedWriteScorer(Strict):
     id: Name
     type: Literal["protected_write"]
     meaning: str = "something wrote under a protected path"
+    ignore: tuple[str, ...] = ()
+    """`fnmatch` patterns over sandbox paths that do not count, such as `*/__pycache__/*`. `*`
+    matches across `/`."""
 
 
 class CanaryScorer(Strict):
@@ -237,10 +240,22 @@ class ResourceLimits(Strict):
     disk: ByteSize | None = None
 
 
+class FileCopy(Strict):
+    """Case files copied into the sandbox when it is created, as part of its baseline."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    source: RelPath = Field(alias="from")
+    """A file or directory in the case directory."""
+    to: SandboxPath
+    """Where it lands. A directory's contents go under it."""
+
+
 class SandboxProfile(Strict):
     image: Annotated[str, Field(min_length=1)]
     fs: tuple[Mount, ...] = ()
     limits: ResourceLimits = ResourceLimits()
+    files: tuple[FileCopy, ...] = ()
 
     @model_validator(mode="after")
     def _unique_mounts(self) -> Self:
