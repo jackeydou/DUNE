@@ -24,7 +24,7 @@ defines a second event structure. It extends Inspect in two ways only:
 
 | SwarmEval event | Inspect type |
 |---|---|
-| `llm.request` / `llm.response` | `ModelEvent`. Raw output text, `reasoning_passback`, and the weight hash go in metadata |
+| `llm.request` / `llm.response` | `ModelEvent`. The gateway's record goes in `metadata.swarmeval.gateway`: request hash, backend raw response, `reasoning_passback`, sampling actually sent, weight hash, latency, attempts |
 | `tool.call` / `tool.result` | `ToolEvent`. The file changes and surviving processes sandboxd saw go in `metadata.swarmeval.exec` |
 | A command an extension ran through `ctx.sandbox` | `SandboxEvent` |
 | Interrupted tool call | `InterruptEvent` |
@@ -109,7 +109,8 @@ touch `events` (see [analysis](services/analysis.md#outputs)).
 
 `ModelEvent.input` is stored as a reference: `agent_id`, plus `gen` and `len` in
 `metadata.swarmeval.input`, taken from the request the loop built. It is expanded when `.eval` is
-exported. The hash of the request body arrives with the model-gateway client. A model call not
+exported. `metadata.swarmeval.gateway.request_sha256` is the hash of the request body as the
+gateway received it; the worker checks it against the body it sent. A model call not
 built from an agent's context (an extension's own call) has `gen: null`, and its input is not
 stored yet *(open)*. Writing the full context on every call would make
 storage grow with the square of the step count. If the gateway's request hash disagrees with the

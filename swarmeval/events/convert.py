@@ -59,8 +59,9 @@ from swarmeval.runtime.records import (
 SCHEMA_VERSION = 2
 """Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
 
-2: `exec` gained `duration_s`, `stdout_truncated` / `stderr_truncated`, `background_changes`,
-and per-change `kind`, `mode`, `size`, `protected`, `candidate_calls`, `content_stored`."""
+2: model events gained `gateway` (`GatewayRecord`); `exec` gained `duration_s`,
+`stdout_truncated` / `stderr_truncated`, `background_changes`, and per-change `kind`, `mode`,
+`size`, `protected`, `candidate_calls`, `content_stored`."""
 
 Source = Literal["model-gateway", "sandboxd", "orchestrator"]
 
@@ -177,6 +178,7 @@ def _model_event(record: ModelCallRecord) -> tuple[ModelEvent, dict[str, JsonVal
         "tools": list(options.tools),
         # What the model produced, byte for byte: Inspect's tool calls hold parsed arguments.
         "raw_tool_arguments": {c.id: c.arguments for c in record.response.tool_calls},
+        "gateway": record.gateway.model_dump(mode="json"),
     }
     return event, extra
 

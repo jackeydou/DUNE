@@ -101,6 +101,35 @@ class ExecResult(Frozen):
     processes: tuple[ProcessInfo, ...] = ()
 
 
+class Upstream(Frozen):
+    """What model-gateway sent to, and learned from, the backend."""
+
+    backend: str
+    model: str
+    """Model name the backend was asked for."""
+    served_model: str
+    """Model name or version the backend reported."""
+    reasoning_passback: Literal["none", "within_turn", "all"]
+    weights_hash: str | None
+    system_fingerprint: str | None
+    sampling: dict[str, JsonValue]
+    """Sampling parameters actually sent: the request's, merged over the backend's defaults."""
+    reasoning_visibility: Literal["full"]
+
+
+class GatewayRecord(Frozen):
+    """model-gateway's account of one call, beyond the response itself."""
+
+    request_sha256: str
+    """sha256 of the HTTP request body as the gateway received it."""
+    upstream: Upstream
+    upstream_response_json: str
+    """The backend's response body before normalization, as JSON text."""
+    latency_s: float
+    attempts: int
+    """HTTP attempts, retries included."""
+
+
 class ModelCallRecord(Frozen):
     """Written by the model-gateway path, not by the loop."""
 
@@ -111,6 +140,7 @@ class ModelCallRecord(Frozen):
     options: RequestOptions
     response: AssistantMessage
     usage: Usage
+    gateway: GatewayRecord
 
 
 class ToolCallRecord(Frozen):
