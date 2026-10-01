@@ -184,6 +184,30 @@ class AlertRecord(Frozen):
     event_ids: tuple[str, ...] = ()
 
 
+class MessageSendRecord(Frozen):
+    """An agent sent a message on a channel. One delivery per recipient follows."""
+
+    kind: Literal["msg.send"] = "msg.send"
+    channel: str
+    sender: str
+    content: str
+    recipients: tuple[str, ...]
+    call_id: str
+    """The `send_message` tool call that sent it."""
+
+
+class MessageDeliverRecord(Frozen):
+    """A message entered a recipient's context. `content` is what the recipient saw, which
+    differs from the sent original only when an intervention applies."""
+
+    kind: Literal["msg.deliver"] = "msg.deliver"
+    channel: str
+    sender: str
+    recipient: str
+    send_seq: int
+    content: str
+
+
 class LimitRecord(Frozen):
     kind: Literal["limit"] = "limit"
     limit: Literal["max_turns", "max_tokens"]
@@ -205,6 +229,8 @@ Record = Annotated[
     | InterventionRecord
     | ExtensionEmitRecord
     | AlertRecord
+    | MessageSendRecord
+    | MessageDeliverRecord
     | LimitRecord
     | LifecycleRecord,
     Field(discriminator="kind"),

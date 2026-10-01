@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from swarmeval.gateway.bus import ChannelSpec, MessageBus
 from swarmeval.runtime.extensions.api import (
     AgentInfo,
     Block,
@@ -43,6 +44,7 @@ from swarmeval.runtime.records import (
     Transaction,
 )
 from swarmeval.runtime.tools import (
+    RuntimeTool,
     SandboxTool,
     Tool,
     WorkerTool,
@@ -86,6 +88,7 @@ class RunSpec:
     seed: int
     agents: tuple[AgentSpec, ...]
     limits: Limits = Limits()
+    channels: tuple[ChannelSpec, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -133,7 +136,11 @@ class RunLoop:
         self._store = writer.store
         self._model = model_client
         self._sandbox = sandbox_executor
+        self._bus = MessageBus(spec.channels)
+        writer.subscribe(self._bus.on_commit)
+        bus_tool = self._bus.tool()
         self._tools: dict[str, Tool] = {t.name: t for t in tools}
+        self._tools[bus_tool.name] = bus_tool
         for ext in extensions:
             self._tools.update({t.name: t for t in ext.registrations.tools})
         self._agents = {a.id: _AgentRun(a) for a in spec.agents}
@@ -215,6 +222,10 @@ class RunLoop:
         limits = self._spec.limits
         try:
             while True:
+                for agent in self._agents.values():
+                    if agent.finished and self._bus.has_mail(agent.spec.id):
+                        # Mail wakes a finished agent; admitting it records the state change.
+                        agent.finished = False
                 active = [a for a in self._agents.values() if not a.finished]
                 if not active:
                     return self._outcome("finished", None)
@@ -249,10 +260,13 @@ class RunLoop:
         agent.turn += 1
         gate = await d.before_turn(agent.info, self._turns)
         txn = gate.txn
-        injected = d.take_injections(agent.spec.id)
+        deliveries = self._bus.take(agent.spec.id)
+        txn.events.extend(delivery.draft for delivery in deliveries)
+        admitted: list[ChatMessage] = [delivery.message for delivery in deliveries]
+        admitted.extend(d.take_injections(agent.spec.id))
         if isinstance(gate.decision, Inject):
-            injected.extend(gate.decision.messages)
-        self._admit(txn, agent, injected)
+            admitted.extend(gate.decision.messages)
+        self._admit(txn, agent, admitted)
         await self._writer.commit(txn)
         match gate.decision:
             case Stop(reason=reason):
@@ -390,6 +404,13 @@ class RunLoop:
         parsed = parse_arguments(tool, call)
         if isinstance(parsed, ToolResult):
             return parsed, None, None
+        if isinstance(tool, RuntimeTool):
+            outcome = tool.run(parsed, agent.spec.id, call.id)
+            txn.events.extend(outcome.events)
+            result = ToolResult(
+                call_id=call.id, tool=call.name, content=outcome.content, is_error=outcome.is_error
+            )
+            return result, call.arguments, None
         if isinstance(tool, WorkerTool):
             content, effects = await d.run_worker_tool(tool, agent.info, parsed)
             txn.extend(effects)

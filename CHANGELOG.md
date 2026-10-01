@@ -44,9 +44,15 @@
   for a run that is not attached fail with `503` and never reach a backend.
 - `GatewaySession`, the production `ModelClient`: attaches a run with per-caller virtual keys,
   commits each call's record as a `ModelEvent`, and refuses a record whose request hash or
-  response differs from what was sent and returned.
+  response differs from what was sent and returned.- Message Bus (`swarmeval.gateway.bus`): the `send_message` tool on the case's channels, with
+  `msg.send` / `msg.deliver` events and the `runs.deliveries` table (migration 0002). Messages
+  are delivered at the recipient's next turn, and wake a finished agent.
+- `RuntimeTool`, a tool the runtime runs in the worker whose events commit with the tool call, and
+  `BUILTIN_TOOL_NAMES`.
 
 ### Changed
+- An agent that finished gets another turn when a message arrives for it; the run ends when
+  every agent is finished and no message is waiting.
 - `SandboxExecutor.exec` takes the `call_id` its file changes and processes are attributed to.
 - Event schema version 2: model events carry the gateway's record under `gateway` (request
   hash, backend raw response, upstream model and sampling, latency, attempts); a tool call's `exec` observations add `duration_s`, truncated-output

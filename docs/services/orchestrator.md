@@ -7,8 +7,8 @@ writer of a run's events and state. Its place among the services is in
 
 **Status:** case loading ([Case loading](#case-loading)), the agent loop
 ([agent-runtime.md](../agent-runtime.md)), and the Postgres store for the write-before rule
-([event-log.md](../event-log.md#tables)) are built. The rest of M0 brings the Control API, one
-worker, and the Message Bus without interventions. Export of the per-run `.eval` is built
+([event-log.md](../event-log.md#tables)), and the Message Bus without interventions are built. The
+rest of M0 brings the Control API and one worker. Export of the per-run `.eval` is built
 ([event-log.md](../event-log.md#export)); the worker does not call it yet. M2 adds several workers,
 leases, fencing, takeover, and pausing. M3 adds interventions, fork, the online Monitor, and the
 async and event-driven turn policies. Items marked *(proposed)* go beyond what the specs decided;
@@ -136,10 +136,17 @@ the database, and recovery never has to guess.
 
 ### Message Bus
 
-In the worker process. Channels and members come from the case, and the bus refuses a send
-outside them. A send writes `msg.send` and one `deliveries` row per recipient. Delivery writes
-`msg.deliver` with the content actually delivered, which differs from the original when an
-intervention applies. Interventions (`log`, `drop`, `delay`, `paraphrase`, `inject`) arrive in M3.
+In the worker process (`swarmeval/gateway/bus/`). Channels and members come from the case. An agent
+sends with the `send_message` tool, naming a channel it is a member of; any other channel is an
+error result the agent sees. The message goes to every other member. The send writes `msg.send`
+in the tool call's transaction, and the store opens one `deliveries` row per recipient with it.
+
+Delivery is pushed: at the start of a recipient's next turn, each waiting message is admitted as a
+user message (``Message from <sender> on channel `<channel>`:`` and the content), with a
+`msg.deliver` event whose parent is the send. The store closes the `deliveries` row in the same
+transaction. `msg.deliver` carries the content actually delivered, which differs from the
+original when an intervention applies. A message to a finished agent gives it another turn.
+Interventions (`log`, `drop`, `delay`, `paraphrase`, `inject`) arrive in M3.
 `paraphrase` calls model-gateway with a bus-owned key, so the rewrite is recorded like any other
 model call.
 

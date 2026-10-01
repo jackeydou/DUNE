@@ -7,7 +7,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from swarmeval.db import agent_state, control_runs, events, messages
+from swarmeval.db import agent_state, control_runs, deliveries, events, messages
 from swarmeval.events import (
     NOTIFY_CHANNEL,
     ChainRow,
@@ -24,6 +24,8 @@ from swarmeval.runtime.records import (
     EventDraft,
     ExecResult,
     FsChange,
+    MessageDeliverRecord,
+    MessageSendRecord,
     Transaction,
 )
 from swarmeval.runtime.writer import RunWriter
@@ -258,3 +260,36 @@ async def test_a_commit_with_events_notifies_listeners(
         notify = await asyncio.wait_for(anext(listener.notifies()), timeout=5)
 
     assert (notify.channel, notify.payload) == (NOTIFY_CHANNEL, run_id)
+
+
+async def test_a_send_opens_a_delivery_row_that_its_delivery_closes(
+    engine: AsyncEngine, run_id: str
+) -> None:
+    store = store_for(engine, run_id)
+    send = MessageSendRecord(
+        channel="team", sender="a", content="hi", recipients=("b",), call_id="c1"
+    )
+    (sent,) = await store.commit(Transaction(events=[EventDraft(send, agent_id="a")]))
+
+    async def rows() -> list[tuple[int, str, str, int | None]]:
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                select(
+                    deliveries.c.msg_seq,
+                    deliveries.c.recipient,
+                    deliveries.c.status,
+                    deliveries.c.delivered_seq,
+                ).where(deliveries.c.run_id == run_id)
+            )
+            return [tuple(r) for r in result]  # pyright: ignore[reportReturnType]
+
+    assert await rows() == [(sent.seq, "b", "pending", None)]
+    deliver = MessageDeliverRecord(
+        channel="team", sender="a", recipient="b", send_seq=sent.seq, content="hi"
+    )
+    (delivered,) = await store.commit(Transaction(events=[EventDraft(deliver, agent_id="b")]))
+    assert await rows() == [(sent.seq, "b", "delivered", delivered.seq)]
+
+    with pytest.raises(RuntimeError, match="has no pending row"):
+        await store.commit(Transaction(events=[EventDraft(deliver, agent_id="b")]))
+    assert await rows() == [(sent.seq, "b", "delivered", delivered.seq)]

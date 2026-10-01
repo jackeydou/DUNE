@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from swarmeval.runtime.messages import ToolCall, ToolSchema
-from swarmeval.runtime.records import Exec, ExecResult, ToolResult, Truncated
+from swarmeval.runtime.records import EventDraft, Exec, ExecResult, ToolResult, Truncated
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,27 @@ class WorkerTool:
     owner: str
 
 
-Tool = SandboxTool | WorkerTool
+@dataclass(frozen=True)
+class RuntimeOutcome:
+    content: str
+    is_error: bool = False
+    events: tuple[EventDraft, ...] = ()
+    """Committed in the same transaction as the tool call."""
+
+
+@dataclass(frozen=True)
+class RuntimeTool:
+    """Provided by the runtime itself and run in the worker, such as the Message Bus's
+    `send_message`. `run` receives the parsed arguments, the calling agent, and the call id, and
+    does no I/O: whatever it causes is returned as events."""
+
+    name: str
+    description: str
+    args: type[BaseModel]
+    run: Callable[[Any, str, str], RuntimeOutcome]
+
+
+Tool = SandboxTool | WorkerTool | RuntimeTool
 
 
 def tool_schema(tool: Tool) -> ToolSchema:
@@ -74,7 +94,10 @@ SHELL = SandboxTool(
 )
 
 BUILTIN_TOOLS: tuple[Tool, ...] = (SHELL,)
-"""Tools every run offers, to agents that list them."""
+"""Tools the caller hands to `RunLoop`. The loop adds the Message Bus's `send_message` itself."""
+
+BUILTIN_TOOL_NAMES = ("shell", "send_message")
+"""Every tool name the runtime provides. Extensions may not reuse them."""
 
 
 def _truncation(stream: str, truncated: Truncated | None) -> str:

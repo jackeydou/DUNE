@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import JsonValue
 
+from swarmeval.gateway.bus import ChannelSpec
 from swarmeval.runtime.extensions import Extension, ExtensionUse, load_extensions
 from swarmeval.runtime.loop import AgentSpec, Limits, RunLoop, RunSpec
 from swarmeval.runtime.messages import (
@@ -34,7 +35,7 @@ from swarmeval.runtime.records import (
     Transaction,
     Upstream,
 )
-from swarmeval.runtime.tools import SHELL
+from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, SHELL
 from swarmeval.runtime.writer import RunWriter
 
 
@@ -210,6 +211,7 @@ def harness(
     sandbox: FakeSandbox | None = None,
     store: FakeStore | None = None,
     seed: int = 7,
+    channels: tuple[ChannelSpec, ...] = (),
 ) -> Harness:
     store = store or FakeStore()
     writer = RunWriter(store)
@@ -217,10 +219,12 @@ def harness(
     sandbox = sandbox or FakeSandbox()
     exts = [e if isinstance(e, tuple) else (e, ExtensionUse(use=e.id)) for e in extensions]
     loaded = load_extensions(
-        [use for _, use in exts], builtin_tools=["shell"], resolve=resolver(*(e for e, _ in exts))
+        [use for _, use in exts],
+        builtin_tools=BUILTIN_TOOL_NAMES,
+        resolve=resolver(*(e for e, _ in exts)),
     )
     loop = RunLoop(
-        RunSpec(run_id="run_1", seed=seed, agents=agents, limits=limits),
+        RunSpec(run_id="run_1", seed=seed, agents=agents, limits=limits, channels=channels),
         writer=writer,
         model_client=model,
         sandbox_executor=sandbox,
