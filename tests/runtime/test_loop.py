@@ -145,3 +145,18 @@ async def test_resuming_a_run_is_refused_for_now() -> None:
 
     with pytest.raises(RunConfigError, match="Resuming a run is not supported yet"):
         await second.loop.run()
+
+
+async def test_a_stop_from_outside_ends_the_run_at_the_next_hook_point() -> None:
+    looping = [reply("", call("shell", '{"cmd": "x"}')) for _ in range(10)]
+    h = harness((agent(),), {"a": looping})
+
+    def handler(command: Exec) -> ExecResult:
+        h.loop.stop("cancelled")
+        return ExecResult(exit_code=0, stdout="", stderr="")
+
+    h.sandbox.handler = handler
+
+    outcome = await h.loop.run()
+
+    assert (outcome.status, outcome.reason, outcome.turns) == ("stopped", "cancelled", 1)

@@ -18,6 +18,7 @@ from swarmeval.db.tables import (
     extension_state,
     messages,
     metadata,
+    run_specs,
 )
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "messages",
     "metadata",
     "migrate",
+    "run_specs",
     "sync_engine",
 ]
 

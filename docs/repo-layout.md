@@ -13,7 +13,9 @@ docs/            how the system works now
 spec/            one decision each, frozen once discussed
 swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent loop, extensions),
                  `db/` (Postgres tables, migrations), `events/` (Inspect events, hash chain, run store),
-                 `sandbox/` (sandboxd client, blob store), `proto/` (generated gRPC stubs)
+                 `sandbox/` (sandboxd client, blob store), `gateway/` (model-gateway, Message Bus),
+                 `honeypot/` (canaries), `scorers/`, `control/` (Control API, queue),
+                 `worker/` (run lifecycle), `proto/` (generated gRPC stubs)
 tests/           Python tests
 go/              the Go module: `cmd/sandboxd`, `internal/`. Its own README, CHANGELOG, BUGFIX
 proto/           gRPC contracts; buf.yaml and buf.gen.yaml sit at the repo root

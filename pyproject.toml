@@ -27,6 +27,8 @@ dependencies = [
 
 [project.scripts]
 swarmeval-model-gateway = "swarmeval.gateway.model.server:main"
+swarmeval-control = "swarmeval.control.server:main"
+swarmeval-worker = "swarmeval.worker.server:main"
 
 [build-system]
 requires = ["uv_build>=0.10,<0.11"]
