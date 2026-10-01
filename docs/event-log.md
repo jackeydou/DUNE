@@ -87,7 +87,7 @@ of `events` are never rewritten.
 | `messages` | `(run_id, agent_id, gen, idx)` | One context message (the runtime's `ChatMessage` as JSON), and `seq` | Append only |
 | `agent_state` | `id`, indexed on `(run_id, agent_id, seq, id)` | `gen`, `len`, `turn`, `status`, `tokens_used` | Append only, one row per state change |
 | `extension_state` | `id`, indexed on `(run_id, instance_id, seq, id)` | An extension instance's state, `jsonb` | Append only |
-| `deliveries` | `(run_id, msg_seq, recipient)` | Status, `seq` of the delivery | Updated. Not built yet (Message Bus) |
+| `deliveries` | `(run_id, msg_seq, recipient)` | `status` (`pending`, `delivered`), `delivered_seq` | Updated. The store writes it from `msg.send` and `msg.deliver` events, in their transaction |
 | `sandboxes` | `(run_id, sandbox_id)` | Container id, recovery fidelity | Updated. Not built yet |
 
 `seq` on a `messages`, `agent_state`, or `extension_state` row is the run's last event `seq` when

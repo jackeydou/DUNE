@@ -9,16 +9,25 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from pydantic import JsonValue, TypeAdapter
-from sqlalchemy import func, insert, select, text
+from sqlalchemy import func, insert, select, text, update
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from swarmeval.db import agent_state, control_runs, events, extension_state, messages
+from swarmeval.db import (
+    agent_state,
+    control_runs,
+    deliveries,
+    events,
+    extension_state,
+    messages,
+)
 from swarmeval.events.seal import ChainHead, seal
 from swarmeval.runtime.messages import ChatMessage
 from swarmeval.runtime.ports import AgentContext
 from swarmeval.runtime.records import (
     CommittedEvent,
+    MessageDeliverRecord,
+    MessageSendRecord,
     Transaction,
 )
 
@@ -78,6 +87,7 @@ class PostgresRunStore:
             )
             if event_rows:
                 await conn.execute(insert(events), event_rows)
+            await self._write_deliveries(conn, committed)
             tails = await self._write_messages(conn, txn, head.seq)
             if txn.agent_states:
                 await conn.execute(
@@ -176,6 +186,46 @@ class PostgresRunStore:
                 f"run {self._run_id} is at owner_epoch {epoch}, this worker holds {self._epoch}. "
                 "Another worker has taken the run over; stop executing it."
             )
+
+    async def _write_deliveries(
+        self, conn: AsyncConnection, committed: list[CommittedEvent]
+    ) -> None:
+        """A send opens one pending row per recipient; a delivery closes its row. Both commit
+        with the event that describes them, so recovery reads pending mail from the table."""
+        for event in committed:
+            match event.record:
+                case MessageSendRecord(recipients=recipients) if recipients:
+                    await conn.execute(
+                        insert(deliveries),
+                        [
+                            {
+                                "run_id": self._run_id,
+                                "msg_seq": event.seq,
+                                "recipient": recipient,
+                                "status": "pending",
+                            }
+                            for recipient in recipients
+                        ],
+                    )
+                case MessageDeliverRecord(send_seq=send_seq, recipient=recipient):
+                    result = await conn.execute(
+                        update(deliveries)
+                        .where(
+                            deliveries.c.run_id == self._run_id,
+                            deliveries.c.msg_seq == send_seq,
+                            deliveries.c.recipient == recipient,
+                            deliveries.c.status == "pending",
+                        )
+                        .values(status="delivered", delivered_seq=event.seq)
+                    )
+                    if result.rowcount != 1:
+                        raise RuntimeError(
+                            f"run {self._run_id}: delivery of message {send_seq} to "
+                            f"`{recipient}` has no pending row. A message is delivered once, "
+                            "after its send commits."
+                        )
+                case _:
+                    pass
 
     async def _load_head(self, conn: AsyncConnection) -> ChainHead:
         last = (

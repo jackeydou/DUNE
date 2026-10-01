@@ -22,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 RUN_STATUSES = ("queued", "running", "paused", "interrupted", "done", "failed", "cancelled")
+DELIVERY_STATUSES = ("pending", "delivered")
 
 metadata = MetaData(
     naming_convention={
@@ -106,5 +107,20 @@ extension_state = Table(
     Column("state", JSONB, nullable=False),
     ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
     Index(None, "run_id", "instance_id", "seq", "id"),
+    schema="runs",
+)
+
+deliveries = Table(
+    "deliveries",
+    metadata,
+    Column("run_id", Text, primary_key=True),
+    Column("msg_seq", BigInteger, primary_key=True),
+    Column("recipient", Text, primary_key=True),
+    Column("status", Text, nullable=False),
+    Column("delivered_seq", BigInteger),
+    CheckConstraint(
+        "status IN (" + ", ".join(f"'{s}'" for s in DELIVERY_STATUSES) + ")", name="status"
+    ),
+    ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
     schema="runs",
 )

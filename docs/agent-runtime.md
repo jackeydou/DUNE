@@ -15,7 +15,8 @@ spec describes but the code does not do.
 `RunLoop` runs one fresh run. Agents take turns in `round_robin` order. A turn is one model call
 plus every tool call it makes:
 
-1. `before_turn` gate. Queued injections and `Inject` messages are admitted first.
+1. `before_turn` gate. Messages waiting on the Message Bus, then queued injections and `Inject`
+   messages, are admitted first.
 2. Read the context from the store: the first `len` messages of the agent's current generation.
 3. `compact_context`. A new message list starts a new generation.
 4. `before_model_request`, which may narrow the tool list and change sampling options.
@@ -25,8 +26,9 @@ plus every tool call it makes:
    `after_tool_result`, then admit the tool message.
 8. `after_turn`.
 
-An agent whose response has no tool calls is finished. The run ends when every agent is
-finished, when `max_turns` or `max_tokens` is reached (`max_tokens` is checked before each model
+An agent whose response has no tool calls is finished until a message arrives for it on the
+Message Bus, which gives it another turn. The run ends when every agent is finished with no
+messages waiting, when `max_turns` or `max_tokens` is reached (`max_tokens` is checked before each model
 call), or when a hook or an action stops it.
 
 A stop takes effect at the hook point where it is seen: after `before_turn`, `compact_context`,
@@ -52,10 +54,18 @@ message or a new generation, so a request can always be rebuilt from `messages`.
 | `SandboxTool` | sandboxd, in the calling agent's sandbox. Its `build` only turns arguments into an `Exec` | The runtime, or an extension with `runs_in="sandbox"` |
 | `WorkerTool` | The worker, with only its extension's `HookContext`. It must not do its own I/O | An extension with `runs_in="worker"` |
 
-The runtime provides one tool itself, `shell` (`swarmeval.runtime.tools.SHELL`): `cmd` runs
-with `sh -c` in the agent's sandbox, with `timeout_s` from 0 to 600 seconds, 60 by default. The
-agent sees stdout then stderr, each cut at sandboxd's inline limit with a note giving the full
-size; the full output is in the blob store.
+The runtime provides two tools itself:
+
+- `shell` (`swarmeval.runtime.tools.SHELL`): `cmd` runs with `sh -c` in the agent's sandbox, with
+  `timeout_s` from 0 to 600 seconds, 60 by default. The agent sees stdout then stderr, each cut
+  at sandboxd's inline limit with a note giving the full size; the full output is in the blob
+  store.
+- `send_message` (a `RuntimeTool` the loop adds from its Message Bus): `channel` and `content`.
+  See [orchestrator.md](services/orchestrator.md#message-bus).
+
+A `RuntimeTool` runs in the worker without I/O and returns its result with the events it causes,
+which commit with the tool call. `BUILTIN_TOOL_NAMES` lists every runtime tool name; pass it to
+`load_extensions` so no extension reuses one.
 
 Arguments are validated against the tool's pydantic model. Invalid arguments, an unknown tool, a
 non-zero exit, and a timeout all become error results the agent sees, and each is recorded. A
@@ -221,7 +231,8 @@ The timeout is the loop's `hook_timeout_s` (default 30 s) unless the extension d
 | Spec item | State |
 |---|---|
 | Resume, takeover, fork | `RunLoop` refuses a run that already has context. The `awaiting_admit` status exists, and the gateway path is to write it when that path is built |
-| `before_deliver`, `on_resume` hooks | Arrive with the Message Bus and with recovery |
+| `before_deliver`, `on_resume` hooks | Arrive with interventions (M3) and with recovery |
+| `read_messages` | Arrives with monitors (M3). Channel members get messages pushed at their next turn |
 | `Pause` decisions and pause actions | Need a resume path |
 | `ctx.canaries` | Arrives with `swarmeval/honeypot/` |
 | `async` and `event_driven` turn policies, `wall_clock` limit | Only `round_robin`, `max_turns`, and `max_tokens` exist |

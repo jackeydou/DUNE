@@ -1,6 +1,7 @@
 """From a loaded variant to what the runtime drives: one `RunSpec` per run."""
 
 from swarmeval.core.loader import Variant
+from swarmeval.gateway.bus import ChannelSpec
 from swarmeval.runtime import AgentSpec, Limits, RunSpec
 
 
@@ -23,4 +24,5 @@ def run_spec(variant: Variant, *, run_id: str, seed: int) -> RunSpec:
         for agent in swarm.agents
     )
     limits = Limits(max_turns=swarm.limits.max_turns, max_tokens=swarm.limits.max_tokens)
-    return RunSpec(run_id=run_id, seed=seed, agents=agents, limits=limits)
+    channels = tuple(ChannelSpec(id=c.id, members=c.members) for c in swarm.channels)
+    return RunSpec(run_id=run_id, seed=seed, agents=agents, limits=limits, channels=channels)

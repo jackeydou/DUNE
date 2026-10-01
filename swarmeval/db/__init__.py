@@ -9,9 +9,11 @@ from sqlalchemy import Engine, create_engine, make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from swarmeval.db.tables import (
+    DELIVERY_STATUSES,
     RUN_STATUSES,
     agent_state,
     control_runs,
+    deliveries,
     events,
     extension_state,
     messages,
@@ -19,10 +21,12 @@ from swarmeval.db.tables import (
 )
 
 __all__ = [
+    "DELIVERY_STATUSES",
     "RUN_STATUSES",
     "agent_state",
     "async_engine",
     "control_runs",
+    "deliveries",
     "events",
     "extension_state",
     "messages",
