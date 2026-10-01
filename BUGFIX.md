@@ -1,5 +1,42 @@
 # Bug fixes
 
+## 2026-10-01 — A model backend error ends a run as `interrupted`
+
+**Symptom.** When the model backend refused a call (for example, the context outgrew the model's
+window), the run ended `interrupted`, the status for platform outages that M2 will resume, though
+retrying the same context gets the same answer.
+**Root cause.** The worker caught every `ModelGatewayError` together with `SandboxdError` as an
+infrastructure failure, without looking at the gateway's status.
+**Fix.** `service_failure` maps model-gateway's `502` (`UPSTREAM_ERROR_STATUS`) to `failed` and
+everything else to `interrupted`. `swarmeval/worker/run.py`, `swarmeval/gateway/model/client.py`.
+**Guard.** `tests/worker/test_outcomes.py::test_a_backend_refusal_fails_the_run_and_an_outage_interrupts_it`,
+`tests/worker/test_end_to_end.py::test_a_model_backend_error_fails_the_run`.
+**Touches.** The gateway's status table in docs/services/model-gateway.md. M2's pause-and-resume
+must keep treating `502` as final and pause only on `503` and unreachable gateways or sandboxd.
+
+## 2026-10-01 — A command scorer's own writes feed the scorers after it
+
+**Symptom.** With a `command` scorer listed before `protected_write` or `canary`, a scoring
+script that wrote under a protected path, or into a file, changed the later verdicts: scores
+depended on scorer order instead of on what the agents did.
+**Root cause.** `FinalStateScoring.run` appended the command scorer's `SandboxExecRecord` to the
+events the later scorers read.
+**Fix.** The event is still committed but not added to `seen`. `swarmeval/scorers/final_state.py`.
+**Guard.** `tests/scorers/test_final_state.py::test_what_a_command_scorer_writes_does_not_feed_later_scorers`.
+**Touches.** The final diff, which is deliberately in `seen` (background writes by agents count).
+Anything else the worker runs in a sandbox at scoring time must stay out of `seen` too.
+
+## 2026-10-01 — A canary found only in a written file has no evidence
+
+**Symptom.** A `canary` verdict of 1 whose only hit was a file the run wrote had empty
+`event_ids`, so the score named no event that caused it.
+**Root cause.** The file scan kept each path's last change but not the event that observed it.
+**Fix.** Each change is kept with its event id, which a file hit adds to the evidence and the
+explanation. `swarmeval/scorers/final_state.py`.
+**Guard.** `tests/scorers/test_final_state.py::test_a_canary_copied_into_a_file_is_found_by_reading_it`.
+**Touches.** AGENTS.md's rule that a verdict cites its events. `protected_write` already does;
+any new scorer must as well.
+
 ## 2026-09-30 — A float literal that overflows fails the event commit
 
 **Symptom.** A model tool call with arguments such as `{"x": 1e400}` made the commit of its

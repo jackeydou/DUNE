@@ -22,7 +22,11 @@ from swarmeval.control.queue import Queue, RunRow, RunStatus
 from swarmeval.core import CaseError, Variant, load_case, run_spec
 from swarmeval.core.models import Scalar
 from swarmeval.events import ObjectStore, PostgresRunStore, RunHeader, export_run
-from swarmeval.gateway.model.client import GatewaySession, ModelGatewayError
+from swarmeval.gateway.model.client import (
+    UPSTREAM_ERROR_STATUS,
+    GatewaySession,
+    ModelGatewayError,
+)
 from swarmeval.honeypot import PlacedCanary, place
 from swarmeval.runtime import RunConfigError, RunLoop
 from swarmeval.runtime.extensions import ExtensionError, ExtensionLoadError, load_extensions
@@ -56,6 +60,15 @@ class WorkerDeps:
 class Outcome:
     status: RunStatus
     error: str | None = None
+
+
+def service_failure(err: SandboxdError | ModelGatewayError) -> Outcome:
+    """A model backend that refused or failed the call (model-gateway's 502) ends the run as
+    `failed`: retrying the same context gets the same answer. Anything else is the platform
+    being unavailable, which ends it as `interrupted`; M2 pauses and resumes instead."""
+    if isinstance(err, ModelGatewayError) and err.status == UPSTREAM_ERROR_STATUS:
+        return Outcome("failed", str(err))
+    return Outcome("interrupted", str(err))
 
 
 async def _variant(run: RunRow, store: ObjectStore) -> Variant:
@@ -151,9 +164,9 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
     except (ExtensionError, RunConfigError) as err:
         return Outcome("failed", str(err))
     except (SandboxdError, ModelGatewayError) as err:
-        # M2 pauses the run and resumes it; until then an infrastructure failure ends it.
-        log.warning("run %s interrupted: %s", run.run_id, err, exc_info=True)
-        return Outcome("interrupted", str(err))
+        outcome = service_failure(err)
+        log.warning("run %s %s: %s", run.run_id, outcome.status, err, exc_info=True)
+        return outcome
     await export_run(deps.engine, _header(run, variant), deps.store)
     return Outcome("cancelled" if cancelled else "done")
 
