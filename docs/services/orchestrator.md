@@ -167,7 +167,8 @@ Built: `swarmeval.web.HttpWebClient`, one per run, and the `WebTool` `WEB_REQUES
 [trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 3.
 
 - **Who gets it.** An agent whose `tools` list names `web_request`. Any public address, any
-  method.
+  method. Nothing beyond the address check limits what an agent does to real third-party sites;
+  that is deferred to the network capability (trajectory-first spec Q3).
 - **Where it runs.** In the worker, through the `WebClient` the loop is given. The sandbox stays
   offline. A run whose agent lists `web_request` fails to start without one.
 - **Address check.** The host is resolved, every resulting address is checked, and the
