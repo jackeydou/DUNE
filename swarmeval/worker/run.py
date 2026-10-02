@@ -36,6 +36,7 @@ from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, BUILTIN_TOOLS
 from swarmeval.runtime.writer import RunWriter
 from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError, SeedFile
 from swarmeval.scorers import FinalStateScoring
+from swarmeval.web import HttpWebClient
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +120,8 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
     writer = RunWriter(store)
     committed: list[CommittedEvent] = []
     writer.subscribe(committed.extend)
-    sandboxes = RunSandboxes(deps.sandboxd, run.run_id, S3BlobStore(deps.store))
+    blobs = S3BlobStore(deps.store)
+    sandboxes = RunSandboxes(deps.sandboxd, run.run_id, blobs)
     callers: list[Caller] = [AgentCaller(a.id) for a in spec.agents]
     callers.extend(ExtensionCaller(e.instance_id) for e in extensions)
     try:
@@ -136,6 +138,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     writer=writer,
                 )
             )
+            web = await stack.enter_async_context(HttpWebClient(blobs))
             loop = RunLoop(
                 spec,
                 writer=writer,
@@ -143,6 +146,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                 sandbox_executor=sandboxes,
                 extensions=extensions,
                 tools=BUILTIN_TOOLS,
+                web_client=web,
             )
             watcher = asyncio.create_task(
                 _watch_cancel(deps.queue, run.run_id, loop, deps.cancel_poll_s)

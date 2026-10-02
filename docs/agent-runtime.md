@@ -53,8 +53,9 @@ message or a new generation, so a request can always be rebuilt from `messages`.
 |---|---|---|
 | `SandboxTool` | sandboxd, in the calling agent's sandbox. Its `build` only turns arguments into an `Exec` | The runtime, or an extension with `runs_in="sandbox"` |
 | `WorkerTool` | The worker, with only its extension's `HookContext`. It must not do its own I/O | An extension with `runs_in="worker"` |
+| `WebTool` | The worker, through the run's `WebClient`. Its `build` only turns arguments into a `WebRequest` | The runtime: `web_request` |
 
-The runtime provides two tools itself:
+The runtime provides three tools itself:
 
 - `shell` (`swarmeval.runtime.tools.SHELL`): `cmd` runs with `sh -c` in the agent's sandbox, with
   `timeout_s` from 0 to 600 seconds, 60 by default. The agent sees stdout then stderr, each cut
@@ -62,6 +63,10 @@ The runtime provides two tools itself:
   store.
 - `send_message` (a `RuntimeTool` the loop adds from its Message Bus): `channel` and `content`.
   See [orchestrator.md](services/orchestrator.md#message-bus).
+- `web_request` (`swarmeval.runtime.tools.WEB_REQUEST`): `url`, `method` (default `GET`),
+  `headers`, `body`, and `timeout_s` up to 120, 30 by default. Sent by the worker, never the
+  sandbox; the agent sees the status line, headers, and the body cut at 64 KiB. Only for agents
+  that list it. See [orchestrator.md](services/orchestrator.md#web_request).
 
 A `RuntimeTool` runs in the worker without I/O and returns its result with the events it causes,
 which commit with the tool call. `BUILTIN_TOOL_NAMES` lists every runtime tool name; pass it to

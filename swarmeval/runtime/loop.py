@@ -33,7 +33,7 @@ from swarmeval.runtime.messages import (
     ToolMessage,
     UserMessage,
 )
-from swarmeval.runtime.ports import AgentCaller, ModelClient, SandboxExecutor
+from swarmeval.runtime.ports import AgentCaller, ModelClient, SandboxExecutor, WebClient
 from swarmeval.runtime.records import (
     AgentStateRow,
     EventDraft,
@@ -43,15 +43,18 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
     ToolResult,
     Transaction,
+    WebExchange,
 )
 from swarmeval.runtime.tools import (
     RuntimeTool,
     SandboxTool,
     Tool,
+    WebTool,
     WorkerTool,
     exec_output,
     parse_arguments,
     tool_schema,
+    web_output,
 )
 from swarmeval.runtime.writer import RunWriter
 
@@ -113,6 +116,17 @@ class _AgentRun:
         self.finished = False
 
 
+@dataclass(frozen=True)
+class _Execution:
+    """A tool call's outcome. `executed` is the arguments that actually ran, `None` when nothing
+    did; `exec_result` and `web` are what sandboxd or the web client observed."""
+
+    result: ToolResult
+    executed: str | None = None
+    exec_result: ExecResult | None = None
+    web: WebExchange | None = None
+
+
 class _Stopped(Exception):
     def __init__(self, reason: str) -> None:
         self.reason = reason
@@ -131,6 +145,7 @@ class RunLoop:
         sandbox_executor: SandboxExecutor,
         extensions: Sequence[LoadedExtension] = (),
         tools: Sequence[Tool] = (),
+        web_client: WebClient | None = None,
         hook_timeout_s: float = 30.0,
     ) -> None:
         self._spec = spec
@@ -138,6 +153,7 @@ class RunLoop:
         self._store = writer.store
         self._model = model_client
         self._sandbox = sandbox_executor
+        self._web = web_client
         self._bus = MessageBus(spec.channels)
         writer.subscribe(self._bus.on_commit)
         bus_tool = self._bus.tool()
@@ -162,6 +178,11 @@ class RunLoop:
                         f"agent `{agent.id}` lists tool `{name}`, which neither the runtime nor "
                         f"any loaded extension provides. Known tools: "
                         f"{', '.join(sorted(self._tools)) or 'none'}."
+                    )
+                if isinstance(tool, WebTool) and self._web is None:
+                    raise RunConfigError(
+                        f"agent `{agent.id}` lists `{name}`, but the run was started without a "
+                        "web client to send its requests."
                     )
                 if isinstance(tool, SandboxTool) and agent.sandbox_id is None:
                     raise RunConfigError(
@@ -359,13 +380,11 @@ class RunLoop:
         if reason is not None:
             await self._writer.commit(txn)
             raise _Stopped(reason)
-        executed: str | None = None
-        exec_result: ExecResult | None = None
         blocked_by: str | None = None
         match gate.decision:
             case Block(result=content, is_error=is_error):
-                result = ToolResult(
-                    call_id=call.id, tool=call.name, content=content, is_error=is_error
+                execution = _Execution(
+                    ToolResult(call_id=call.id, tool=call.name, content=content, is_error=is_error)
                 )
                 blocked_by = gate.decided_by
             case decision:
@@ -375,16 +394,16 @@ class RunLoop:
                     else call.arguments
                 )
                 effective = call.model_copy(update={"arguments": arguments})
-                result, executed, exec_result = await self._execute(
-                    d, agent, effective, txn, offered
-                )
+                execution = await self._execute(d, agent, effective, txn, offered)
 
+        result = execution.result
         record = ToolCallRecord(
             call=call,
-            executed_arguments=executed,
+            executed_arguments=execution.executed,
             result=result,
             blocked_by=blocked_by,
-            exec_result=exec_result,
+            exec_result=execution.exec_result,
+            web=execution.web,
         )
         draft = EventDraft(record=record, agent_id=agent.spec.id, parent_id=model_event_id)
         txn.events.append(draft)
@@ -406,7 +425,7 @@ class RunLoop:
         call: ToolCall,
         txn: Transaction,
         offered: tuple[str, ...],
-    ) -> tuple[ToolResult, str | None, ExecResult | None]:
+    ) -> _Execution:
         """`offered` is the tool list of the request that produced the call, after
         `before_model_request` narrowed it. A call outside it is refused even if the agent
         otherwise has the tool."""
@@ -414,29 +433,29 @@ class RunLoop:
         if tool is None:
             available = ", ".join(offered) or "none"
             content = f"Unknown tool `{call.name}`. Available tools: {available}."
-            return (
-                ToolResult(call_id=call.id, tool=call.name, content=content, is_error=True),
-                None,
-                None,
+            return _Execution(
+                ToolResult(call_id=call.id, tool=call.name, content=content, is_error=True)
             )
         parsed = parse_arguments(tool, call)
         if isinstance(parsed, ToolResult):
-            return parsed, None, None
+            return _Execution(parsed)
         if isinstance(tool, RuntimeTool):
             outcome = tool.run(parsed, agent.spec.id, call.id)
             txn.events.extend(outcome.events)
             result = ToolResult(
                 call_id=call.id, tool=call.name, content=outcome.content, is_error=outcome.is_error
             )
-            return result, call.arguments, None
+            return _Execution(result, call.arguments)
         if isinstance(tool, WorkerTool):
             content, effects = await d.run_worker_tool(tool, agent.info, parsed)
             txn.extend(effects)
-            return (
-                ToolResult(call_id=call.id, tool=call.name, content=content),
-                call.arguments,
-                None,
+            return _Execution(
+                ToolResult(call_id=call.id, tool=call.name, content=content), call.arguments
             )
+        if isinstance(tool, WebTool):
+            assert self._web is not None, "checked in _check_tools"
+            exchange = await self._web.request(tool.build(parsed))
+            return _Execution(web_output(call, exchange), call.arguments, web=exchange)
         try:
             command = tool.build(parsed)
         except Exception as err:
@@ -449,7 +468,7 @@ class RunLoop:
         result = await self._sandbox.exec(
             agent.spec.sandbox_id, agent.spec.os_user, command, call_id=call.id
         )
-        return exec_output(call, result), call.arguments, result
+        return _Execution(exec_output(call, result), call.arguments, exec_result=result)
 
     def _admit(self, txn: Transaction, agent: _AgentRun, messages: Sequence[ChatMessage]) -> None:
         if not messages:

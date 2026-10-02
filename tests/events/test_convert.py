@@ -25,6 +25,8 @@ from swarmeval.runtime.records import (
     SandboxExecRecord,
     ToolCallRecord,
     ToolResult,
+    WebExchange,
+    WebRequest,
 )
 from tests.runtime.fakes import GATEWAY
 
@@ -125,6 +127,39 @@ def test_a_tool_call_is_a_tool_event_with_sandbox_observations() -> None:
     assert exec_meta["exit_code"] == 1
     assert exec_meta["fs_changes"][0]["path"] == "/workspace/a"
     assert "stdout" not in exec_meta
+
+
+def test_a_web_request_carries_its_exchange_without_the_shown_body() -> None:
+    request = WebRequest(method="GET", url="https://example.com/")
+    record = ToolCallRecord(
+        call=ToolCall(id="c1", name="web_request", arguments='{"url": "https://example.com/"}'),
+        executed_arguments='{"url": "https://example.com/"}',
+        result=ToolResult(call_id="c1", tool="web_request", content="HTTP 200\n\nhi"),
+        web=WebExchange(
+            request=request,
+            address="93.184.215.14",
+            status=200,
+            response_body_size=2,
+            response_body_sha256="cd" * 32,
+            body="hi",
+            body_bytes=2,
+        ),
+    )
+
+    event = roundtrip(record)
+
+    assert isinstance(event, ToolEvent)
+    assert event.result == "HTTP 200\n\nhi"
+    assert event.metadata is not None
+    web = event.metadata["swarmeval"]["web"]
+    assert web["request"]["url"] == "https://example.com/"
+    assert (web["address"], web["status"], web["response_body_sha256"]) == (
+        "93.184.215.14",
+        200,
+        "cd" * 32,
+    )
+    assert "body" not in web
+    assert event.metadata["swarmeval"]["schema_version"] == SCHEMA_VERSION == 3
 
 
 def test_a_timed_out_tool_call_has_a_timeout_error() -> None:
