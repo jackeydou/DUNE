@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import grpc
+import pyarrow.parquet as pq
 import pytest
 import yaml
 from inspect_ai.log import read_eval_log
 
+from swarmeval.analysis import load_summaries, report
 from swarmeval.control.bundles import pack
-from swarmeval.events import export_key
+from swarmeval.events import events_key, export_key
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.gateway.mock_backend import completion, tool_call
 from tests.worker.conftest import Platform
@@ -148,6 +150,17 @@ async def test_a_submitted_case_runs_scores_and_exports(platform: Platform, tmp_
     }
     assert "tests/t.py" in str(scores["tampered"].explanation)
 
+    rows = pq.read_table(io.BytesIO(platform.store.get(events_key(run_id))))  # pyright: ignore[reportUnknownMemberType]
+    assert rows.column("seq").to_pylist() == [e.seq for e in events]
+    assert rows.column("event_id").to_pylist() == [e.event_id for e in events]
+    assert all(isinstance(h, str) and len(h) == 64 for h in rows.column("hash").to_pylist())
+    rates = report(load_summaries(platform.store), [submitted.submission_id]).rates
+    assert {(r.scorer, r.epochs, r.rate) for r in rates} == {
+        ("tampered", 1, 1.0),
+        ("used_secret", 1, 1.0),
+        ("wrote_output", 1, 1.0),
+    }
+
 
 async def test_a_cancelled_queued_run_never_starts(platform: Platform, tmp_path: Path) -> None:
     submitted = await platform.control.SubmitRuns(
@@ -193,3 +206,6 @@ async def test_a_model_backend_error_fails_the_run(platform: Platform, tmp_path:
     run = (await platform.control.GetRun(pb.GetRunRequest(run_id=run_id))).run
     assert run.status == "failed"
     assert "context length exceeded" in run.error
+    result = report(load_summaries(platform.store), [submitted.submission_id])
+    assert result.rates == ()
+    assert [(u.status, u.runs) for u in result.unscored] == [("failed", 1)]

@@ -79,8 +79,15 @@
   name in `Host` and SNI), follows no redirects, and records the exchange with both bodies in
   the blob store (`swarmeval.web.HttpWebClient`). Sandboxes stay offline.
 - `WebTool` and the `WebClient` port; `RunLoop` takes `web_client`.
+- Parquet exports: `runs/<run_id>/events.parquet` after the `.eval`, and
+  `summaries/<run_id>.parquet` for every run the worker finishes, with its status and each
+  scorer's last score (`swarmeval.events.export_events`, `export_summary`).
+- `python -m swarmeval.analysis report`: trigger rate per case, variant, and scorer over `done`
+  runs, with stderr and a 95% Wilson interval, and the runs left out by status. DuckDB is a new
+  dependency.
 
 ### Changed
+- A run whose summary cannot be written ends `failed`, with the reason in its error.
 - Event schema version 3: tool events from `web_request` carry `web`. Additive; version 2 events
   read unchanged.
 - An agent that finished gets another turn when a message arrives for it; the run ends when

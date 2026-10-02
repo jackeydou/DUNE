@@ -21,7 +21,7 @@ from swarmeval.control.bundles import bundle_key, unpack
 from swarmeval.control.queue import Queue, RunRow, RunStatus
 from swarmeval.core import CaseError, Variant, load_case, run_spec
 from swarmeval.core.models import Scalar
-from swarmeval.events import ObjectStore, PostgresRunStore, RunHeader, export_run
+from swarmeval.events import ObjectStore, PostgresRunStore, RunHeader, export_events, export_run
 from swarmeval.gateway.model.client import (
     UPSTREAM_ERROR_STATUS,
     GatewaySession,
@@ -172,6 +172,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
         log.warning("run %s %s: %s", run.run_id, outcome.status, err, exc_info=True)
         return outcome
     await export_run(deps.engine, _header(run, variant), deps.store)
+    await export_events(deps.engine, run.run_id, deps.store)
     return Outcome("cancelled" if cancelled else "done")
 
 
