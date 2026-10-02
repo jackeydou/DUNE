@@ -15,6 +15,15 @@ from swarmeval.events.export import (
     load_run,
     write_eval,
 )
+from swarmeval.events.parquet import (
+    EVENTS_SCHEMA,
+    SUMMARY_SCHEMA,
+    Finished,
+    events_key,
+    export_events,
+    export_summary,
+    summary_key,
+)
 from swarmeval.events.store import (
     NOTIFY_CHANNEL,
     FencedError,
@@ -23,22 +32,29 @@ from swarmeval.events.store import (
 )
 
 __all__ = [
+    "EVENTS_SCHEMA",
     "NOTIFY_CHANNEL",
     "SCHEMA_VERSION",
+    "SUMMARY_SCHEMA",
     "ChainError",
     "ChainRow",
     "FencedError",
+    "Finished",
     "ObjectStore",
     "PostgresRunStore",
     "RunHeader",
     "RunNotFoundError",
     "StoredRun",
     "assemble",
+    "events_key",
+    "export_events",
     "export_key",
     "export_run",
+    "export_summary",
     "genesis",
     "link",
     "load_run",
+    "summary_key",
     "to_event",
     "to_inspect_message",
     "verify",

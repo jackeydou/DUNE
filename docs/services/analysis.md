@@ -5,14 +5,16 @@ queries, searching tool calls, rule scans added after a run, and LLM judge verdi
 of the Control API behind [edge](edge.md), not part of it. Its place among the services is in
 [architecture.md](../architecture.md).
 
-**Status:** not built. M1 runs it as batch jobs, which produce the scorers and the first report.
-M4 turns it into a gRPC service behind edge. Items marked *(proposed)* go beyond what the specs
+**Status:** the `report` job is built (`swarmeval.analysis`): trigger rates per case, variant,
+and scorer from run summaries. Rule scans, event-rule scorers, and the LLM judge are not built
+yet; M1 runs them as batch jobs too. M4 turns analysis into a gRPC service behind edge. Items marked *(proposed)* go beyond what the specs
 decided; they are listed under [Not settled](#not-settled).
 
 ## Inputs
 
 Exported runs in object storage: `events.parquet` per run and the run summaries
-([event-log.md](../event-log.md#export)). DuckDB queries them in place through `httpfs`. analysis
+([event-log.md](../event-log.md#export)). pyarrow reads them through the S3 API and DuckDB
+queries the Arrow tables in process, so no DuckDB extension is downloaded at run time. analysis
 never reads the `runs` schema and never writes object storage.
 
 ## Outputs
@@ -30,9 +32,17 @@ Events and exports are never rewritten, and replay and audit always read the ori
 | Rule scans | User-defined keywords, regexes, and rule sets, run over payloads after the fact. Payloads are first decoded where they look like base64, gzip, XOR, or combinations of them, and then matched. Matches become tags in the `analysis` schema |
 | Event-rule scorers | The case's rule scorers, sharing their detector interface with the online Monitor. Output is an Inspect `Score` with `1 = triggered` |
 | LLM judge | Asks a question about a run or a range of its events, through [model-gateway](model-gateway.md). The verdict must cite `event_id`s. Before storing it, analysis checks that every cited id exists in that run, and a verdict with no valid citation is rejected |
-| Reports | Trigger rate per risk category with a 95% CI (mean + stderr), grouped by isolation level, fidelity, and `reasoning_visibility` |
+| Reports | Trigger rate per case, variant, and scorer over `done` runs: epochs, mean, stderr, and a 95% Wilson interval, which, unlike mean ± 1.96·stderr, does not collapse to a point when no epoch or every epoch triggered. Runs that ended otherwise are listed per status and left out (runtime spec Q6). Built as the `report` job. Grouping by risk category, isolation level, fidelity, and `reasoning_visibility` is not built |
 
-In M1 each capability is a job run with `python -m swarmeval.analysis <job>` *(proposed)*.
+Each capability is a job: `python -m swarmeval.analysis <job>`, with the object store flags the
+other entry points take. Built so far:
+
+```bash
+uv run python -m swarmeval.analysis report --s3-endpoint 127.0.0.1:9000 --s3-scheme http \
+  --submission c46c60b8   # repeatable; without it, every run in the bucket
+```
+
+It prints a Markdown table.
 
 ## Interface (M4)
 
@@ -57,14 +67,13 @@ also uses the following:
 
 | Need | Choice | Why |
 |---|---|---|
-| Queries | DuckDB with the `httpfs` extension | Queries Parquet on S3 in place, with no warehouse to run |
+| Queries | DuckDB, over Arrow tables pyarrow reads | In-process SQL with no warehouse to run. DuckDB's own S3 access needs the `httpfs` extension, which it downloads on first use; pyarrow already reaches the bucket |
 | Columnar I/O | pyarrow | Already used for export |
 | Judge calls | `httpx`, against model-gateway's OpenAI-compatible API | `openai` may be imported only in model-gateway, and httpx is already a dependency of it *(proposed)* |
 
 ## Not settled
 
 1. An `analysis` schema for derived results.
-2. Job entry points in M1.
-3. RPC names of `AnalysisService`.
-4. Whether to reuse `inspect-scout` for scans and judges (runtime spec Q8), and whether Docent's
+2. RPC names of `AnalysisService`.
+3. Whether to reuse `inspect-scout` for scans and judges (runtime spec Q8), and whether Docent's
    format becomes the main export for multi-agent analysis (runtime spec Q9).

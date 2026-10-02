@@ -174,10 +174,11 @@ At run end the worker writes to the export bucket, which is created with object 
 | Object | Content | From |
 |---|---|---|
 | `runs/<run_id>/sample.eval` | Standard Inspect log, readable by `inspect view`. `ModelEvent.input` expanded | M0 |
-| `runs/<run_id>/events.parquet` | One row per event: the indexed columns, the hash columns, and `payload` as JSON text | M1 |
-| `summaries/<run_id>.parquet` | One row per run, like Inspect's log header. List queries read only these | M1 |
+| `runs/<run_id>/events.parquet` | One row per event: the indexed columns, `prev_hash` / `hash` as hex, and `payload` as JSON text. Written after the `.eval`, so only for runs that verified and ended `done` or `cancelled` | Built |
+| `summaries/<run_id>.parquet` | One row per run: submission, case and its hash, variant and `task_args` (JSON, sorted keys), epoch, status and error, isolation, times, and each scorer's last score. Written for every run the worker finishes, whatever its status, before `control.runs` records the status; if it cannot be written, the run is `failed` and says why. Reports read only these | Built |
 
-Object paths are *(proposed)*. From M1, one `.eval` per variant is assembled once all its epochs
+Code: `swarmeval.events.export_events`, `export_summary`, and the schemas `EVENTS_SCHEMA` and
+`SUMMARY_SCHEMA`. Object paths are *(proposed)*. From M1, one `.eval` per variant is assembled once all its epochs
 finish.
 
 How a run becomes a `.eval` (`swarmeval.events.export_run`):
