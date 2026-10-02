@@ -100,6 +100,20 @@ AGENTS.md 的隔离一条同步修改。
   `shared_cache_rendezvous`：可写的共享包缓存用共享沙箱里的目录代替 mock 包管理器（Open question 1）。
 - 以后：`readonly_web_deaddrop`、`honeypot_credential_chain`，它们要的是我们控制的服务端和网络层记录。
 
+### 9. 轨迹分析自建，不以 Docent 或 inspect-scout 为主（2026-10-02 补充）
+
+结掉 runtime spec Open questions 8、9。查询、LLM judge、规则扫描和单 run 时间线都在 `swarmeval.analysis` 里自己做；
+`.eval` 仍是对外交换格式，需要时再加 Docent、inspect-scout 的导出适配，不是现在的依赖。理由：
+
+- 数据和信号是我们自己的：文件改动、进程快照、canary 命中、消息投递、`intervention` 改写、`parent_id` 因果链。外部工具
+  只认消息序列，这些都要压扁进 metadata。
+- 多 agent 是重点，两边都要写转换；我们的 `.eval` 把轨迹放在 events 里，`messages` 为空，外部导入器都读不全。
+- judge 的结论要引用 `event_id` 并校验，结论才回得到哈希链证据上；外部工具做不到这一点。
+- 轨迹里有注入 payload 和诱饵凭据，不出部署就没有访问控制的问题（v1 spec 待讨论问题 6）。
+- 导出适配是百来行的事，以后随时能加，现在不接不会被锁住。
+
+代价是看轨迹的界面要自己做：先用 `inspect view` 和一个单 run 时间线的批处理任务，正式的回放 viewer 仍在 M4。
+
 ## Rejected
 
 - **保留每沙箱网络、网关地址上没有人**：agent 每次联网都要等 ARP 失败或 DNS 超时（几秒到十几秒），轨迹里堆满超时；runc 下
@@ -113,6 +127,10 @@ AGENTS.md 的隔离一条同步修改。
   存放位置，后者让 agent 能看到、改动 mock 本身。先用 hook 和文件，需要时再立 spec。
 - **自动跟随重定向**：一次调用会对应多次出站请求，每一跳都要单独检查和记录。
 - **单独的出口容器执行 `web_request`**：纵深防御更好，但多一个服务和一条 RPC。先在 worker 里做，见 Open question 5。
+- **以 Docent 为主做多 agent 轨迹分析**（2026-10-02）：交互式搜索、rubric 和聚类现成，原生支持一个 run 多条 transcript；
+  但要写转换、托管版会把轨迹送出部署、结论和 `event_id` 证据断开。见决定 9。
+- **以 inspect-scout 的 scanner 代替自建的 judge 和规则扫描**（2026-10-02）：能直接读 `.eval`，但默认读 `messages`，
+  要改成读 events 或在导出时按 agent 填好；我们自己的 judge 要的引用校验它也没有。见决定 9。
 
 ## Open questions
 
@@ -126,7 +144,7 @@ AGENTS.md 的隔离一条同步修改。
    [docs/services/net-gateway.md](../../docs/services/net-gateway.md#not-settled)。
 4. runtime spec Open question 6（中断与补跑的统计口径）原定 M2 之前定，现在 M1 的报告就要用到，提前到 M1 报告之前。
 5. 是否把 `web_request` 移到一个只能出公网、连不到平台网络的独立出口进程或容器里，作为地址检查之外的第二道防线。
-6. runtime spec Open questions 8、9（inspect-scout、Docent）要在 M1 的分析出口之前定。
+6. ~~runtime spec Open questions 8、9（inspect-scout、Docent）要在 M1 的分析出口之前定~~ 已定（2026-10-02）：自建，见决定 9。
 
 ## Plan
 
@@ -139,7 +157,7 @@ AGENTS.md 的隔离一条同步修改。
   3. M0 门槛：真实开源模型跑 `scorer_misbelief`（可与 1、2 并行）。
   4. 批量：变体矩阵、epoch、suite、多 worker 并行；崩溃的 run 标记 `interrupted` 并补跑新 epoch。
   5. 评分与分析：Score / metrics / reducer、LLM judge 引用 `event_id`、Parquet 与 run 汇总、DuckDB 批处理任务、按 variant
-     组装 `.eval`、transcript 与网关记录比对；Open question 6 定下的导出。
+     组装 `.eval`、transcript 与网关记录比对、单 run 时间线、规则扫描（决定 9）。
   6. canary 解码与每沙箱 canary；隔离自检。
   7. case：`transcript_spoofing` 和 Open question 1 定下的离线 case。
   - 门槛：见 v1 spec §9。
