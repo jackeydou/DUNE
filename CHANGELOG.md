@@ -85,6 +85,11 @@
 - `python -m swarmeval.analysis report`: trigger rate per case, variant, and scorer over `done`
   runs, with stderr and a 95% Wilson interval, and the runs left out by status. DuckDB is a new
   dependency.
+- `python -m swarmeval.analysis judge`: an LLM judge per run through model-gateway, answering
+  through a `verdict` tool with the event ids it rests on; verdicts citing unseen events, a
+  `yes` citing nothing, or no `verdict` call are rejected. Every call is stored in
+  `analysis.judge_verdicts` (migration 0004).
+- model-gateway `analysis_key_env`: calls with that key are answered directly, without a run.
 
 ### Changed
 - A run whose summary cannot be written ends `failed`, with the reason in its error. Cancelled

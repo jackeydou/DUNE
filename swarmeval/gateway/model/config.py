@@ -67,6 +67,27 @@ class GatewayConfig(Strict):
     backends: dict[str, Backend]
     models: dict[str, ModelRoute]
     """Model name as a case writes it → where it is served."""
+    analysis_key_env: str | None = None
+    """Environment variable holding the key analysis jobs call with. Their calls are not run
+    evidence: they are answered directly, and analysis stores them with its results. Unset, no
+    analysis calls are served."""
+
+    def analysis_key(self) -> str | None:
+        if self.analysis_key_env is None:
+            return None
+        try:
+            key = os.environ[self.analysis_key_env]
+        except KeyError as err:
+            raise GatewayConfigError(
+                f"environment variable `{self.analysis_key_env}` (`analysis_key_env`) is not "
+                "set. Set it to the key analysis jobs will send, or drop `analysis_key_env`."
+            ) from err
+        if len(key) < 32:
+            raise GatewayConfigError(
+                f"`{self.analysis_key_env}` holds a {len(key)}-character key; use at least 32 "
+                "random characters, for example `openssl rand -hex 32`."
+            )
+        return key
 
     @model_validator(mode="after")
     def _routes_name_backends(self) -> Self:

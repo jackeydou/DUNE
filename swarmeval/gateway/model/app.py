@@ -1,6 +1,7 @@
 """The gateway's HTTP API: OpenAI Chat Completions, recorded (docs/services/model-gateway.md)."""
 
 import hashlib
+import hmac
 import json
 import logging
 from typing import Annotated
@@ -28,7 +29,10 @@ def _error(status: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(body.model_dump(), status_code=status)
 
 
-def create_app(attachments: Attachments, upstreams: Upstreams) -> FastAPI:
+def create_app(
+    attachments: Attachments, upstreams: Upstreams, analysis_key: str | None = None
+) -> FastAPI:
+    """`analysis_key`, when set, is served without a run: see `GatewayConfig.analysis_key_env`."""
     app = FastAPI(title="swarmeval model-gateway", docs_url=None, redoc_url=None)
 
     @app.get("/v1/models")
@@ -47,6 +51,8 @@ def create_app(attachments: Attachments, upstreams: Upstreams) -> FastAPI:
         call_id: Annotated[str | None, Header(alias=CALL_ID_HEADER)] = None,
     ) -> Response:
         key = (authorization or "").removeprefix("Bearer ").strip()
+        if analysis_key is not None and key and hmac.compare_digest(key, analysis_key):
+            return await _analysis_call(request, call_id, upstreams)
         found = attachments.lookup(key) if key else None
         if found is None:
             # Keys exist only while their run's stream is attached, so an unknown key and a
@@ -101,3 +107,20 @@ def create_app(attachments: Attachments, upstreams: Upstreams) -> FastAPI:
         return Response(content=response_json, media_type="application/json")
 
     return app
+
+
+async def _analysis_call(request: Request, call_id: str | None, upstreams: Upstreams) -> Response:
+    if not call_id:
+        return _error(400, "missing_call_id", f"Send the `{CALL_ID_HEADER}` header.")
+    try:
+        chat = ChatRequest.model_validate_json(await request.body())
+    except ValidationError as err:
+        return _error(400, "invalid_request", str(err))
+    try:
+        result = await upstreams.complete(chat)
+    except UnknownModelError as err:
+        return _error(404, "model_not_found", str(err))
+    except UpstreamError as err:
+        log.warning("analysis call %s: %s", call_id, err)
+        return _error(UPSTREAM_ERROR_STATUS, "upstream_error", str(err))
+    return Response(content=result.response.model_dump_json(), media_type="application/json")

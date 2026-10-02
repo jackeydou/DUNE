@@ -26,7 +26,9 @@ async def serve(config: GatewayConfig, *, http: str, grpc_address: str) -> None:
     server.add_insecure_port(grpc_address)
     host, _, port = http.rpartition(":")
     web = uvicorn.Server(
-        uvicorn.Config(create_app(attachments, upstreams), host=host, port=int(port))
+        uvicorn.Config(
+            create_app(attachments, upstreams, config.analysis_key()), host=host, port=int(port)
+        )
     )
     await server.start()
     try:

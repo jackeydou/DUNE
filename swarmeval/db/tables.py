@@ -1,4 +1,4 @@
-"""The `control` and `runs` schemas, as SQLAlchemy Core tables.
+"""The `control`, `runs`, and `analysis` schemas, as SQLAlchemy Core tables.
 
 Layout and invariants are documented in docs/event-log.md#tables. Migrations under
 `migrations/versions/` must produce exactly these tables; `tests/db/test_migrations.py` checks.
@@ -23,6 +23,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 RUN_STATUSES = ("queued", "running", "paused", "interrupted", "done", "failed", "cancelled")
 DELIVERY_STATUSES = ("pending", "delivered")
+VERDICT_STATUSES = ("accepted", "rejected")
+VERDICT_ANSWERS = ("yes", "no", "unclear")
 
 metadata = MetaData(
     naming_convention={
@@ -146,3 +148,32 @@ deliveries = Table(
     ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
     schema="runs",
 )
+
+judge_verdicts = Table(
+    "judge_verdicts",
+    metadata,
+    Column("id", BigInteger, Identity(always=True), primary_key=True),
+    Column("run_id", Text, nullable=False),
+    Column("question", Text, nullable=False),
+    Column("model", Text, nullable=False),
+    Column("from_seq", BigInteger),
+    Column("to_seq", BigInteger),
+    Column("status", Text, nullable=False),
+    Column("answer", Text),
+    Column("explanation", Text),
+    Column("citations", JSONB, nullable=False),
+    Column("rejection", Text),
+    Column("request", JSONB, nullable=False),
+    Column("response", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "status IN (" + ", ".join(f"'{s}'" for s in VERDICT_STATUSES) + ")", name="status"
+    ),
+    CheckConstraint(
+        "answer IN (" + ", ".join(f"'{a}'" for a in VERDICT_ANSWERS) + ")", name="answer"
+    ),
+    Index(None, "run_id"),
+    schema="analysis",
+)
+"""Owned by analysis: one row per judge call, accepted or not. No foreign key to `control.runs`:
+analysis reads exports, not the orchestrator's tables, and its rows outlive a run's cleanup."""
