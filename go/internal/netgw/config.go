@@ -38,10 +38,10 @@ type SandboxNet struct {
 	Subnet    netip.Prefix `json:"subnet"`
 }
 
-// PlatformConfig is the NetEvents listener and the mTLS material that pins it to one run's
+// PlatformConfig is the NetEventsService listener and the mTLS material that pins it to one run's
 // worker. The certificate is issued for this run alone, so the stream can carry only this run.
 type PlatformConfig struct {
-	// Listen is the address the NetEvents gRPC server binds, on the platform link only.
+	// Listen is the address the NetEventsService gRPC server binds, on the platform link only.
 	Listen string `json:"listen"`
 	// CertFile and KeyFile are net-gateway's server certificate, issued per run.
 	CertFile string `json:"cert_file"`

@@ -19,18 +19,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NetEvents_Attach_FullMethodName = "/swarmeval.netgw.v1.NetEvents/Attach"
+	NetEventsService_Attach_FullMethodName = "/swarmeval.netgw.v1.NetEventsService/Attach"
 )
 
-// NetEventsClient is the client API for NetEvents service.
+// NetEventsServiceClient is the client API for NetEventsService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
-// to the worker that owns the run. The gateway holds the traffic until the worker commits the
-// record and acks it, so a request that was let through is never unrecorded.
+// NetEventsService carries net-gateway's record of every connection, datagram flow, and DNS
+// query back to the worker that owns the run. The gateway holds the traffic until the worker
+// commits the record and acks it, so a request that was let through is never unrecorded.
 // Behavior: docs/services/net-gateway.md.
-type NetEventsClient interface {
+//
+// Not served or called yet: net-gateway is deferred (2026-10-02). The contract is kept as
+// designed so the work can resume from it.
+type NetEventsServiceClient interface {
 	// One stream per run, dialed by the run's worker over mTLS with a per-run certificate. The
 	// worker's first message is a `Hello`; the gateway answers `Attached`. After that the gateway
 	// sends one `Record` per connection, datagram flow, or DNS query and holds that traffic until
@@ -39,17 +42,17 @@ type NetEventsClient interface {
 	Attach(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AttachRequest, AttachResponse], error)
 }
 
-type netEventsClient struct {
+type netEventsServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewNetEventsClient(cc grpc.ClientConnInterface) NetEventsClient {
-	return &netEventsClient{cc}
+func NewNetEventsServiceClient(cc grpc.ClientConnInterface) NetEventsServiceClient {
+	return &netEventsServiceClient{cc}
 }
 
-func (c *netEventsClient) Attach(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AttachRequest, AttachResponse], error) {
+func (c *netEventsServiceClient) Attach(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AttachRequest, AttachResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &NetEvents_ServiceDesc.Streams[0], NetEvents_Attach_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &NetEventsService_ServiceDesc.Streams[0], NetEventsService_Attach_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -58,75 +61,78 @@ func (c *netEventsClient) Attach(ctx context.Context, opts ...grpc.CallOption) (
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type NetEvents_AttachClient = grpc.BidiStreamingClient[AttachRequest, AttachResponse]
+type NetEventsService_AttachClient = grpc.BidiStreamingClient[AttachRequest, AttachResponse]
 
-// NetEventsServer is the server API for NetEvents service.
-// All implementations must embed UnimplementedNetEventsServer
+// NetEventsServiceServer is the server API for NetEventsService service.
+// All implementations must embed UnimplementedNetEventsServiceServer
 // for forward compatibility.
 //
-// NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
-// to the worker that owns the run. The gateway holds the traffic until the worker commits the
-// record and acks it, so a request that was let through is never unrecorded.
+// NetEventsService carries net-gateway's record of every connection, datagram flow, and DNS
+// query back to the worker that owns the run. The gateway holds the traffic until the worker
+// commits the record and acks it, so a request that was let through is never unrecorded.
 // Behavior: docs/services/net-gateway.md.
-type NetEventsServer interface {
+//
+// Not served or called yet: net-gateway is deferred (2026-10-02). The contract is kept as
+// designed so the work can resume from it.
+type NetEventsServiceServer interface {
 	// One stream per run, dialed by the run's worker over mTLS with a per-run certificate. The
 	// worker's first message is a `Hello`; the gateway answers `Attached`. After that the gateway
 	// sends one `Record` per connection, datagram flow, or DNS query and holds that traffic until
 	// the worker answers with an `Ack` or `Reject` for it. A stream for the same run with a higher
 	// `owner_epoch` replaces this one; a lower or equal one is refused with FAILED_PRECONDITION.
 	Attach(grpc.BidiStreamingServer[AttachRequest, AttachResponse]) error
-	mustEmbedUnimplementedNetEventsServer()
+	mustEmbedUnimplementedNetEventsServiceServer()
 }
 
-// UnimplementedNetEventsServer must be embedded to have
+// UnimplementedNetEventsServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedNetEventsServer struct{}
+type UnimplementedNetEventsServiceServer struct{}
 
-func (UnimplementedNetEventsServer) Attach(grpc.BidiStreamingServer[AttachRequest, AttachResponse]) error {
+func (UnimplementedNetEventsServiceServer) Attach(grpc.BidiStreamingServer[AttachRequest, AttachResponse]) error {
 	return status.Error(codes.Unimplemented, "method Attach not implemented")
 }
-func (UnimplementedNetEventsServer) mustEmbedUnimplementedNetEventsServer() {}
-func (UnimplementedNetEventsServer) testEmbeddedByValue()                   {}
+func (UnimplementedNetEventsServiceServer) mustEmbedUnimplementedNetEventsServiceServer() {}
+func (UnimplementedNetEventsServiceServer) testEmbeddedByValue()                          {}
 
-// UnsafeNetEventsServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to NetEventsServer will
+// UnsafeNetEventsServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to NetEventsServiceServer will
 // result in compilation errors.
-type UnsafeNetEventsServer interface {
-	mustEmbedUnimplementedNetEventsServer()
+type UnsafeNetEventsServiceServer interface {
+	mustEmbedUnimplementedNetEventsServiceServer()
 }
 
-func RegisterNetEventsServer(s grpc.ServiceRegistrar, srv NetEventsServer) {
-	// If the following call panics, it indicates UnimplementedNetEventsServer was
+func RegisterNetEventsServiceServer(s grpc.ServiceRegistrar, srv NetEventsServiceServer) {
+	// If the following call panics, it indicates UnimplementedNetEventsServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&NetEvents_ServiceDesc, srv)
+	s.RegisterService(&NetEventsService_ServiceDesc, srv)
 }
 
-func _NetEvents_Attach_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(NetEventsServer).Attach(&grpc.GenericServerStream[AttachRequest, AttachResponse]{ServerStream: stream})
+func _NetEventsService_Attach_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(NetEventsServiceServer).Attach(&grpc.GenericServerStream[AttachRequest, AttachResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type NetEvents_AttachServer = grpc.BidiStreamingServer[AttachRequest, AttachResponse]
+type NetEventsService_AttachServer = grpc.BidiStreamingServer[AttachRequest, AttachResponse]
 
-// NetEvents_ServiceDesc is the grpc.ServiceDesc for NetEvents service.
+// NetEventsService_ServiceDesc is the grpc.ServiceDesc for NetEventsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var NetEvents_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "swarmeval.netgw.v1.NetEvents",
-	HandlerType: (*NetEventsServer)(nil),
+var NetEventsService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "swarmeval.netgw.v1.NetEventsService",
+	HandlerType: (*NetEventsServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Attach",
-			Handler:       _NetEvents_Attach_Handler,
+			Handler:       _NetEventsService_Attach_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

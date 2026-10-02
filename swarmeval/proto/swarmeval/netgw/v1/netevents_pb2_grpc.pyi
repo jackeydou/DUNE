@@ -26,17 +26,20 @@ class _ServicerContext(_grpc.ServicerContext, _aio.ServicerContext):  # type: ig
 GRPC_GENERATED_VERSION: str
 GRPC_VERSION: str
 
-class NetEventsStub:
-    """NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
-    to the worker that owns the run. The gateway holds the traffic until the worker commits the
-    record and acks it, so a request that was let through is never unrecorded.
+class NetEventsServiceStub:
+    """NetEventsService carries net-gateway's record of every connection, datagram flow, and DNS
+    query back to the worker that owns the run. The gateway holds the traffic until the worker
+    commits the record and acks it, so a request that was let through is never unrecorded.
     Behavior: docs/services/net-gateway.md.
+
+    Not served or called yet: net-gateway is deferred (2026-10-02). The contract is kept as
+    designed so the work can resume from it.
     """
 
     @_typing.overload
     def __new__(cls, channel: _grpc.Channel) -> _Self: ...
     @_typing.overload
-    def __new__(cls, channel: _aio.Channel) -> NetEventsAsyncStub: ...
+    def __new__(cls, channel: _aio.Channel) -> NetEventsServiceAsyncStub: ...
     Attach: _grpc.StreamStreamMultiCallable[_netevents_pb2.AttachRequest, _netevents_pb2.AttachResponse]
     """One stream per run, dialed by the run's worker over mTLS with a per-run certificate. The
     worker's first message is a `Hello`; the gateway answers `Attached`. After that the gateway
@@ -46,11 +49,14 @@ class NetEventsStub:
     """
 
 @_typing.type_check_only
-class NetEventsAsyncStub(NetEventsStub):
-    """NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
-    to the worker that owns the run. The gateway holds the traffic until the worker commits the
-    record and acks it, so a request that was let through is never unrecorded.
+class NetEventsServiceAsyncStub(NetEventsServiceStub):
+    """NetEventsService carries net-gateway's record of every connection, datagram flow, and DNS
+    query back to the worker that owns the run. The gateway holds the traffic until the worker
+    commits the record and acks it, so a request that was let through is never unrecorded.
     Behavior: docs/services/net-gateway.md.
+
+    Not served or called yet: net-gateway is deferred (2026-10-02). The contract is kept as
+    designed so the work can resume from it.
     """
 
     def __init__(self, channel: _aio.Channel) -> None: ...
@@ -62,11 +68,14 @@ class NetEventsAsyncStub(NetEventsStub):
     `owner_epoch` replaces this one; a lower or equal one is refused with FAILED_PRECONDITION.
     """
 
-class NetEventsServicer(metaclass=_abc_1.ABCMeta):
-    """NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
-    to the worker that owns the run. The gateway holds the traffic until the worker commits the
-    record and acks it, so a request that was let through is never unrecorded.
+class NetEventsServiceServicer(metaclass=_abc_1.ABCMeta):
+    """NetEventsService carries net-gateway's record of every connection, datagram flow, and DNS
+    query back to the worker that owns the run. The gateway holds the traffic until the worker
+    commits the record and acks it, so a request that was let through is never unrecorded.
     Behavior: docs/services/net-gateway.md.
+
+    Not served or called yet: net-gateway is deferred (2026-10-02). The contract is kept as
+    designed so the work can resume from it.
     """
 
     @_abc_1.abstractmethod
@@ -82,4 +91,4 @@ class NetEventsServicer(metaclass=_abc_1.ABCMeta):
         `owner_epoch` replaces this one; a lower or equal one is refused with FAILED_PRECONDITION.
         """
 
-def add_NetEventsServicer_to_server(servicer: NetEventsServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...
+def add_NetEventsServiceServicer_to_server(servicer: NetEventsServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...

@@ -1,7 +1,8 @@
 # SwarmEval Go services
 
 The Go module `github.com/jackeydou/DUNE/go`. It holds the services that talk to container
-backends and the network: `sandboxd` today, and later `net-gateway`, `edge`, and the `swarm` CLI.
+backends and the network: `sandboxd` today, and later `edge` and the `swarm` CLI. `net-gateway` is
+deferred; its policy core is in `internal/netgw`.
 How they fit with the rest of SwarmEval is in [docs/architecture.md](../docs/architecture.md).
 
 ## sandboxd
@@ -28,7 +29,7 @@ Requirements and limits:
 - Sandbox images must provide `sleep`, `tr`, and `/bin/sh`, and `/etc/passwd` when the sandbox
   has users. sandboxd never pulls; pull images on the docker host first.
 - In production sandboxd runs as root, so extracted key paths keep their owners.
-- Each sandbox has its own network, on which the host has no address. Until net-gateway exists,
+- Each sandbox has its own network, on which the host has no address. While net-gateway is deferred,
   nothing holds the gateway address, so a sandbox reaches nothing.
 - Output and content caps are in `sandboxd.DefaultConfig`: 64 KiB of stdout and stderr inline,
   16 MiB kept per stream, changed files sent back up to 1 MiB each and 64 MiB per call.
@@ -42,6 +43,7 @@ Requirements and limits:
 | `cmd/sandboxd` | The binary: flags, docker connection, gRPC server |
 | `internal/sandboxd` | The service and its gRPC adapter |
 | `internal/fsdiff` | Manifests of key paths and their diff |
+| `internal/netgw` | net-gateway's policy engine, config, and traffic classification. Deferred: no binary uses it ([docs](../docs/services/net-gateway.md)) |
 | `internal/driver` | The backend interface; `driver/docker` implements it |
 | `internal/gen` | Stubs generated from `../proto` by `mise run proto:gen`. Do not edit |
 
