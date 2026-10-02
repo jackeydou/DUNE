@@ -184,7 +184,7 @@ func (FsChange_Attribution) EnumDescriptor() ([]byte, []int) {
 type CreateRunRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	RunId string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	// Every sandbox the run will create, each getting its own network.
+	// Every sandbox the run will create.
 	SandboxIds    []string `protobuf:"bytes,2,rep,name=sandbox_ids,json=sandboxIds,proto3" json:"sandbox_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

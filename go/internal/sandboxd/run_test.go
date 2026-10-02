@@ -20,9 +20,39 @@ func newService(t *testing.T, drv *fakeDriver) *Service {
 	return New(DefaultConfig(t.TempDir()), drv, slog.New(slog.DiscardHandler))
 }
 
+func newPerSandboxService(t *testing.T, drv *fakeDriver) *Service {
+	t.Helper()
+	cfg := DefaultConfig(t.TempDir())
+	cfg.Network = NetworkPerSandbox
+	return New(cfg, drv, slog.New(slog.DiscardHandler))
+}
+
+func TestSandboxesHaveNoNetworkByDefault(t *testing.T) {
+	f := newFixture(t)
+
+	if len(f.drv.networks) != 0 {
+		t.Fatalf("networks = %+v; CreateRun must create none", f.drv.networks)
+	}
+	spec := f.drv.created[0]
+	if spec.Network != "" || spec.DNS.IsValid() {
+		t.Fatalf("network = %q, DNS = %v; the sandbox must get no network at all", spec.Network, spec.DNS)
+	}
+	for _, b := range spec.Binds {
+		if b.ContainerPath == "/etc/resolv.conf" {
+			t.Fatalf("binds = %+v; a sandbox with no network gets no resolv.conf", spec.Binds)
+		}
+	}
+	if err := f.svc.DestroyRun(context.Background(), "run_1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.drv.netsGone) != 0 {
+		t.Fatalf("networks removed = %v", f.drv.netsGone)
+	}
+}
+
 func TestCreateRunGivesEachSandboxItsOwnSubnetAroundTakenOnes(t *testing.T) {
 	drv := &fakeDriver{subnets: []netip.Prefix{netip.MustParsePrefix("10.231.0.16/28"), netip.MustParsePrefix("172.17.0.0/16")}}
-	svc := newService(t, drv)
+	svc := newPerSandboxService(t, drv)
 
 	if err := svc.CreateRun(context.Background(), "run_1", []string{"dev", "qa"}); err != nil {
 		t.Fatal(err)
@@ -56,7 +86,7 @@ func TestFreeSubnetReportsAnExhaustedPool(t *testing.T) {
 
 func TestCreateRunFailingHalfwayRemovesWhatItCreated(t *testing.T) {
 	drv := &fakeDriver{failNet: "swarmeval-run_1-qa"}
-	svc := newService(t, drv)
+	svc := newPerSandboxService(t, drv)
 
 	err := svc.CreateRun(context.Background(), "run_1", []string{"dev", "qa"})
 
@@ -110,7 +140,7 @@ func TestCreateSandboxNeedsItsRun(t *testing.T) {
 }
 
 func TestSandboxJoinsItsNetworkWithResolvConfAtTheGateway(t *testing.T) {
-	f := newFixture(t)
+	f := newFixtureWith(t, NetworkPerSandbox)
 
 	spec := f.drv.created[0]
 	if spec.Network != "swarmeval-run_1-box" {
@@ -132,7 +162,7 @@ func TestSandboxJoinsItsNetworkWithResolvConfAtTheGateway(t *testing.T) {
 }
 
 func TestDestroyRunRemovesNetworksAfterContainers(t *testing.T) {
-	f := newFixture(t)
+	f := newFixtureWith(t, NetworkPerSandbox)
 
 	if err := f.svc.DestroyRun(context.Background(), "run_1"); err != nil {
 		t.Fatal(err)

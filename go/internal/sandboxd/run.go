@@ -14,9 +14,24 @@ import (
 	"github.com/jackeydou/DUNE/go/internal/driver"
 )
 
-// run is what CreateRun made: one network per sandbox, keyed by sandbox id.
+// NetworkMode is how a sandboxd networks its sandboxes.
+type NetworkMode string
+
+const (
+	// NetworkNone gives each sandbox only a loopback interface. Agents reach the internet only
+	// through the worker's web_request tool (trajectory-first spec decision 2).
+	NetworkNone NetworkMode = "none"
+	// NetworkPerSandbox gives each sandbox its own bridge, on which the host has no address and
+	// the gateway address is reserved for net-gateway (runtime spec decision 24). net-gateway is
+	// not built, so a sandbox on it reaches nothing. Kept for the network capability.
+	NetworkPerSandbox NetworkMode = "per-sandbox"
+)
+
+// run is what CreateRun registered: the run's sandboxes, and with NetworkPerSandbox the network
+// of each, keyed by sandbox id.
 type run struct {
-	networks map[string]runNetwork
+	sandboxes []string
+	networks  map[string]runNetwork
 }
 
 type runNetwork struct {
@@ -24,8 +39,9 @@ type runNetwork struct {
 	gateway netip.Addr
 }
 
-// CreateRun creates one network per sandbox of the run. Subnets come from cfg.SubnetPool and
-// skip every subnet the backend already has, managed or not.
+// CreateRun registers a run and the sandboxes it will create. With NetworkPerSandbox it also
+// creates one network per sandbox; subnets come from cfg.SubnetPool and skip every subnet the
+// backend already has, managed or not.
 func (s *Service) CreateRun(ctx context.Context, runID string, sandboxIDs []string) error {
 	if !runIDPattern.MatchString(runID) {
 		return fmt.Errorf("%w: run id %q must match %s", ErrInvalid, runID, runIDPattern)
@@ -42,7 +58,7 @@ func (s *Service) CreateRun(ctx context.Context, runID string, sandboxIDs []stri
 		}
 	}
 
-	r := &run{networks: map[string]runNetwork{}}
+	r := &run{sandboxes: slices.Clone(sandboxIDs), networks: map[string]runNetwork{}}
 	s.mu.Lock()
 	if _, ok := s.runs[runID]; ok {
 		s.mu.Unlock()
@@ -50,6 +66,9 @@ func (s *Service) CreateRun(ctx context.Context, runID string, sandboxIDs []stri
 	}
 	s.runs[runID] = r
 	s.mu.Unlock()
+	if s.cfg.Network != NetworkPerSandbox {
+		return nil
+	}
 
 	if err := s.createNetworks(ctx, runID, sandboxIDs, r); err != nil {
 		cleanup := s.removeNetworks(context.WithoutCancel(ctx), runID)
@@ -108,19 +127,19 @@ func freeSubnet(pool netip.Prefix, bits int, used []netip.Prefix) (netip.Prefix,
 	return netip.Prefix{}, fmt.Errorf("no free /%d left in the sandbox subnet pool %s. Destroy finished runs, or start sandboxd with a larger --sandbox-subnets", bits, pool)
 }
 
-// network returns the network CreateRun made for a sandbox.
+// network returns the network CreateRun made for a sandbox: the zero runNetwork, meaning no
+// network at all, unless sandboxd runs with NetworkPerSandbox.
 func (s *Service) network(runID, sandboxID string) (runNetwork, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.runs[runID]
 	if !ok {
-		return runNetwork{}, fmt.Errorf("%w: run %s has no networks in this sandboxd. Call CreateRun first; sandboxd forgets runs when it restarts", ErrNotFound, runID)
+		return runNetwork{}, fmt.Errorf("%w: run %s is not known to this sandboxd. Call CreateRun first; sandboxd forgets runs when it restarts", ErrNotFound, runID)
 	}
-	n, ok := r.networks[sandboxID]
-	if !ok {
-		return runNetwork{}, fmt.Errorf("%w: sandbox %s was not listed when run %s was created. Listed: %v", ErrInvalid, sandboxID, runID, slices.Sorted(maps.Keys(r.networks)))
+	if !slices.Contains(r.sandboxes, sandboxID) {
+		return runNetwork{}, fmt.Errorf("%w: sandbox %s was not listed when run %s was created. Listed: %v", ErrInvalid, sandboxID, runID, slices.Sorted(slices.Values(r.sandboxes)))
 	}
-	return n, nil
+	return r.networks[sandboxID], nil
 }
 
 // DestroyRun removes every container and network labeled with the run, including ones this

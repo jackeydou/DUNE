@@ -20,7 +20,8 @@ go run ./cmd/sandboxd --state-dir /var/lib/swarmeval/sandboxd
 | `--state-dir` | required | Key paths live under it. The docker daemon must see it at the same path; run sandboxd in a container with it bind-mounted at an identical path. Scratch: lost with the host |
 | `--listen` | `127.0.0.1:7071` | gRPC address. No authentication, so bind it to the internal network only |
 | `--runtime` | `auto` | `auto` (runsc when docker offers it, runc otherwise), `runc`, or `runsc` |
-| `--sandbox-subnets` | `10.231.0.0/16` | IPv4 pool that sandbox networks take a `/28` each from. Subnets the docker daemon already has are skipped |
+| `--sandbox-network` | `none` | `none`: sandboxes have only loopback. `per-sandbox`: a network per sandbox for net-gateway, which is not built, so a sandbox still reaches nothing ([docs](../docs/services/sandboxd.md#networks)) |
+| `--sandbox-subnets` | `10.231.0.0/16` | With `per-sandbox`, the IPv4 pool that sandbox networks take a `/28` each from. Subnets the docker daemon already has are skipped |
 
 Docker is found through the standard `DOCKER_HOST` / `DOCKER_*` environment.
 
@@ -29,8 +30,8 @@ Requirements and limits:
 - Sandbox images must provide `sleep`, `tr`, and `/bin/sh`, and `/etc/passwd` when the sandbox
   has users. sandboxd never pulls; pull images on the docker host first.
 - In production sandboxd runs as root, so extracted key paths keep their owners.
-- Each sandbox has its own network, on which the host has no address. While net-gateway is deferred,
-  nothing holds the gateway address, so a sandbox reaches nothing.
+- Sandboxes have no network but loopback by default. Agents reach the internet only through the
+  worker's `web_request`.
 - Output and content caps are in `sandboxd.DefaultConfig`: 64 KiB of stdout and stderr inline,
   16 MiB kept per stream, changed files sent back up to 1 MiB each and 64 MiB per call.
 - State is in memory. A restarted sandboxd does not know the sandboxes it created; `DestroyRun`

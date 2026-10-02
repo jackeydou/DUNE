@@ -80,15 +80,17 @@ class SandboxServiceServicer:
     """
 
     def CreateRun(self, request, context):
-        """Creates a run's networks: one per sandbox, on which the host has no address. Must come
-        before the run's CreateSandbox calls. Fails with ALREADY_EXISTS if the run exists.
+        """Registers a run and its sandboxes. Must come before the run's CreateSandbox calls. Sandboxes
+        have no network by default; a sandboxd started with `--sandbox-network per-sandbox` also
+        creates one network per sandbox here, on which the host has no address. Fails with
+        ALREADY_EXISTS if the run exists.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def CreateSandbox(self, request, context):
-        """Creates and starts one sandbox on its network, made by CreateRun. Each top-level key path starts as a copy of the image's
+        """Creates and starts one sandbox, on its network if CreateRun made one. Each top-level key path starts as a copy of the image's
         content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)

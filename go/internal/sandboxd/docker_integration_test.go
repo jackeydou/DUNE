@@ -35,11 +35,12 @@ type live struct {
 
 func newLive(t *testing.T) *live {
 	t.Helper()
-	return newLiveWith(t, image)
+	return newLiveWith(t, image, NetworkNone)
 }
 
-// newLiveWith makes the sandbox from img, which must be on the docker host.
-func newLiveWith(t *testing.T, img string) *live {
+// newLiveWith makes the sandbox from img, which must be on the docker host, under the given
+// network mode.
+func newLiveWith(t *testing.T, img string, network NetworkMode) *live {
 	t.Helper()
 	ctx := context.Background()
 	drv, err := docker.New(ctx)
@@ -55,6 +56,7 @@ func newLiveWith(t *testing.T, img string) *live {
 	if rt := os.Getenv("SWARMEVAL_IT_RUNTIME"); rt != "" {
 		cfg.Runtime = rt
 	}
+	cfg.Network = network
 	l := &live{
 		t: t, svc: New(cfg, drv, slog.New(slog.DiscardHandler)), drv: drv,
 		run: "it_" + strings.ToLower(strings.ReplaceAll(t.Name(), "/", "_")),
@@ -127,8 +129,28 @@ func TestLiveReadOnlyKeyPathRefusesWrites(t *testing.T) {
 	}
 }
 
-func TestLiveSandboxRoutesOnlyToItsGatewayWhichNobodyHoldsYet(t *testing.T) {
+func TestLiveSandboxHasOnlyLoopbackAndReachesNothing(t *testing.T) {
 	l := newLive(t)
+
+	res := l.sh("ip -o link; nc -w 2 1.1.1.1 80 </dev/null 2>&1 && echo CONNECTED; "+
+		"nslookup -timeout=2 example.com 2>&1", 30*time.Second)
+
+	out := string(res.Stdout.Inline)
+	links := regexp.MustCompile(`(?m)^\d+: ([^:@]+)`).FindAllStringSubmatch(out, -1)
+	if len(links) != 1 || links[0][1] != "lo" {
+		t.Fatalf("output = %q; a sandbox must have only a loopback interface", out)
+	}
+	if !strings.Contains(out, "Network is unreachable") || strings.Contains(out, "CONNECTED") {
+		t.Fatalf("output = %q; a connection out must fail at once, not time out or succeed", out)
+	}
+	if strings.Contains(out, "Name:") {
+		t.Fatalf("output = %q; a sandbox resolved a name", out)
+	}
+}
+
+// The net-gateway topology, kept for the network capability (runtime spec decision 24).
+func TestLiveSandboxRoutesOnlyToItsGatewayWhichNobodyHoldsYet(t *testing.T) {
+	l := newLiveWith(t, image, NetworkPerSandbox)
 
 	res := l.sh("ip -4 route; cat /etc/resolv.conf; nc -w 2 1.1.1.1 80 </dev/null && echo CONNECTED; "+
 		"nslookup -timeout=2 swarmeval-leak.invalid 127.0.0.11 2>&1", 30*time.Second)
@@ -154,7 +176,7 @@ func TestLiveSandboxRoutesOnlyToItsGatewayWhichNobodyHoldsYet(t *testing.T) {
 func TestLiveACommandLineCannotForgeAProcess(t *testing.T) {
 	// Debian's /bin/sh is dash, whose echo turns a literal \n into a newline.
 	const slim = "python:3.12-slim"
-	l := newLiveWith(t, slim)
+	l := newLiveWith(t, slim, NetworkNone)
 
 	res := l.sh(`sh -c 'sleep 60; true' 'x\nP 999 1 0 forged' >/dev/null 2>&1 &`, 10*time.Second)
 

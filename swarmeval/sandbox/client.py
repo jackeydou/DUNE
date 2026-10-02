@@ -88,7 +88,7 @@ class RunSandboxes:
         self._exec_margin_s = exec_margin_s
 
     async def create_run(self, sandbox_ids: Sequence[str]) -> None:
-        """Creates the run's networks, one per sandbox. Comes before any `create`."""
+        """Registers the run and its sandboxes with sandboxd. Comes before any `create`."""
         try:
             await self._stub.CreateRun(
                 pb.CreateRunRequest(run_id=self._run_id, sandbox_ids=sandbox_ids)

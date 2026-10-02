@@ -27,6 +27,10 @@
   content and before the first manifest, so they are part of the baseline. At most 1 MiB in all.
 
 ### Changed
+- Sandboxes have no network by default: `--sandbox-network none` runs them with docker's
+  `--network none`, so they have only loopback and a connection out fails at once. `CreateRun`
+  registers the run and creates networks only with `--sandbox-network per-sandbox`, which keeps
+  the per-sandbox networks for net-gateway. `--sandbox-subnets` applies only there.
 - `CreateSandbox` needs the run from `CreateRun`. A sandbox not listed there is refused.
 - `--runtime` defaults to `auto`: gVisor where docker offers it.
 - Processes are listed by a script inside the sandbox that reads its `/proc`, not by `docker top`.

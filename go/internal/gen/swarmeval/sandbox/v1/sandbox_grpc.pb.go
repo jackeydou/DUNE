@@ -37,10 +37,12 @@ const (
 // Identifiers: `run_id` matches [A-Za-z0-9][A-Za-z0-9._-]{0,127}; `sandbox_id` matches
 // [a-z][a-z0-9_]{0,62} (the case format's names). Anything else is INVALID_ARGUMENT.
 type SandboxServiceClient interface {
-	// Creates a run's networks: one per sandbox, on which the host has no address. Must come
-	// before the run's CreateSandbox calls. Fails with ALREADY_EXISTS if the run exists.
+	// Registers a run and its sandboxes. Must come before the run's CreateSandbox calls. Sandboxes
+	// have no network by default; a sandboxd started with `--sandbox-network per-sandbox` also
+	// creates one network per sandbox here, on which the host has no address. Fails with
+	// ALREADY_EXISTS if the run exists.
 	CreateRun(ctx context.Context, in *CreateRunRequest, opts ...grpc.CallOption) (*CreateRunResponse, error)
-	// Creates and starts one sandbox on its network, made by CreateRun. Each top-level key path starts as a copy of the image's
+	// Creates and starts one sandbox, on its network if CreateRun made one. Each top-level key path starts as a copy of the image's
 	// content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
 	CreateSandbox(ctx context.Context, in *CreateSandboxRequest, opts ...grpc.CallOption) (*CreateSandboxResponse, error)
 	// Runs one tool call. The stream carries exactly one header first, then the blobs the
@@ -151,10 +153,12 @@ func (c *sandboxServiceClient) DestroyRun(ctx context.Context, in *DestroyRunReq
 // Identifiers: `run_id` matches [A-Za-z0-9][A-Za-z0-9._-]{0,127}; `sandbox_id` matches
 // [a-z][a-z0-9_]{0,62} (the case format's names). Anything else is INVALID_ARGUMENT.
 type SandboxServiceServer interface {
-	// Creates a run's networks: one per sandbox, on which the host has no address. Must come
-	// before the run's CreateSandbox calls. Fails with ALREADY_EXISTS if the run exists.
+	// Registers a run and its sandboxes. Must come before the run's CreateSandbox calls. Sandboxes
+	// have no network by default; a sandboxd started with `--sandbox-network per-sandbox` also
+	// creates one network per sandbox here, on which the host has no address. Fails with
+	// ALREADY_EXISTS if the run exists.
 	CreateRun(context.Context, *CreateRunRequest) (*CreateRunResponse, error)
-	// Creates and starts one sandbox on its network, made by CreateRun. Each top-level key path starts as a copy of the image's
+	// Creates and starts one sandbox, on its network if CreateRun made one. Each top-level key path starts as a copy of the image's
 	// content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
 	CreateSandbox(context.Context, *CreateSandboxRequest) (*CreateSandboxResponse, error)
 	// Runs one tool call. The stream carries exactly one header first, then the blobs the
