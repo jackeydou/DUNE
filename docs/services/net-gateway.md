@@ -175,3 +175,7 @@ needs a transparent layer below HTTP that a Python proxy would not give us.
 ## Not settled
 
 1. Waiting versus refusing when no worker is attached (runtime spec Q13).
+2. How to bound what agents do to real third-party sites (trajectory-first spec Q3). Until this
+   capability exists, `web_request` reaches any public address with any method, and nothing but
+   its address check stands in the way. Designed together with this page's policy actions and
+   egress records.
