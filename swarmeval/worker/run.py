@@ -178,6 +178,7 @@ async def _create_sandboxes(
     sandboxes: RunSandboxes,
     queue: Queue,
 ) -> None:
+    await sandboxes.create_run(list(variant.sandboxes))
     runtimes: list[str] = []
     for plan in variant.sandboxes.values():
         seeds = [
@@ -189,7 +190,14 @@ async def _create_sandboxes(
             if c.info.sandbox_id == plan.id
         )
         profile = variant.env.sandbox_profiles[plan.profile]
-        runtimes.append(await sandboxes.create(plan.id, profile, seeds))
+        users = sorted(
+            {
+                a.os_user
+                for a in variant.case.swarm.agents
+                if a.os_user is not None and variant.sandbox_of(a.id).id == plan.id
+            }
+        )
+        runtimes.append(await sandboxes.create(plan.id, profile, seeds, users))
     await queue.set_isolation(run.run_id, run.owner_epoch, _isolation(runtimes))
 
 

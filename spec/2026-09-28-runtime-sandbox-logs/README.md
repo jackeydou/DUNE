@@ -104,6 +104,10 @@ sandboxd 执行完一次工具调用后，先采下面两样再把结果交回 w
 - **文件 diff**：profile 里的关键路径（`/workspace`、共享卷、受保护路径）挂成宿主卷，sandboxd 在宿主侧比较这次调用前后的
   变化，生成 `fs.*` 事件（路径、操作、diff 摘要、属主 uid）。采集不进入沙箱，容器里的进程察觉不到。
 - **进程快照**：列出沙箱里的进程（`runsc ps` / `docker top`），这次调用结束后仍然存活的新进程记为 `proc.*` 事件。
+  （2026-10-01 修订）改为 sandboxd 在沙箱里以 root 执行一段 POSIX sh 脚本读 `/proc`，runc 和 runsc 同一套。原因：gVisor 下
+  `docker top` 把沙箱内的 pid 拿到宿主进程表里查，列出的是无关的宿主进程，进程快照全空；宿主上直接调 `runsc ps` 要让
+  sandboxd 能访问 runsc 和 shim 的状态目录，容器化部署和 k8s 下都不成立。代价是每次快照多一次很短的 exec，恰好在盯进程表的
+  后台进程能看到它。pid 改为沙箱内的 pid，和超时杀进程用的一致。
 
 归属：
 
@@ -462,7 +466,9 @@ k8s 不适用：NetworkPolicy 只能放行或拒绝，改不了路由，被拒�
 4. 确认决定 17：v1 只做同节点接管。
 5. 确认决定 18：run owner 作为唯一写者（fail closed），而不是各来源分别写日志。
 6. 确认决定 20：保真度三级 + case 声明下限；`lost` 默认补跑新 epoch。
-7. `os_user` 在 gVisor 下的文件权限隔离是否可靠，需要在 M1 验证。
+7. ~~`os_user` 在 gVisor 下的文件权限隔离是否可靠~~ 已验证（2026-10-01，runsc release-20260928.0）：runc 和 runsc 下，
+   一个 `os_user` 读不到、改不了另一个的 `0600` 文件和 `0700` 家目录，写出的文件在宿主侧带它自己的 uid。测试是
+   `go/internal/sandboxd/docker_integration_test.go` 的 `TestLiveOSUsersAreSeparatedByFilePermissions`。
 8. `inspect-scout`（Inspect 生态的 transcript 扫描分析工具）和 v1 spec §3 的「日志分析与评估」能力域（analysis 服务）重叠。
    复用还是自建，需要先评估它的能力边界。
 9. 多 agent 行为分析的对外格式：Docent 原生格式支持一个 run 多条 transcript，是否作为多 agent 分析的主导出，Inspect

@@ -5,8 +5,11 @@
 - [mise](https://mise.jdx.dev/) — pins uv, Go, golangci-lint, buf, and the protoc plugins, and
   runs the tasks below.
 - Docker — for the tests that start containers (`test:docker`, `go:test-integration`) and for
-  running sandboxes. `mise run check` does not need it. On Linux, gVisor (`runsc`) gives the default isolation level from M1; see the spec's
-  运行平台 section.
+  running sandboxes. `mise run check` does not need it. On Linux, install gVisor (`runsc`) and
+  register it with docker (`runsc install`): sandboxd then uses it by default, and records `runc`
+  as the run's isolation where it is missing. On macOS, Docker Desktop and OrbStack offer only
+  runc and ignore file owners and modes on bind mounts, so `os_user` boundaries do not hold there;
+  check anything that depends on them on Linux.
 
 uv installs Python 3.12 itself (pinned in `.python-version`), so a system Python is not needed.
 

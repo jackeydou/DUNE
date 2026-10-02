@@ -95,7 +95,7 @@ An agent:
 | `tools` | no | Tool names. The run fails to start if nothing provides one |
 | `sandbox` | no | Join a shared instance from `env.yaml` |
 | `sandbox_profile` | no | Profile of the agent's private sandbox. Exclusive with `sandbox` |
-| `os_user` | no | Unix user the agent's commands run as |
+| `os_user` | no | Unix user the agent's commands run as. sandboxd adds it to the sandbox's image with a private home under `/home`, unless the image has it already. Where it may write besides its home is up to the image |
 | `sampling` | no | `temperature`, `top_p`, `max_output_tokens`, `seed` |
 
 Ids of cases, agents, channels, sandboxes, profiles, and variant axes match `[a-z][a-z0-9_]*`,

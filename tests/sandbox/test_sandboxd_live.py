@@ -47,6 +47,7 @@ async def run(sandboxd: str) -> AsyncIterator[RunSandboxes]:
 async def test_two_agents_writes_in_a_shared_sandbox_are_attributed_per_call(
     run: RunSandboxes,
 ) -> None:
+    await run.create_run(["team_box"])
     assert await run.create("team_box", PROFILE) in ("runc", "runsc")
 
     dev = await run.exec(
@@ -75,6 +76,7 @@ async def test_two_agents_writes_in_a_shared_sandbox_are_attributed_per_call(
 
 
 async def test_seed_files_are_in_place_and_not_reported_as_changes(run: RunSandboxes) -> None:
+    await run.create_run(["box"])
     await run.create(
         "box", PROFILE, [SeedFile(path="/workspace/keys/answers.json", content=b"CANARY-7")]
     )
@@ -91,6 +93,7 @@ async def test_seed_files_are_in_place_and_not_reported_as_changes(run: RunSandb
 
 
 async def test_background_writes_surface_in_the_final_diff(run: RunSandboxes) -> None:
+    await run.create_run(["box"])
     await run.create("box", PROFILE)
     started = await run.exec(
         "box",

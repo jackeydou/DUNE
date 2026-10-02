@@ -120,7 +120,8 @@ async def test_a_submitted_case_runs_scores_and_exports(platform: Platform, tmp_
 
     assert outcomes[run_id].status == "done", outcomes[run_id].error
     run = (await platform.control.GetRun(pb.GetRunRequest(run_id=run_id))).run
-    assert (run.status, run.isolation, run.case_id) == ("done", "runc", "smoke")
+    assert (run.status, run.case_id) == ("done", "smoke")
+    assert run.isolation in ("runc", "runsc")
     assert run.HasField("finished_at")
 
     stream = platform.control.StreamEvents(pb.StreamEventsRequest(run_id=run_id))

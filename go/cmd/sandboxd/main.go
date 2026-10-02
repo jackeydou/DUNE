@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -31,7 +32,8 @@ func main() {
 func run(log *slog.Logger) error {
 	listen := flag.String("listen", "127.0.0.1:7071", "address to serve gRPC on. Only workers may reach it")
 	stateDir := flag.String("state-dir", "", "directory for sandbox key paths; the docker daemon must see it at the same path (required)")
-	runtime := flag.String("runtime", "runc", "container runtime: runc, runsc, or auto (runsc when docker offers it)")
+	runtime := flag.String("runtime", "auto", "container runtime: runc, runsc, or auto (runsc when docker offers it)")
+	subnets := flag.String("sandbox-subnets", "10.231.0.0/16", "IPv4 pool that sandbox networks take a /28 each from")
 	flag.Parse()
 
 	if *stateDir == "" {
@@ -41,6 +43,10 @@ func run(log *slog.Logger) error {
 	case "runc", "runsc", "auto":
 	default:
 		return fmt.Errorf("--runtime %q: want runc, runsc, or auto", *runtime)
+	}
+	pool, err := netip.ParsePrefix(*subnets)
+	if err != nil || !pool.Addr().Is4() || pool.Bits() > 28 {
+		return fmt.Errorf("--sandbox-subnets %q: want an IPv4 prefix of /28 or wider, such as 10.231.0.0/16", *subnets)
 	}
 	if err := os.MkdirAll(*stateDir, 0o755); err != nil {
 		return fmt.Errorf("create state dir %s: %w", *stateDir, err)
@@ -62,6 +68,7 @@ func run(log *slog.Logger) error {
 
 	cfg := sandboxd.DefaultConfig(resolved)
 	cfg.Runtime = *runtime
+	cfg.SubnetPool = pool.Masked()
 	svc := sandboxd.New(cfg, drv, log)
 
 	lis, err := net.Listen("tcp", *listen)
@@ -75,6 +82,6 @@ func run(log *slog.Logger) error {
 		<-ctx.Done()
 		server.GracefulStop()
 	}()
-	log.Info("sandboxd serving", "listen", lis.Addr().String(), "state_dir", resolved, "runtime", *runtime)
+	log.Info("sandboxd serving", "listen", lis.Addr().String(), "state_dir", resolved, "runtime", *runtime, "sandbox_subnets", cfg.SubnetPool.String())
 	return server.Serve(lis)
 }

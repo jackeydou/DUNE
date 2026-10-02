@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,9 +13,10 @@ import (
 )
 
 // extract writes a tar stream from the image into dir, dropping the first path component
-// (docker roots the archive at the copied path's base name). All writes go through os.Root,
-// so no entry, link, or symlink can reach outside dir. Ownership is kept only when sandboxd
-// runs as root; otherwise files belong to sandboxd's user.
+// (docker roots the archive at the copied path's base name). The archive's root entry is the
+// key path itself, and its mode and owner go to dir. All writes go through os.Root, so no
+// entry, link, or symlink can reach outside dir. Ownership is kept only when sandboxd runs as
+// root; otherwise files belong to sandboxd's user. Setuid, setgid, and sticky bits are kept.
 //
 // Special files (devices, fifos) are skipped: key paths hold workspaces, not devices.
 func extract(r io.Reader, dir string) error {
@@ -35,20 +37,25 @@ func extract(r io.Reader, dir string) error {
 			return fmt.Errorf("read image archive: %w", err)
 		}
 		name := stripFirst(header.Name)
+		perm := header.FileInfo().Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)
 		if name == "" {
+			if header.Typeflag == tar.TypeDir {
+				if err := attrs(root, ".", header, perm, chown); err != nil {
+					return err
+				}
+			}
 			continue
 		}
-		perm := os.FileMode(header.Mode).Perm()
 		if err := root.MkdirAll(path.Dir(name), 0o755); err != nil {
 			return err
 		}
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := root.MkdirAll(name, perm); err != nil {
+			if err := root.MkdirAll(name, perm.Perm()); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			f, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+			f, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm.Perm())
 			if err != nil {
 				return err
 			}
@@ -71,17 +78,23 @@ func extract(r io.Reader, dir string) error {
 		default:
 			continue
 		}
-		if header.Typeflag != tar.TypeSymlink {
-			if err := root.Chmod(name, perm); err != nil {
-				return err
-			}
-		}
-		if chown {
-			if err := root.Lchown(name, header.Uid, header.Gid); err != nil {
-				return err
-			}
+		if err := attrs(root, name, header, perm, chown); err != nil {
+			return err
 		}
 	}
+}
+
+// attrs sets an extracted entry's owner, then its mode: chown clears setuid and setgid.
+func attrs(root *os.Root, name string, header *tar.Header, perm fs.FileMode, chown bool) error {
+	if chown {
+		if err := root.Lchown(name, header.Uid, header.Gid); err != nil {
+			return err
+		}
+	}
+	if header.Typeflag == tar.TypeSymlink {
+		return nil
+	}
+	return root.Chmod(name, perm)
 }
 
 func stripFirst(name string) string {

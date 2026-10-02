@@ -4,8 +4,10 @@ import (
 	"archive/tar"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,17 +24,25 @@ import (
 type fakeDriver struct {
 	mu       sync.Mutex
 	image    map[string]*tarEntry // path in image → a single file under it
+	etc      []tarEntry           // the image's /etc; nil when it has none
 	handler  func(ctx context.Context, spec driver.ExecSpec, stdout, stderr io.Writer) (int, error)
 	procs    []driver.Process
 	execs    []driver.ExecSpec
 	created  []driver.ContainerSpec
 	removed  []driver.ContainerID
 	runtimes []string
+	subnets  []netip.Prefix // subnets the backend already had
+	networks []driver.NetworkSpec
+	netsGone []driver.NetworkID
+	failNet  string // CreateNetwork fails for this name
 }
 
 func (f *fakeDriver) Runtimes(context.Context) ([]string, error) { return f.runtimes, nil }
 
 func (f *fakeDriver) ExportImagePath(_ context.Context, _, p string, _ map[string]string) (io.ReadCloser, error) {
+	if p == "/etc" && f.etc != nil {
+		return io.NopCloser(archiveReader(f.etc...)), nil
+	}
 	e, ok := f.image[p]
 	if !ok {
 		return nil, driver.ErrNotFound
@@ -40,15 +50,48 @@ func (f *fakeDriver) ExportImagePath(_ context.Context, _, p string, _ map[strin
 	return io.NopCloser(archiveReader(*e)), nil
 }
 
-func archiveReader(e tarEntry) io.Reader {
+func archiveReader(entries ...tarEntry) io.Reader {
 	r, w := io.Pipe()
 	go func() {
 		tw := tar.NewWriter(w)
-		_ = tw.WriteHeader(&tar.Header{Name: e.name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(e.body))})
-		_, _ = tw.Write([]byte(e.body))
+		for _, e := range entries {
+			_ = tw.WriteHeader(&tar.Header{Name: e.name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(e.body))})
+			_, _ = tw.Write([]byte(e.body))
+		}
 		_ = w.CloseWithError(tw.Close())
 	}()
 	return r
+}
+
+func (f *fakeDriver) Subnets(context.Context) ([]netip.Prefix, error) {
+	out := slices.Clone(f.subnets)
+	for _, n := range f.networks {
+		out = append(out, n.Subnet)
+	}
+	return out, nil
+}
+
+func (f *fakeDriver) CreateNetwork(_ context.Context, spec driver.NetworkSpec) (driver.NetworkID, error) {
+	if spec.Name == f.failNet {
+		return "", errors.New("daemon refused")
+	}
+	f.networks = append(f.networks, spec)
+	return driver.NetworkID("n_" + spec.Name), nil
+}
+
+func (f *fakeDriver) ListNetworksByLabels(_ context.Context, labels map[string]string) ([]driver.NetworkID, error) {
+	var out []driver.NetworkID
+	for _, n := range f.networks {
+		if n.Labels[driver.LabelRunID] == labels[driver.LabelRunID] {
+			out = append(out, driver.NetworkID("n_"+n.Name))
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeDriver) RemoveNetwork(_ context.Context, id driver.NetworkID) error {
+	f.netsGone = append(f.netsGone, id)
+	return nil
 }
 
 func (f *fakeDriver) CreateContainer(_ context.Context, spec driver.ContainerSpec) (driver.ContainerID, error) {
@@ -57,6 +100,9 @@ func (f *fakeDriver) CreateContainer(_ context.Context, spec driver.ContainerSpe
 }
 
 func (f *fakeDriver) Exec(ctx context.Context, _ driver.ContainerID, spec driver.ExecSpec, stdout, stderr io.Writer) (int, error) {
+	if spec.Argv[2] == processScript {
+		return f.listing(stdout)
+	}
 	f.mu.Lock()
 	f.execs = append(f.execs, spec)
 	f.mu.Unlock()
@@ -69,8 +115,23 @@ func (f *fakeDriver) Exec(ctx context.Context, _ driver.ContainerID, spec driver
 	return f.handler(ctx, spec, stdout, stderr)
 }
 
-func (f *fakeDriver) Processes(context.Context, driver.ContainerID) ([]driver.Process, error) {
-	return f.procs, nil
+// listing plays processScript: a U line per user and a P line per process in f.procs.
+func (f *fakeDriver) listing(stdout io.Writer) (int, error) {
+	uids := map[string]int{}
+	for _, p := range f.procs {
+		if _, ok := uids[p.User]; !ok {
+			uids[p.User] = 1000 + len(uids)
+			if _, err := fmt.Fprintf(stdout, "U %d %s\n", uids[p.User], p.User); err != nil {
+				return 0, err
+			}
+		}
+	}
+	for _, p := range f.procs {
+		if _, err := fmt.Fprintf(stdout, "P %d %d %d %s\n", p.PID, p.PPID, uids[p.User], p.Cmdline); err != nil {
+			return 0, err
+		}
+	}
+	return 0, nil
 }
 
 func (f *fakeDriver) ReadFile(context.Context, driver.ContainerID, string, int64) ([]byte, int64, error) {
@@ -109,6 +170,9 @@ func newFixture(t *testing.T) *fixture {
 		},
 	}
 	svc := New(DefaultConfig(state), drv, slog.New(slog.DiscardHandler))
+	if err := svc.CreateRun(context.Background(), "run_1", []string{"box"}); err != nil {
+		t.Fatal(err)
+	}
 	_, err := svc.CreateSandbox(context.Background(), CreateRequest{
 		RunID: "run_1", SandboxID: "box", Image: "img",
 		Mounts: []Mount{
@@ -151,7 +215,7 @@ func TestCreateSandboxPopulatesKeyPathsAndMountsParentsFirst(t *testing.T) {
 		t.Fatalf("seed.txt = %q; key paths start with the image's content", got)
 	}
 	binds := f.drv.created[0].Binds
-	if len(binds) != 2 || binds[0].ContainerPath != "/workspace" || !binds[1].ReadOnly {
+	if len(binds) != 3 || binds[0].ContainerPath != "/workspace" || !binds[1].ReadOnly {
 		t.Fatalf("binds = %+v; /workspace must be mounted before its read-only child", binds)
 	}
 	if f.drv.created[0].Runtime != "runc" || f.drv.created[0].Labels[driver.LabelManaged] != "true" {
@@ -344,6 +408,9 @@ func TestSeedFilesArePartOfTheBaseline(t *testing.T) {
 		},
 	}
 	svc := New(DefaultConfig(state), drv, slog.New(slog.DiscardHandler))
+	if err := svc.CreateRun(context.Background(), "run_1", []string{"box"}); err != nil {
+		t.Fatal(err)
+	}
 	_, err := svc.CreateSandbox(context.Background(), CreateRequest{
 		RunID: "run_1", SandboxID: "box", Image: "img",
 		Mounts: []Mount{{Path: "/workspace"}, {Path: "/workspace/tests", ReadOnly: true}},

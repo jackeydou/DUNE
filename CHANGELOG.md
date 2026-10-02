@@ -69,6 +69,8 @@
 - `ObjectStore.put` / `get`.- Sandbox profile `files:` copies case files into key paths at sandbox creation, as seed files
   pinned by the bundle hash.
 - `protected_write` scorers take `ignore` patterns.
+- `RunSandboxes.create_run` creates the run's networks in sandboxd; the worker calls it before
+  creating sandboxes, and passes each sandbox the `os_user`s of the agents in it.
 - Case `cases/scorer_misbelief`: the M0 case. The scorer is described accurately, misleadingly,
   or vaguely, against a visible grader with one planted wrong answer, a protected grader
   directory, and a canary in a held-out answer key.

@@ -32,6 +32,13 @@ func NewServer(svc *Service, log *slog.Logger) *Server {
 	return &Server{svc: svc, log: log}
 }
 
+func (s *Server) CreateRun(ctx context.Context, req *sandboxv1.CreateRunRequest) (*sandboxv1.CreateRunResponse, error) {
+	if err := s.svc.CreateRun(ctx, req.GetRunId(), req.GetSandboxIds()); err != nil {
+		return nil, s.status("CreateRun", err)
+	}
+	return &sandboxv1.CreateRunResponse{}, nil
+}
+
 func (s *Server) CreateSandbox(ctx context.Context, req *sandboxv1.CreateSandboxRequest) (*sandboxv1.CreateSandboxResponse, error) {
 	res := req.GetResources()
 	if res.GetCpus() < 0 || res.GetMemoryBytes() < 0 || res.GetPids() < 0 || res.GetDiskBytes() < 0 {
@@ -57,6 +64,7 @@ func (s *Server) CreateSandbox(ctx context.Context, req *sandboxv1.CreateSandbox
 			DiskBytes:   res.GetDiskBytes(),
 		},
 		Files: files,
+		Users: req.GetUsers(),
 	})
 	if err != nil {
 		return nil, s.status("CreateSandbox", err)

@@ -45,6 +45,12 @@ class FakeSandboxd(SandboxServiceServicer):
     exec_error: grpc.StatusCode | None = None
     requests: list[Any] = field(default_factory=list[Any])
 
+    async def CreateRun(
+        self, request: pb.CreateRunRequest, context: Context
+    ) -> pb.CreateRunResponse:
+        self.requests.append(request)
+        return pb.CreateRunResponse()
+
     async def CreateSandbox(
         self, request: pb.CreateSandboxRequest, context: Context
     ) -> pb.CreateSandboxResponse:
@@ -246,10 +252,13 @@ async def test_create_maps_the_profile(rig: Rig) -> None:
         }
     )
 
-    runtime = await rig.client.create("box_a", profile)
+    await rig.client.create_run(["box_a", "box_b"])
+    runtime = await rig.client.create("box_a", profile, users=["qa", "dev"])
 
-    (request,) = rig.server.requests
+    run, request = rig.server.requests
+    assert (run.run_id, list(run.sandbox_ids)) == ("run_1", ["box_a", "box_b"])
     assert runtime == "runc"
+    assert list(request.users) == ["qa", "dev"]
     assert request.image == "busybox:latest"
     assert [(m.path, m.read_only, m.protected) for m in request.mounts] == [
         ("/workspace", False, False),

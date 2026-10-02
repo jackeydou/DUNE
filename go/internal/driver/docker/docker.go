@@ -3,6 +3,7 @@ package docker
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
 	"github.com/jackeydou/DUNE/go/internal/driver"
@@ -87,12 +89,18 @@ func (r *removeOnClose) Close() error {
 	return errors.Join(r.ReadCloser.Close(), r.remove())
 }
 
-// CreateContainer starts `sleep infinity` under docker-init, offline, with every capability
-// dropped. The image must provide `sleep`, and `/bin/sh` for exec timeouts.
+// CreateContainer starts `sleep infinity` under docker-init with every capability dropped. The
+// image must provide `sleep`, and `/bin/sh` for exec timeouts.
 func (d *Driver) CreateContainer(ctx context.Context, spec driver.ContainerSpec) (driver.ContainerID, error) {
 	init := true
+	netMode := container.NetworkMode("none")
+	var netConfig *network.NetworkingConfig
+	if spec.Network != "" {
+		netMode = container.NetworkMode(spec.Network)
+		netConfig = &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{spec.Network: {}}}
+	}
 	host := &container.HostConfig{
-		NetworkMode: "none",
+		NetworkMode: netMode,
 		CapDrop:     []string{"ALL"},
 		SecurityOpt: []string{"no-new-privileges"},
 		Init:        &init,
@@ -127,17 +135,52 @@ func (d *Driver) CreateContainer(ctx context.Context, spec driver.ContainerSpec)
 			Entrypoint: []string{"sleep"},
 			Cmd:        []string{"infinity"},
 		},
-		HostConfig: host,
+		HostConfig:       host,
+		NetworkingConfig: netConfig,
 	})
 	if err != nil {
 		return "", imageError(spec.Image, err)
 	}
 	id := driver.ContainerID(created.ID)
+	if len(spec.Files) > 0 {
+		if err := d.writeFiles(ctx, created.ID, spec.Files); err != nil {
+			return "", errors.Join(err, d.Remove(context.WithoutCancel(ctx), id))
+		}
+	}
 	if _, err := d.cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
 		return "", errors.Join(fmt.Errorf("start container %s (image %s): %w", created.ID, spec.Image, err),
 			d.Remove(context.WithoutCancel(ctx), id))
 	}
 	return id, nil
+}
+
+// writeFiles copies files into a created container. Under runsc the files must be there before
+// start: gVisor overlays the root filesystem and does not see later host-side writes.
+func (d *Driver) writeFiles(ctx context.Context, id string, files []driver.File) error {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, f := range files {
+		h := &tar.Header{Name: f.Path[1:], Mode: int64(f.Mode.Perm()), Uid: f.UID, Gid: f.GID, Typeflag: tar.TypeReg, Size: int64(len(f.Content))}
+		if f.Mode.IsDir() {
+			h.Name, h.Typeflag, h.Size = h.Name+"/", tar.TypeDir, 0
+		}
+		if err := tw.WriteHeader(h); err != nil {
+			return fmt.Errorf("archive %s for container %s: %w", f.Path, id, err)
+		}
+		if !f.Mode.IsDir() {
+			if _, err := tw.Write(f.Content); err != nil {
+				return fmt.Errorf("archive %s for container %s: %w", f.Path, id, err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("archive files for container %s: %w", id, err)
+	}
+	_, err := d.cli.CopyToContainer(ctx, id, client.CopyToContainerOptions{DestinationPath: "/", Content: &buf, CopyUIDGID: true})
+	if err != nil {
+		return fmt.Errorf("copy files into container %s: %w", id, err)
+	}
+	return nil
 }
 
 func imageError(image string, err error) error {
@@ -195,49 +238,6 @@ func (d *Driver) Exec(ctx context.Context, id driver.ContainerID, spec driver.Ex
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
-}
-
-// Processes uses `docker top`, which lists processes from the host side.
-func (d *Driver) Processes(ctx context.Context, id driver.ContainerID) ([]driver.Process, error) {
-	top, err := d.cli.ContainerTop(ctx, string(id), client.ContainerTopOptions{
-		Arguments: []string{"-eo", "pid,ppid,user,args"},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("docker top %s: %w", id, err)
-	}
-	return parseTop(top.Titles, top.Processes)
-}
-
-// parseTop finds columns by title, because runsc's `top` ignores the ps arguments.
-func parseTop(titles []string, rows [][]string) ([]driver.Process, error) {
-	col := func(names ...string) int {
-		for i, t := range titles {
-			if slices.Contains(names, t) {
-				return i
-			}
-		}
-		return -1
-	}
-	pid, ppid, user, cmd := col("PID"), col("PPID"), col("USER", "UID"), col("COMMAND", "CMD")
-	if pid < 0 || ppid < 0 || user < 0 || cmd < 0 {
-		return nil, fmt.Errorf("docker top returned columns %v; need PID, PPID, USER or UID, and COMMAND or CMD", titles)
-	}
-	out := make([]driver.Process, 0, len(rows))
-	for _, row := range rows {
-		if len(row) != len(titles) {
-			return nil, fmt.Errorf("docker top row %v does not match columns %v", row, titles)
-		}
-		p, err := strconv.ParseInt(row[pid], 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("docker top pid %q: %w", row[pid], err)
-		}
-		pp, err := strconv.ParseInt(row[ppid], 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("docker top ppid %q: %w", row[ppid], err)
-		}
-		out = append(out, driver.Process{PID: int32(p), PPID: int32(pp), User: row[user], Cmdline: row[cmd]})
-	}
-	return out, nil
 }
 
 func (d *Driver) ReadFile(ctx context.Context, id driver.ContainerID, path string, maxBytes int64) ([]byte, int64, error) {
