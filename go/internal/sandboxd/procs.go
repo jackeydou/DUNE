@@ -1,7 +1,6 @@
 package sandboxd
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,14 +12,16 @@ import (
 
 // processScript lists the sandbox's processes from its own /proc, one line each:
 // `P <pid> <ppid> <uid> <cmdline>`, arguments joined by spaces and newlines flattened, so a
-// command line cannot forge a line. `U <uid> <name>` lines come first, from the sandbox's
-// /etc/passwd. The script leaves itself out; the `tr` it starts per process are not in the
-// list it walks. Builtins plus `tr`, so it runs on busybox and on Debian's dash.
+// command line cannot forge a line. Lines go out through printf '%s\n', never echo: dash's
+// echo expands a literal `\n` in a command line into a newline. `U <uid> <name>` lines come
+// first, from the sandbox's /etc/passwd. The script leaves itself out; the `tr` it starts per
+// process are not in the list it walks. Builtins plus `tr`, so it runs on busybox and on
+// Debian's dash.
 //
 // It runs inside the sandbox, not from the host: under gVisor, `docker top` looks the
 // sandbox's own pids up in the host's process table and lists unrelated host processes.
 const processScript = `command -v tr >/dev/null 2>&1 || { echo "the image has no tr" >&2; exit 3; }
-while IFS=: read -r name _ id _; do echo "U $id $name"; done < /etc/passwd 2>/dev/null
+while IFS=: read -r name _ id _; do printf '%s\n' "U $id $name"; done < /etc/passwd 2>/dev/null
 for d in /proc/[0-9]*; do
   p=${d#/proc/}
   [ "$p" = "$$" ] && continue
@@ -31,7 +32,7 @@ for d in /proc/[0-9]*; do
   [ -n "$uid" ] || continue
   cmd=$(tr '\000\n' '  ' < "$d/cmdline" 2>/dev/null)
   if [ -z "$cmd" ]; then { read -r comm < "$d/comm"; } 2>/dev/null; cmd="[$comm]"; fi
-  echo "P $p $ppid $uid $cmd"
+  printf '%s\n' "P $p $ppid $uid $cmd"
 done`
 
 // processes lists what runs in the sandbox, with pids as the sandbox sees them: the same pids
@@ -40,17 +41,22 @@ done`
 func (s *Service) processes(ctx context.Context, sb *sandbox) ([]driver.Process, error) {
 	listCtx, cancel := context.WithTimeout(ctx, s.cfg.HelperTimeout)
 	defer cancel()
-	var stdout, stderr bytes.Buffer
+	stdout := &capBuffer{limit: s.cfg.ProcessListLimit}
+	stderr := &capBuffer{limit: 4 << 10}
 	argv := []string{"/bin/sh", "-c", processScript}
-	code, err := s.drv.Exec(listCtx, sb.container, driver.ExecSpec{Argv: argv, User: "0"}, &stdout, &stderr)
+	code, err := s.drv.Exec(listCtx, sb.container, driver.ExecSpec{Argv: argv, User: "0"}, stdout, stderr)
 	if err != nil {
 		return nil, fmt.Errorf("list processes in container %s: %w", sb.container, err)
 	}
 	if code != 0 {
 		return nil, fmt.Errorf("list processes in container %s: exit %d: %s. Sandbox images must provide /bin/sh, sleep, and tr",
-			sb.container, code, strings.TrimSpace(stderr.String()))
+			sb.container, code, strings.TrimSpace(string(stderr.buf)))
 	}
-	return parseProcesses(stdout.String())
+	if stdout.size > int64(len(stdout.buf)) {
+		return nil, fmt.Errorf("process listing of container %s is %d bytes, over the %d byte limit: the sandbox holds too many processes or too long command lines. Set a pids limit in the profile",
+			sb.container, stdout.size, s.cfg.ProcessListLimit)
+	}
+	return parseProcesses(string(stdout.buf))
 }
 
 // parseProcesses reads processScript's output. Names come from the sandbox's /etc/passwd, which

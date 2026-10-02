@@ -1,6 +1,7 @@
 //go:build integration
 
-// Runs sandboxd against the local docker daemon. Needs `busybox:latest` on the host;
+// Runs sandboxd against the local docker daemon. Needs `busybox:latest` and
+// `python:3.12-slim` on the host;
 // sandboxd never pulls. Run with `mise run go:test-integration`. SWARMEVAL_IT_RUNTIME picks
 // runc or runsc; the default is sandboxd's, auto.
 package sandboxd
@@ -34,6 +35,12 @@ type live struct {
 
 func newLive(t *testing.T) *live {
 	t.Helper()
+	return newLiveWith(t, image)
+}
+
+// newLiveWith makes the sandbox from img, which must be on the docker host.
+func newLiveWith(t *testing.T, img string) *live {
+	t.Helper()
 	ctx := context.Background()
 	drv, err := docker.New(ctx)
 	if err != nil {
@@ -61,7 +68,7 @@ func newLive(t *testing.T) *live {
 		t.Fatal(err)
 	}
 	_, err = l.svc.CreateSandbox(ctx, CreateRequest{
-		RunID: l.run, SandboxID: "box", Image: image,
+		RunID: l.run, SandboxID: "box", Image: img,
 		Mounts: []Mount{
 			{Path: "/workspace"},
 			{Path: "/workspace/tests", ReadOnly: true, Protected: true},
@@ -123,7 +130,8 @@ func TestLiveReadOnlyKeyPathRefusesWrites(t *testing.T) {
 func TestLiveSandboxRoutesOnlyToItsGatewayWhichNobodyHoldsYet(t *testing.T) {
 	l := newLive(t)
 
-	res := l.sh("ip -4 route; cat /etc/resolv.conf; nc -w 2 1.1.1.1 80 </dev/null && echo CONNECTED", 20*time.Second)
+	res := l.sh("ip -4 route; cat /etc/resolv.conf; nc -w 2 1.1.1.1 80 </dev/null && echo CONNECTED; "+
+		"nslookup -timeout=2 swarmeval-leak.invalid 127.0.0.11 2>&1", 30*time.Second)
 
 	out := string(res.Stdout.Inline)
 	route := regexp.MustCompile(`default via (10\.231\.\d+\.\d+)`).FindStringSubmatch(out)
@@ -135,6 +143,28 @@ func TestLiveSandboxRoutesOnlyToItsGatewayWhichNobodyHoldsYet(t *testing.T) {
 	}
 	if strings.Contains(out, "CONNECTED") {
 		t.Fatal("a sandbox reached 1.1.1.1 with no net-gateway on its network")
+	}
+	// Under runc docker's embedded resolver answers on 127.0.0.11. An NXDOMAIN means it asked
+	// the host's resolvers, a path out that bypasses the gateway.
+	if strings.Contains(out, "NXDOMAIN") || strings.Contains(out, "Name:") {
+		t.Fatalf("output = %q; docker's embedded resolver reached a resolver past the gateway", out)
+	}
+}
+
+func TestLiveACommandLineCannotForgeAProcess(t *testing.T) {
+	// Debian's /bin/sh is dash, whose echo turns a literal \n into a newline.
+	const slim = "python:3.12-slim"
+	l := newLiveWith(t, slim)
+
+	res := l.sh(`sh -c 'sleep 60; true' 'x\nP 999 1 0 forged' >/dev/null 2>&1 &`, 10*time.Second)
+
+	for _, p := range res.Processes {
+		if p.PID == 999 || p.Cmdline == "forged" {
+			t.Fatalf("processes = %+v; a command line forged a process", res.Processes)
+		}
+	}
+	if !slices.ContainsFunc(res.Processes, func(p driver.Process) bool { return strings.Contains(p.Cmdline, `x\nP 999`) }) {
+		t.Fatalf("processes = %+v; the shell with the literal \\n must be reported as it is", res.Processes)
 	}
 }
 

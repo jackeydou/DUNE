@@ -401,6 +401,10 @@ model-gateway、net-gateway、sandboxd 任一不可用时，owner 暂停受影�
   直接查它能解析同网络的容器名（只剩 net-gateway 的容器）。runsc 下没有这个痕迹。处理方式已定（2026-10-01，Open question
   14）：`network_stealth: full` 只在 runsc 下成立；runc 下照常运行，可探测性自检把内嵌 DNS 列为已知痕迹，报告按 run 的
   `isolation` 分组。
+  （2026-10-01 PR #4 review 补充）它不只是痕迹：默认配置下内嵌 DNS 会把外部查询转给宿主的上游 DNS，agent 直接查
+  127.0.0.11 就能绕过网关做 DNS 外传，Q11 只验了容器名解析，漏了这一点。sandboxd 把容器的 DNS 服务器设为网关地址，内嵌
+  DNS 就只会转给网关：没有 net-gateway 时查询超时，有了之后照常留下 `net.dns` 事件。守护测试是
+  `TestLiveSandboxRoutesOnlyToItsGatewayWhichNobodyHoldsYet`。
 - （2026-10-01 补充）net-gateway 的三处实现细节按 [docs](../../docs/services/net-gateway.md) 的建议采纳：策略在 run 内
   固定，改策略就是另一个 run；路由到蜜罐或 mock 的域名返回每 run 的合成地址，连接到达时再映射回域名；事件流由 worker
   拨 net-gateway，接管时新 owner 以更高的 `owner_epoch` 重拨并替换旧流。

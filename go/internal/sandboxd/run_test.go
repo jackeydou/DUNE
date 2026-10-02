@@ -123,6 +123,9 @@ func TestSandboxJoinsItsNetworkWithResolvConfAtTheGateway(t *testing.T) {
 	if got, _ := os.ReadFile(resolv.HostPath); string(got) != "nameserver 10.231.0.1\n" {
 		t.Fatalf("resolv.conf = %q", got)
 	}
+	if spec.DNS.String() != "10.231.0.1" {
+		t.Fatalf("DNS = %v; docker's embedded resolver must forward only to the gateway", spec.DNS)
+	}
 	if strings.HasPrefix(resolv.HostPath, filepath.Join(f.state, "run_1", "box", "fs")) {
 		t.Fatalf("resolv.conf at %s is under the key paths and would be diffed", resolv.HostPath)
 	}
