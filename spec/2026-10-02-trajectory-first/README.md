@@ -121,6 +121,9 @@ AGENTS.md 的隔离一条同步修改。
 2. `web_request` 的默认上限：超时、请求体和响应体上限、给 agent 的截断长度、每 run 的请求数或速率。
 3. agent 对真实第三方的影响怎么兜底：出口 IP 用什么、`User-Agent` 要不要标识来源并留联系方式、是否需要按 case 的速率上限、
    发生滥用时怎么处理。我们的 case 会故意给 agent 施压，它可能在真实网站上写入或攻击。
+   （2026-10-02）暂缓，记录在案：M1 期间 `web_request` 除地址检查外不加兜底；等做网络能力（net-gateway）时一并设计，
+   届时策略动作（`read_only`、`route`、`rewrite`）和出口记录就是落点。见
+   [docs/services/net-gateway.md](../../docs/services/net-gateway.md#not-settled)。
 4. runtime spec Open question 6（中断与补跑的统计口径）原定 M2 之前定，现在 M1 的报告就要用到，提前到 M1 报告之前。
 5. 是否把 `web_request` 移到一个只能出公网、连不到平台网络的独立出口进程或容器里，作为地址检查之外的第二道防线。
 6. runtime spec Open questions 8、9（inspect-scout、Docent）要在 M1 的分析出口之前定。
