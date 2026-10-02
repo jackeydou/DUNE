@@ -788,8 +788,8 @@ const file_swarmeval_netgw_v1_netevents_proto_rawDesc = "" +
 	"\bevent_id\x18\x02 \x01(\tR\aeventId\"=\n" +
 	"\x06Reject\x12\x1b\n" +
 	"\trecord_id\x18\x01 \x01(\tR\brecordId\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason2`\n" +
-	"\tNetEvents\x12S\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason2g\n" +
+	"\x10NetEventsService\x12S\n" +
 	"\x06Attach\x12!.swarmeval.netgw.v1.AttachRequest\x1a\".swarmeval.netgw.v1.AttachResponse(\x010\x01BFZDgithub.com/jackeydou/DUNE/go/internal/gen/swarmeval/netgw/v1;netgwv1b\x06proto3"
 
 var (
@@ -826,8 +826,8 @@ var file_swarmeval_netgw_v1_netevents_proto_depIdxs = []int32{
 	5, // 5: swarmeval.netgw.v1.Record.connect:type_name -> swarmeval.netgw.v1.Connect
 	6, // 6: swarmeval.netgw.v1.Record.udp:type_name -> swarmeval.netgw.v1.Udp
 	7, // 7: swarmeval.netgw.v1.Record.dns:type_name -> swarmeval.netgw.v1.Dns
-	0, // 8: swarmeval.netgw.v1.NetEvents.Attach:input_type -> swarmeval.netgw.v1.AttachRequest
-	1, // 9: swarmeval.netgw.v1.NetEvents.Attach:output_type -> swarmeval.netgw.v1.AttachResponse
+	0, // 8: swarmeval.netgw.v1.NetEventsService.Attach:input_type -> swarmeval.netgw.v1.AttachRequest
+	1, // 9: swarmeval.netgw.v1.NetEventsService.Attach:output_type -> swarmeval.netgw.v1.AttachResponse
 	9, // [9:10] is the sub-list for method output_type
 	8, // [8:9] is the sub-list for method input_type
 	8, // [8:8] is the sub-list for extension type_name

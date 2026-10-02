@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- `internal/netgw`, net-gateway's platform-independent core: first-hit policy (`allow`, `deny`,
+  `log_and_deny`), the config file, and TLS SNI and HTTP request-line classification, with Go and
+  Python stubs for `swarmeval.netgw.v1.NetEventsService`. No binary uses either: net-gateway is
+  deferred (2026-10-02, `docs/services/net-gateway.md`).
 - `CreateRun` creates one network per sandbox before its sandboxes: a bridge with no host address
   and no masquerading, on a `/28` from `--sandbox-subnets` (default `10.231.0.0/16`) that skips
   every subnet docker already has. `DestroyRun` removes the run's networks after its containers.

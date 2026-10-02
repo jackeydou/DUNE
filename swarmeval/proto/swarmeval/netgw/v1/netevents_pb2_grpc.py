@@ -25,11 +25,14 @@ if _version_not_supported:
     )
 
 
-class NetEventsStub:
-    """NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
-    to the worker that owns the run. The gateway holds the traffic until the worker commits the
-    record and acks it, so a request that was let through is never unrecorded.
+class NetEventsServiceStub:
+    """NetEventsService carries net-gateway's record of every connection, datagram flow, and DNS
+    query back to the worker that owns the run. The gateway holds the traffic until the worker
+    commits the record and acks it, so a request that was let through is never unrecorded.
     Behavior: docs/services/net-gateway.md.
+
+    Not served or called yet: net-gateway is deferred (2026-10-02). The contract is kept as
+    designed so the work can resume from it.
     """
 
     def __init__(self, channel):
@@ -39,17 +42,20 @@ class NetEventsStub:
             channel: A grpc.Channel.
         """
         self.Attach = channel.stream_stream(
-                '/swarmeval.netgw.v1.NetEvents/Attach',
+                '/swarmeval.netgw.v1.NetEventsService/Attach',
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_netgw_dot_v1_dot_netevents__pb2.AttachRequest.SerializeToString,
                 response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_netgw_dot_v1_dot_netevents__pb2.AttachResponse.FromString,
                 _registered_method=True)
 
 
-class NetEventsServicer:
-    """NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
-    to the worker that owns the run. The gateway holds the traffic until the worker commits the
-    record and acks it, so a request that was let through is never unrecorded.
+class NetEventsServiceServicer:
+    """NetEventsService carries net-gateway's record of every connection, datagram flow, and DNS
+    query back to the worker that owns the run. The gateway holds the traffic until the worker
+    commits the record and acks it, so a request that was let through is never unrecorded.
     Behavior: docs/services/net-gateway.md.
+
+    Not served or called yet: net-gateway is deferred (2026-10-02). The contract is kept as
+    designed so the work can resume from it.
     """
 
     def Attach(self, request_iterator, context):
@@ -64,7 +70,7 @@ class NetEventsServicer:
         raise NotImplementedError('Method not implemented!')
 
 
-def add_NetEventsServicer_to_server(servicer, server):
+def add_NetEventsServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Attach': grpc.stream_stream_rpc_method_handler(
                     servicer.Attach,
@@ -73,17 +79,20 @@ def add_NetEventsServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'swarmeval.netgw.v1.NetEvents', rpc_method_handlers)
+            'swarmeval.netgw.v1.NetEventsService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('swarmeval.netgw.v1.NetEvents', rpc_method_handlers)
+    server.add_registered_method_handlers('swarmeval.netgw.v1.NetEventsService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class NetEvents:
-    """NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
-    to the worker that owns the run. The gateway holds the traffic until the worker commits the
-    record and acks it, so a request that was let through is never unrecorded.
+class NetEventsService:
+    """NetEventsService carries net-gateway's record of every connection, datagram flow, and DNS
+    query back to the worker that owns the run. The gateway holds the traffic until the worker
+    commits the record and acks it, so a request that was let through is never unrecorded.
     Behavior: docs/services/net-gateway.md.
+
+    Not served or called yet: net-gateway is deferred (2026-10-02). The contract is kept as
+    designed so the work can resume from it.
     """
 
     @staticmethod
@@ -100,7 +109,7 @@ class NetEvents:
         return grpc.experimental.stream_stream(
             request_iterator,
             target,
-            '/swarmeval.netgw.v1.NetEvents/Attach',
+            '/swarmeval.netgw.v1.NetEventsService/Attach',
             swarmeval_dot_proto_dot_swarmeval_dot_netgw_dot_v1_dot_netevents__pb2.AttachRequest.SerializeToString,
             swarmeval_dot_proto_dot_swarmeval_dot_netgw_dot_v1_dot_netevents__pb2.AttachResponse.FromString,
             options,

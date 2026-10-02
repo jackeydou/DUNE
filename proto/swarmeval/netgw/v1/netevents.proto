@@ -4,11 +4,14 @@ package swarmeval.netgw.v1;
 
 option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/netgw/v1;netgwv1";
 
-// NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
-// to the worker that owns the run. The gateway holds the traffic until the worker commits the
-// record and acks it, so a request that was let through is never unrecorded.
+// NetEventsService carries net-gateway's record of every connection, datagram flow, and DNS
+// query back to the worker that owns the run. The gateway holds the traffic until the worker
+// commits the record and acks it, so a request that was let through is never unrecorded.
 // Behavior: docs/services/net-gateway.md.
-service NetEvents {
+//
+// Not served or called yet: net-gateway is deferred (2026-10-02). The contract is kept as
+// designed so the work can resume from it.
+service NetEventsService {
   // One stream per run, dialed by the run's worker over mTLS with a per-run certificate. The
   // worker's first message is a `Hello`; the gateway answers `Attached`. After that the gateway
   // sends one `Record` per connection, datagram flow, or DNS query and holds that traffic until

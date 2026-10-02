@@ -3,8 +3,12 @@
 // every connection, datagram flow, and DNS query to the run's worker. Design:
 // docs/services/net-gateway.md and runtime spec decision 24.
 //
-// This file holds the policy engine, which is pure and platform-independent. The Linux capture
-// and forwarding path is in capture_linux.go; the worker event stream is in stream.go.
+// Deferred since 2026-10-02, and no binary imports this package. What is here is the pure,
+// platform-independent core: the policy engine (this file), the on-disk config (config.go), and
+// first-bytes classification (classify.go). The capture and forwarding path, DNS, TLS
+// interception, pcap, and the NetEventsService server are not written. Where to pick it up: the
+// 2026-10-02 note under M1 in the runtime spec's Plan
+// (spec/2026-09-28-runtime-sandbox-logs/README.md).
 package netgw
 
 import (
