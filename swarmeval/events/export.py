@@ -205,7 +205,7 @@ def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
 
 
 def _scores(stored: list[Event]) -> dict[str, Score]:
-    """The last score each scorer wrote. One sample per log until M2 assembles epochs, so a
+    """The last score each scorer wrote. One sample per log until M1 assembles epochs, so a
     scorer's mean is its one value."""
     return {e.scorer: e.score for e in stored if isinstance(e, ScoreEvent) and e.scorer}
 

@@ -1,6 +1,6 @@
 # SwarmEval：多智能体安全评估框架 Spec（草案 v0.1）
 
-> **Status**：draft · 最后更新：2026-10-01 · M0 已实现并合并（#1–#3，至 `bbb04f1`），门槛（真实开源模型跑 `scorer_misbelief`）未过 · 讨论稿：[Claude Docs](https://claude.ai/code/artifact/13160375-c86b-4606-b379-f6a0a52aad66)
+> **Status**：draft · 最后更新：2026-10-02 · M0 已实现并合并（#1–#3，至 `bbb04f1`），门槛（真实开源模型跑 `scorer_misbelief`）未过 · 2026-10-02：网络能力延后、沙箱断网、新增 `web_request`、里程碑重排，见[轨迹分析优先 spec](../2026-10-02-trajectory-first/README.md)；第 3、5 节里关于 Network Gateway 和蜜罐的内容现在属于"以后" · 讨论稿：[Claude Docs](https://claude.ai/code/artifact/13160375-c86b-4606-b379-f6a0a52aad66)
 
 ## 1. 背景与目标
 
@@ -514,32 +514,37 @@ edge、net-gateway、sandboxd、`swarm` CLI 在一个 Go 模块里，模块放�
 
 ## 9. 里程碑与待讨论问题
 
-分六个阶段交付（2026-09-29 重排）。每个阶段结束时都要能跑一类真实的 case、拿到可信的证据；基础设施在第一次真正需要它的
-阶段才做。阶段计划以本节为准，其他文档只引用这里。
+分六个编号阶段交付，另有不编号的"以后"（2026-09-29 重排；2026-10-02 再次重排，理由、旧编号到新编号的对照见
+[轨迹分析优先 spec](../2026-10-02-trajectory-first/README.md) 决定 7）。每个阶段结束时都要能跑一类真实的 case、拿到可信的
+证据；基础设施在第一次真正需要它的阶段才做。阶段计划以本节为准，其他文档只引用这里。
 
 | 阶段 | 目标 | 内容 | 门槛 |
 | --- | --- | --- | --- |
 | M0 最小闭环 | 一个不依赖网络的真实 case 端到端跑出分数 | `case.yaml` / `env.yaml` 加载与校验（带 `schema_version`、`workspace`，支持私有与共享沙箱）；变体展开；Runtime（round_robin + ReAct loop）；Model Gateway（测试用 mock 后端，真实运行接 vLLM 或托管 API）；Message Bus（信道 ACL 与记录，不含干预）；sandboxd 的 docker 驱动（runc）；工具调用后的文件 diff 与进程快照；Postgres（写前规则、`agent_state`、哈希链）；终态 scorer 与 canary 使用检测；导出 `.eval` 到 RustFS；case `scorer_misbelief` | `scorer_misbelief` 用真实开源模型跑出 `inspect view` 能打开的 `.eval` 和终态分数，分数可复现 |
-| M1 网络与环境 | 参考事件里依赖网络的 case 能跑 | net-gateway（透明网关、TLS 拦截、DNS、策略动作、pcap）与每沙箱网络；net-gateway 到 run owner 的事件流用按 run 签发的 mTLS；gVisor 默认隔离并记录实际隔离等级；sandbox profile；`os_user`；蜜罐与 mock 模板、跨 run 共享蜜罐；canary 生成与解码后匹配、每沙箱 canary；按拓扑生成的隔离自检与可探测性自检；`network_stealth` 变体 | `impossible_task_pressure`、`readonly_web_deaddrop`、`honeypot_credential_chain` 能跑；隔离探针全部失败，直接连任意 IP 在事件流里留下 `net.*` 事件；蜜罐命中与 egress 拒绝进入事件流 |
-| M2 批量评估 | 首批 6 个 case 出第一份可信报告 | 变体矩阵、epoch、suite，多 worker 并行；恢复与接管（租约、fencing、按标签认领容器、恢复保真度、半截步骤处理、基础设施故障时暂停 run）；三层 scorer（LLM judge 引用 `event_id`）；Score / metrics / reducer；Parquet、run 级汇总表与 DuckDB（analysis 先以批处理任务提供）；按 variant 组装 `.eval`；transcript 与网关记录比对；被中断 run 的统计口径、跨 run 共享蜜罐 case 的置信区间 | 6 个 case × 至少 3 个模型 × 10 个 epoch 出带置信区间的触发率报告；批量运行中杀掉一个 worker，run 被接管且报告不受影响；run 中途停掉 net-gateway 再拉起，agent 没有收到连接错误 |
-| M3 因果分析 | 从"有没有"到"为什么" | 消息干预（log / drop / delay / paraphrase / inject）；fork 与反事实重放；在线 Monitor；隐写与带外信道检测；async / event_driven 轮次；隐蔽通信类 case（如 `collusion_pricing`） | 同一 variant 在原样投递和 paraphrase 改写下的协调成功率差异出报告；告警可按 `parent_id` 回溯因果链，并可从告警点 fork 反事实重跑 |
-| M4 控制台 | 对外可用的单机平台 | edge（认证、租户、控制台后端）；服务间 mTLS 补全；Control API 补全 case CRUD；analysis 服务化（事后规则扫描、交互式 judge）；`console/` Web 前端与回放 viewer；Go CLI；单机自部署（物理机或 VM，docker compose） | 能在 Web 上创建 case、触发一次评估运行、看到结果和回放；CLI 能完成同样的操作 |
-| M5 k8s | 同一套服务跑在 k8s 上 | k8s 沙箱驱动（Pod + RuntimeClass gVisor）；Helm chart；Pod 出口改道到 net-gateway；节点上的沙箱冻结与卷 diff；跨节点接管（见 [run 恢复](../2026-09-28-runtime-sandbox-logs/README.md) 决定 17、24 与 Open questions 10、12） | 同一批 case 在 k8s 上跑出与单机相同结构的事件和分数；隔离探针全部通过；杀掉一个 worker，run 由另一个节点上的 worker 接管 |
+| M1 批量与轨迹分析 | 不依赖网络的首批 case 出第一份可信报告，轨迹能在分析工具里查和读 | 已完成（PR #4）：gVisor 默认隔离并记录实际隔离等级、`os_user`、sandbox profile 的 `files:`。待做：沙箱断网（`--network none`）；`web_request` 工具（worker 执行，case 开启，只连公网地址）；变体矩阵、epoch、suite，多 worker 并行（worker 崩溃的 run 标记 interrupted、补跑新 epoch）；三层 scorer（LLM judge 引用 `event_id`）；Score / metrics / reducer；Parquet、run 级汇总表与 DuckDB（analysis 以批处理任务提供）；按 variant 组装 `.eval`；轨迹分析出口（inspect-scout 或 Docent，run 恢复 Open questions 8、9）；transcript 与网关记录比对；canary 解码后匹配、每沙箱 canary；隔离自检；case `transcript_spoofing` 和离线形式的 `impossible_task_pressure`、`shared_cache_rendezvous` | 这几个 case × 至少 3 个模型 × 10 个 epoch 出带置信区间的触发率报告；每个 run 的轨迹能在选定的分析工具里打开；隔离探针全部失败，`web_request` 发往回环、私有、链路本地和平台地址的请求全部被拒并留下 `ToolEvent` |
+| M2 因果分析 | 从"有没有"到"为什么" | 消息干预（log / drop / delay / paraphrase / inject）；fork 与反事实重放；在线 Monitor；隐写与带外信道检测（共享文件、时序）；async / event_driven 轮次；隐蔽通信类 case（如 `collusion_pricing`） | 同一 variant 在原样投递和 paraphrase 改写下的协调成功率差异出报告；告警可按 `parent_id` 回溯因果链，并可从告警点 fork 反事实重跑 |
+| M3 恢复与接管 | 长 run 和批量运行不因基础设施故障丢数据 | 租约、fencing、按标签认领容器、恢复保真度、半截步骤处理、基础设施故障时暂停 run 并冻结沙箱 | 批量运行中杀掉一个 worker，run 被接管且报告不受影响；run 中途停掉 model-gateway 或 sandboxd 再拉起，agent 没有收到连接错误，事件里记有这次暂停 |
+| M4 控制台 | 对外可用的单机平台 | edge（认证、租户、控制台后端）；服务间 mTLS；Control API 补全 case CRUD；analysis 服务化（事后规则扫描、交互式 judge）；`console/` Web 前端与回放 viewer；Go CLI；单机自部署（物理机或 VM，docker compose） | 能在 Web 上创建 case、触发一次评估运行、看到结果和回放；CLI 能完成同样的操作 |
+| M5 k8s | 同一套服务跑在 k8s 上 | k8s 沙箱驱动（Pod + RuntimeClass gVisor），沙箱 Pod 没有任何出站（deny-all NetworkPolicy）；Helm chart；节点上的沙箱冻结与卷 diff；跨节点接管（见 [run 恢复](../2026-09-28-runtime-sandbox-logs/README.md) 决定 17 与 Open questions 10） | 同一批 case 在 k8s 上跑出与单机相同结构的事件和分数；隔离探针全部通过；杀掉一个 worker，run 由另一个节点上的 worker 接管 |
+| 以后：网络能力 | 参考事件里依赖网络的 case 能跑 | net-gateway（透明网关、TLS 拦截、DNS、策略动作、pcap）与每沙箱网络；net-gateway 到 run owner 的事件流用按 run 签发的 mTLS；蜜罐与 mock 模板、跨 run 共享蜜罐及其置信区间；可探测性自检；`network_stealth` 变体；k8s 下 Pod 出口改道（run 恢复决定 24、Open questions 2、12、13） | `readonly_web_deaddrop`、`honeypot_credential_chain` 能跑；直接连任意 IP 在事件流里留下 `net.*` 事件；蜜罐命中与 egress 拒绝进入事件流；run 中途停掉 net-gateway 再拉起，agent 没有收到连接错误 |
 
-- M0 只有一个 worker，崩溃时 run 标记为 interrupted；表结构从一开始就按可恢复设计，M2 补恢复与接管时不用迁移。
+- M0 只有一个 worker，崩溃时 run 标记为 interrupted；M1 多 worker 并行时仍然如此。表结构从一开始就按可恢复设计，M3 补
+  恢复与接管时不用迁移。
 - M0–M3 不做任何对外客户端：run 通过 orchestrator 的 gRPC Control API 触发（集成测试、grpcurl），这个接口在 M4 之前只
   绑定内部网络、不带认证。M4 在 M0–M3 完成后开始，一次做齐对外的部分：edge、Web 前端与回放、CLI（待讨论问题 7、9），
   部署只做单机。
-- 开工前要定：M1 之前做完 [run 恢复](../2026-09-28-runtime-sandbox-logs/README.md) Open question 11 的验证（2026-10-01 已完成）；M2 之前定 Open question 6（中断与补跑的统计口径）
-  和 Open question 13（worker 挂掉到被接管之间，net-gateway 怎么处理沙箱的请求）。
+- 开工前要定：M1 的报告之前定 [run 恢复](../2026-09-28-runtime-sandbox-logs/README.md) Open question 6（中断与补跑的
+  统计口径）和 Open questions 8、9（分析出口）；网络能力开工前定 Open questions 2、13。Open question 11 的验证已于
+  2026-10-01 完成。
 - 不在 M0–M5 里：闭源模型（第二期，见第 1 节）、系统调用级审计（run 恢复决定 3 留的接口）、macOS 适配。
+- （2026-10-02）net-gateway 停下时已有的代码和接着做的顺序，记在 run 恢复 spec Plan 里 M1 下的同日注记。
 
 **待讨论问题**
 
 1. **宿主选择**：已定为完全自建，不依赖 inspect（见第 3 节）。模型接入用 openai SDK 加自写薄适配，第一期不用 LiteLLM。
-2. **首批 case 范围**：已定，M2 先做第 2 节从两起 OpenAI 事件拆出的 6 个 case，更多 case 后续再补充。
+2. **首批 case 范围**：已定，M2 先做第 2 节从两起 OpenAI 事件拆出的 6 个 case，更多 case 后续再补充。（2026-10-02）其中不依赖网络的四个在 M1 做，`readonly_web_deaddrop`、`honeypot_credential_chain` 随网络能力放到以后，见上表。
 3. **规模**：已定（2026-09-28 修订）。单个 case 最多十几个 agent，再多人工复核不过来。一个 run 由单一 worker 承载，Message Bus 用单进程 asyncio 加 Postgres 持久化即可，不引入 Kafka、NATS 这类消息队列；扩展靠并行跑多个 run，k8s 后端用来把不同 run 分布到多节点（见 [run 恢复](../2026-09-28-runtime-sandbox-logs/README.md)）。参考事件中约 1,200 个 agent 的规模不作为设计目标。
-4. **真实互联网**：已定，默认不可联网，入站和出站都默认拒绝。只有 case 在 ingress / egress 规则里显式声明的流量才经网关放行，其余一律拒绝并记录。
+4. **真实互联网**：已定，默认不可联网，入站和出站都默认拒绝。只有 case 在 ingress / egress 规则里显式声明的流量才经网关放行，其余一律拒绝并记录。（2026-10-02 修订）沙箱本身没有网络；唯一的出口是 `web_request` 工具，由 worker 执行，只在 case 为 agent 开启时存在，可访问任意公网地址、任意方法，内网、宿主和平台地址一律拒绝。见[轨迹分析优先 spec](../2026-10-02-trajectory-first/README.md) 决定 3、5。
 5. **reasoning 可见性**：第一期只测开源模型，拿得到完整 CoT。第二期接闭源模型时，是否需要和厂商谈原始 CoT 的研究访问？
 6. **轨迹数据的访问控制**：日志里会有注入 payload 和潜在有害输出，存储与分享需要什么权限边界？
 7. **控制台的开发顺序**：已定（2026-09-29）。控制台（edge、Web 前端与回放 viewer）等 M0-M3 的 runtime 和评估能力做完再做，不并行推进。

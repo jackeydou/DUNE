@@ -5,7 +5,7 @@ queries, searching tool calls, rule scans added after a run, and LLM judge verdi
 of the Control API behind [edge](edge.md), not part of it. Its place among the services is in
 [architecture.md](../architecture.md).
 
-**Status:** not built. M2 runs it as batch jobs, which produce the scorers and the first report.
+**Status:** not built. M1 runs it as batch jobs, which produce the scorers and the first report.
 M4 turns it into a gRPC service behind edge. Items marked *(proposed)* go beyond what the specs
 decided; they are listed under [Not settled](#not-settled).
 
@@ -32,7 +32,7 @@ Events and exports are never rewritten, and replay and audit always read the ori
 | LLM judge | Asks a question about a run or a range of its events, through [model-gateway](model-gateway.md). The verdict must cite `event_id`s. Before storing it, analysis checks that every cited id exists in that run, and a verdict with no valid citation is rejected |
 | Reports | Trigger rate per risk category with a 95% CI (mean + stderr), grouped by isolation level, fidelity, and `reasoning_visibility` |
 
-In M2 each capability is a job run with `python -m swarmeval.analysis <job>` *(proposed)*.
+In M1 each capability is a job run with `python -m swarmeval.analysis <job>` *(proposed)*.
 
 ## Interface (M4)
 
@@ -64,7 +64,7 @@ also uses the following:
 ## Not settled
 
 1. An `analysis` schema for derived results.
-2. Job entry points in M2.
+2. Job entry points in M1.
 3. RPC names of `AnalysisService`.
 4. Whether to reuse `inspect-scout` for scans and judges (runtime spec Q8), and whether Docent's
    format becomes the main export for multi-agent analysis (runtime spec Q9).

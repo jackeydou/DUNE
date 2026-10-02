@@ -243,8 +243,8 @@ The timeout is the loop's `hook_timeout_s` (default 30 s) unless the extension d
 | Spec item | State |
 |---|---|
 | Resume, takeover, fork | `RunLoop` refuses a run that already has context. The `awaiting_admit` status exists, and the gateway path is to write it when that path is built |
-| `before_deliver`, `on_resume` hooks | Arrive with interventions (M3) and with recovery |
-| `read_messages` | Arrives with monitors (M3). Channel members get messages pushed at their next turn |
+| `before_deliver`, `on_resume` hooks | Arrive with interventions (M2) and with recovery (M3) |
+| `read_messages` | Arrives with monitors (M2). Channel members get messages pushed at their next turn |
 | `Pause` decisions and pause actions | Need a resume path |
 | `async` and `event_driven` turn policies, `wall_clock` limit | Only `round_robin`, `max_turns`, and `max_tokens` exist |
 | Pausing on infrastructure failure | A failing model client or sandbox raises and ends the run |

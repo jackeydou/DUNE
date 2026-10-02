@@ -236,8 +236,8 @@ format").
 |---|---|
 | `task.ground_truth` | When a scorer needs it |
 | Canary decoding, per-sandbox canaries | M1 |
-| `network`, `services` | With net-gateway (M1) |
-| `role: monitor`, channel `monitored_by` and `interventions` | With interventions and the Monitor (M3) |
-| `topology` presets, `async` / `event_driven` turn policies, `wall_clock` | M3 |
+| `network`, `services` | With the network capability, later |
+| `role: monitor`, channel `monitored_by` and `interventions` | With interventions and the Monitor (M2) |
+| `topology` presets, `async` / `event_driven` turn policies, `wall_clock` | M2 |
 | `allowed_bins`, `linux_caps` in a profile | With the sandboxd profile work |
 | `case:` extension references | Agent loop spec open question 1 |

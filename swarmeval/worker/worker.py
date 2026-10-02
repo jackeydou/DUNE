@@ -1,7 +1,7 @@
 """The worker's main loop: claim queued runs and execute them, up to a concurrency limit.
 
 M0 runs one worker. A run whose worker dies is marked `interrupted` when that worker (same
-`owner_id`) starts again; M2 replaces this with leases and takeover.
+`owner_id`) starts again; M3 replaces this with leases and takeover.
 """
 
 import asyncio

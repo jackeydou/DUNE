@@ -65,7 +65,7 @@ class Outcome:
 def service_failure(err: SandboxdError | ModelGatewayError) -> Outcome:
     """A model backend that refused or failed the call (model-gateway's 502) ends the run as
     `failed`: retrying the same context gets the same answer. Anything else is the platform
-    being unavailable, which ends it as `interrupted`; M2 pauses and resumes instead."""
+    being unavailable, which ends it as `interrupted`; M3 pauses and resumes instead."""
     if isinstance(err, ModelGatewayError) and err.status == UPSTREAM_ERROR_STATUS:
         return Outcome("failed", str(err))
     return Outcome("interrupted", str(err))

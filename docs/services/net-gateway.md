@@ -5,9 +5,27 @@ run. It sees every packet a sandbox sends, applies the case's network policy, in
 answers DNS, and reports every connection, request, and query to the run's worker. Its place
 among the services is in [architecture.md](../architecture.md).
 
-**Status:** not built. Arrives in M1. The docker behavior it depends on was verified on 2026-10-01
-(runtime spec Q11, [script and output](../../spec/2026-09-28-runtime-sandbox-logs/q11/)). Items marked *(proposed)* go beyond what the specs decided; they are listed under
-[Not settled](#not-settled).
+**Status:** not built, and not on the milestone path. It belongs to the network capability,
+which comes after M0–M5 together with honeypot and mock services, the case format's `network` and
+`services`, and `network_stealth` ([v1 spec §9](../../spec/2026-09-27-swarmeval-v1/README.md#9-里程碑与待讨论问题)).
+Until then sandboxes have no network, and agents reach the internet only through the worker's
+`web_request` ([orchestrator.md](orchestrator.md#web_request)). Why:
+[trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md). Where to resume: the
+2026-10-02 note under M1 in the runtime spec's [Plan](../../spec/2026-09-28-runtime-sandbox-logs/README.md#plan).
+
+What exists:
+
+- `go/internal/netgw`: the policy engine (`allow`, `deny`, `log_and_deny`), the config file
+  format, and TLS SNI and HTTP request-line classification. Unit-tested; no binary uses it.
+- `proto/swarmeval/netgw/v1/netevents.proto` and its generated stubs. Nothing serves or calls it.
+- In sandboxd, the per-sandbox networks and the `resolv.conf` described under [Topology](#topology)
+  and [DNS](#dns). They are in use until M1 moves sandboxes to `--network none`, and stay in the
+  code for this capability.
+
+The rest of this page is the design the work resumes from. The docker behavior it depends on was
+verified on 2026-10-01 (runtime spec Q11,
+[script and output](../../spec/2026-09-28-runtime-sandbox-logs/q11/)). Items marked
+*(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ## Topology
 
@@ -129,7 +147,7 @@ event refers to it by hash.
 
 ## Event stream
 
-gRPC service `swarmeval.netgw.v1.NetEvents` on the platform link. Mutual TLS uses a certificate
+gRPC service `swarmeval.netgw.v1.NetEventsService` on the platform link. Mutual TLS uses a certificate
 issued for this run only, so the connection can carry this run's events and nothing else. The
 worker dials net-gateway, and on takeover the new owner dials again with a higher `owner_epoch`,
 which replaces the old stream.

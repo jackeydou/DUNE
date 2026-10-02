@@ -22,8 +22,8 @@ models, the `inspect_ai` mapping, and case hooks exist only in Python.
 | [`orchestrator`](services/orchestrator.md) | Python | Control plane: run queue, scheduling, leases, Control API. Run workers: agent loop, Message Bus, online Monitor, token budgets, event sequencing and writes. Case loading and validation | M0 |
 | [`model-gateway`](services/model-gateway.md) | Python | Provider adapters, OpenAI-compatible API, recording every model call, per-key rate limits | M0 |
 | [`sandboxd`](services/sandboxd.md) | Go | Sandbox lifecycle through the docker or k8s API; runs tool calls inside sandboxes and reports the file diff and surviving processes after each one | M0 |
-| [`net-gateway`](services/net-gateway.md) | Go | One instance per run: TLS interception, DNS, network policy, pcap | M1 |
-| [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, offline scorers over exported runs | M2 as batch jobs; service in M4 |
+| [`net-gateway`](services/net-gateway.md) | Go | One instance per run: TLS interception, DNS, network policy, pcap | Later: the network capability, outside M0–M5 |
+| [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, offline scorers over exported runs | M1 as batch jobs; service in M4 |
 | [`edge`](services/edge.md) | Go | The only public entry: authentication, tenants, workspace authorization, console backend | M4 |
 | [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4 |
 | [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | M4 |
@@ -51,34 +51,31 @@ flowchart TB
         SBX["sandboxd · Go<br/>sandbox lifecycle · tool execution"]
     end
 
-    subgraph RUN["One isolated network per run"]
+    subgraph RUN["One run's sandboxes: no network"]
         BOX["sandbox containers<br/>tool calls run here"]
-        NG["net-gateway · Go (one per run)<br/>TLS interception · DNS · policy · pcap"]
-        HP["honeypots / mock services"]
     end
 
     LLM["model inference<br/>vLLM / SGLang / API"]
+    WEB2["public internet"]
 
     EDGE --> CP & AN
     CP -- assigns run --> W
     W -- model calls --> MG
     W -- create sandbox · run tool --> SBX
     SBX -- docker / k8s API --> BOX
-    BOX -- all egress --> NG
-    NG --> HP
+    W -- web_request · public addresses only --> WEB2
     AN -. judge .-> MG
     MG --> LLM
 
     classDef go fill:#d7f0f7,stroke:#00758f,color:#0b2a33
     classDef py fill:#fbeecd,stroke:#b8860b,color:#3a2a00
-    class EDGE,SBX,NG,CLI go
+    class EDGE,SBX,CLI go
     class CP,W,AN,MG py
 ```
 
 - Services talk gRPC with mTLS. Contracts live in `proto/` and are managed with buf; `edge`
-  serves HTTP/JSON to browsers and the CLI through Connect. `net-gateway`'s event stream to its
-  run's worker uses per-run certificates from M1; the other services get mTLS in M4, with `edge`.
-  Until then they talk plain gRPC on the internal network.
+  serves HTTP/JSON to browsers and the CLI through Connect. mTLS arrives in M4, with `edge`.
+  Until then services talk plain gRPC on the internal network.
 - Each service owns its data. Another service asks it over gRPC and never reads its tables.
 - The split is by function, never by run. All agent loops of one run, its sequencing, and its
   writes stay in one worker. Different runs spread across workers.
@@ -87,7 +84,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    MG["model-gateway · Python<br/>model calls"] & NG["net-gateway · Go<br/>network requests · DNS"] == gRPC stream, ack after commit ==> W["run worker · Python<br/>sequencing · hash chain<br/>committed with agent state"]
+    MG["model-gateway · Python<br/>model calls"] == gRPC stream, ack after commit ==> W["run worker · Python<br/>sequencing · hash chain<br/>committed with agent state<br/>Message Bus · web_request"]
     SBX["sandboxd · Go<br/>tool result · file diff · process snapshot"] -- returned with the tool result --> W
     W --> PG[("Postgres<br/>runs schema<br/>evidence while running")]
     PG -- export at run end --> OBJ[("object storage<br/>.eval · Parquet")]
@@ -97,18 +94,19 @@ flowchart LR
 
     classDef go fill:#d7f0f7,stroke:#00758f,color:#0b2a33
     classDef py fill:#fbeecd,stroke:#b8860b,color:#3a2a00
-    class NG,SBX,EDGE go
+    class SBX,EDGE go
     class MG,W,AN,CP py
 ```
 
-- Events come only from the gateways and `sandboxd`, never from the agent.
+- Events come only from `model-gateway`, `sandboxd`, and the worker itself (Message Bus,
+  `web_request`, orchestration), never from the agent.
 - The run's worker is its only writer. It assigns the run-wide `seq`, extends the hash chain, and
   commits each event in the same transaction as the agent state it changes. Only then does it ack,
-  and only after the ack does the gateway let the call through. With no worker to ack, the gateway
-  refuses the call (fail closed), so no model call or network request goes unrecorded *(open,
-  runtime spec Q5)*.
-- Network events are group-committed about every 100 ms and acked after the commit, so a request
-  that was let through is never lost *(open, runtime spec Q2)*.
+  and only after the ack does `model-gateway` let the call through. With no worker to ack, it
+  refuses the call (fail closed), so no model call goes unrecorded *(open, runtime spec Q5)*.
+- `web_request` is performed by the worker, not the sandbox. The request and the full response are
+  the call's `ToolEvent`, committed before the agent sees the result, like any other tool result.
+  Detail: [services/orchestrator.md](services/orchestrator.md#web_request).
 - File and process events are collected by `sandboxd` after each tool call: a diff of the key paths,
   which are mounted as host volumes, and the processes still alive. They come back with the tool
   result and commit in the same transaction as its `ToolEvent`. Reads that write nothing are not
@@ -127,7 +125,7 @@ flowchart LR
 | Postgres `control` schema | Run queue, run status, leases (`owner_id`, `lease_until`, `owner_epoch`) | `orchestrator` |
 | Postgres `runs` schema | `events`, `messages`, `agent_state`, `extension_state`, `deliveries`, `sandboxes` for every run, keyed by `run_id` ([event-log.md](event-log.md#tables)) | `orchestrator` |
 | Postgres `analysis` schema *(proposed)* | Derived results: rule matches, judge verdicts, offline scores | `analysis` |
-| Object storage | Exported `.eval` and Parquet (with hash chain fields); large blobs such as pcaps and file snapshots, content-addressed | written by `orchestrator`, read by `analysis` |
+| Object storage | Exported `.eval` and Parquet (with hash chain fields); large blobs such as file snapshots and `web_request` bodies, content-addressed | written by `orchestrator`, read by `analysis` |
 
 Object storage is always reached through the standard S3 API, on every deployment, and no
 implementation-specific feature is used, so the backing store can be swapped by configuration.
@@ -143,30 +141,31 @@ place with DuckDB's `httpfs` extension.
 
 ## Isolation
 
-- Ingress and egress are denied by default.
-- Each sandbox sits on its own network whose only other member is its run's `net-gateway`, which
-  holds the network's gateway address. The host has no address there, so platform services,
-  Postgres, and object storage give a sandbox nothing to connect to, and with `net-gateway` down
-  a sandbox reaches nothing at all. How docker is set up for this:
-  [services/net-gateway.md](services/net-gateway.md#topology).
-- `net-gateway` accepts TCP and UDP to any address transparently (TPROXY in its own namespace), so
-  a connection straight to an IP is recorded like any other. Honeypots and mock services sit on a
-  separate network that only `net-gateway` reaches. On the platform side, `net-gateway` has one
-  connection: the event stream with its run's worker, over a certificate that can write that run
-  alone. Detail: [services/net-gateway.md](services/net-gateway.md).
+- Sandboxes have no network: containers run with `--network none` and have only a loopback
+  interface. They cannot reach the host, platform services, Postgres, object storage, each other,
+  or the internet.
+- The only way out is the `web_request` tool. It exists only for agents whose case lists it, runs
+  in the worker, and connects only to public unicast addresses: loopback, private, link-local
+  (cloud metadata included), and other non-global addresses are refused after resolution, and the
+  connection goes to the address that was checked. The worker can reach platform services, so this
+  check is the only thing between an agent and them. It is not a case setting. Detail:
+  [services/orchestrator.md](services/orchestrator.md#web_request).
 - The agent loop runs outside the sandbox. Containers only execute tool calls, so model keys,
   logs, and recovery state are out of the agent's reach.
 - Sandboxes run on gVisor (`runsc`) by default and fall back to runc where gVisor is missing.
   Each run records the isolation level it actually got.
-- Before each batch, a probe checks that sandboxes cannot reach the host, platform services, or each
-  other, and that a connection to an arbitrary IP shows up as a `net.*` event.
+- Before each batch, a probe checks that a sandbox has no interface but loopback, and that
+  `web_request` to loopback, private, link-local, and platform addresses is refused.
+- The network capability (later, outside M0–M5) puts [`net-gateway`](services/net-gateway.md) back
+  as every sandbox's only neighbor, with honeypots and mocks behind it. Its design and the
+  per-sandbox networks that sandboxd already has code for are on that page.
 
 ## Failure handling
 
 | Failure | What happens |
 |---|---|
 | A worker dies | Another worker, or the same one after restart, takes the run over once its lease expires. `owner_epoch` goes up by one, and running sandboxes are claimed by their labels instead of being recreated |
-| `model-gateway`, `net-gateway`, or `sandboxd` is unavailable | The run pauses and its sandboxes are frozen; no connection error is handed to the agent. On recovery a `CheckpointEvent` records the pause, and paused time does not count toward timeouts. A pause over the configured limit marks the run interrupted and schedules a new epoch |
+| `model-gateway` or `sandboxd` is unavailable | The run pauses and its sandboxes are frozen; no connection error is handed to the agent. On recovery a `CheckpointEvent` records the pause, and paused time does not count toward timeouts. A pause over the configured limit marks the run interrupted and schedules a new epoch |
 | A step was half done | A model request whose response was not committed is resent and sampled again; the agent never saw the lost response, and the recovery `CheckpointEvent` notes it. `model-gateway` keeps no response cache. A tool call without a result is not rerun; the agent sees an `InterruptEvent` |
 
 Every recovery records a fidelity level per sandbox: `exact` (only the orchestrator restarted),
@@ -183,7 +182,8 @@ build the single-machine column; the k8s column arrives in M5.
 |---|---|---|
 | Orchestration | docker compose | Helm chart |
 | Sandbox driver | docker API, gVisor | k8s API: Pod + RuntimeClass (gVisor) |
-| Network isolation | One network per sandbox, shared only with the run's `net-gateway`, which holds the gateway address | To be decided: NetworkPolicy cannot reroute, so the Pod needs an in-namespace redirect to `net-gateway` *(open, runtime spec Q12)* |
+| Sandbox network | None (`--network none`) | No egress: a deny-all NetworkPolicy on sandbox Pods |
+| Worker egress | Outbound internet, for `web_request` | The same, from worker Pods |
 | Postgres | Container in compose, on a persistent volume | Managed service or an operator |
 | Object storage | RustFS container in compose, on a persistent volume | RustFS or a cloud S3 service |
 | Service certificates | Self-signed CA generated at start | cert-manager |

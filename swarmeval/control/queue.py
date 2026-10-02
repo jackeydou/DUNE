@@ -234,7 +234,7 @@ class Queue:
 
     async def interrupt_owned(self, owner_id: str) -> list[str]:
         """Marks runs a previous process of this worker left running as `interrupted`. M0 has no
-        takeover; M2 resumes them instead."""
+        takeover; M3 resumes them instead."""
         runs = control_runs.c
         async with self._engine.begin() as conn:
             rows = await conn.execute(

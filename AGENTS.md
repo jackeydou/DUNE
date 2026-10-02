@@ -49,10 +49,13 @@ subsystem, write its `docs/` page and stop citing the spec for it.
   writing code.
 - **Touching more than one service** ([list](docs/architecture.md#services)) — read the `docs/`
   pages for each one involved, and the spec sections for anything `docs/` does not cover yet.
-- **Isolation defaults** — ingress and egress are denied by default; agent containers never see the
-  host, the database, or the object store; events come from the gateways and sandbox audit, never from the agent.
-  A change that loosens any of these needs the user's explicit sign-off. Detail:
-  [docs/architecture.md](docs/architecture.md#isolation), spec §2 and §5.
+- **Isolation defaults** — sandboxes have no network; the only egress is the worker's
+  `web_request` tool, present only when a case lists it and refused for any non-public address;
+  agent containers never see the host, the database, or the object store; events come from the
+  gateways, sandbox audit, and the worker, never from the agent. A change that loosens any of
+  these needs the user's explicit sign-off. Detail:
+  [docs/architecture.md](docs/architecture.md#isolation),
+  [trajectory-first spec](spec/2026-10-02-trajectory-first/README.md) decisions 2, 3, 5.
 - **Model calls** — all LLM traffic goes through the Model Gateway. The `openai` SDK is imported
   only in `swarmeval/gateway/model/`; runtime and agent code never call a provider directly.
   Detail: spec §3 "模型接入".

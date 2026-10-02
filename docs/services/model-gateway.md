@@ -21,7 +21,7 @@ Both addresses have no authentication beyond the virtual keys; bind them to the 
 | Caller | Key | Recorded as |
 |---|---|---|
 | Run worker, for an agent | One virtual key per agent per run, registered when the worker attaches | Run evidence: a `ModelEvent` committed by the run's worker before the response is returned |
-| Run worker, for the Message Bus `paraphrase` intervention (M3) | A bus key for the run | Run evidence, the same way |
+| Run worker, for the Message Bus `paraphrase` intervention (M2) | A bus key for the run | Run evidence, the same way |
 | [analysis](analysis.md), for the LLM judge | A key per analysis job | Not run evidence. Returned directly, and analysis stores the call with its verdict *(proposed)* |
 
 Sandboxes cannot reach model-gateway, and neither can [net-gateway](net-gateway.md).
