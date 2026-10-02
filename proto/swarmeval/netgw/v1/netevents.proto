@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package swarmeval.netgw.v1;
+
+option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/netgw/v1;netgwv1";
+
+// NetEvents carries net-gateway's record of every connection, datagram flow, and DNS query back
+// to the worker that owns the run. The gateway holds the traffic until the worker commits the
+// record and acks it, so a request that was let through is never unrecorded.
+// Behavior: docs/services/net-gateway.md.
+service NetEvents {
+  // One stream per run, dialed by the run's worker over mTLS with a per-run certificate. The
+  // worker's first message is a `Hello`; the gateway answers `Attached`. After that the gateway
+  // sends one `Record` per connection, datagram flow, or DNS query and holds that traffic until
+  // the worker answers with an `Ack` or `Reject` for it. A stream for the same run with a higher
+  // `owner_epoch` replaces this one; a lower or equal one is refused with FAILED_PRECONDITION.
+  rpc Attach(stream AttachRequest) returns (stream AttachResponse);
+}
+
+message AttachRequest {
+  oneof item {
+    Hello hello = 1;
+    Ack ack = 2;
+    Reject reject = 3;
+  }
+}
+
+message AttachResponse {
+  oneof item {
+    Attached attached = 1;
+    Record record = 2;
+  }
+}
+
+message Hello {
+  string run_id = 1;
+  int64 owner_epoch = 2;
+}
+
+message Attached {}
+
+// Record is one net.* event, held until the worker acks it. The worker maps it to an
+// InfoEvent with source `swarmeval.<type>` (runtime spec decision 10).
+message Record {
+  // The gateway's id for this record, unique within the stream. The worker's Ack or Reject
+  // carries it back.
+  string record_id = 1;
+  // Which sandbox sent the traffic, from its source subnet.
+  string sandbox_id = 2;
+  // Original destination, kept by TPROXY.
+  string dst_ip = 3;
+  uint32 dst_port = 4;
+  // `allow`, `deny`, or `log_and_deny`.
+  string decision = 5;
+  // Identifier of the rule that decided, or empty for the default action.
+  string matched_rule = 6;
+  oneof detail {
+    Connect connect = 7;
+    Udp udp = 8;
+    Dns dns = 9;
+  }
+}
+
+// Connect is one TCP connection. type `net.connect`.
+message Connect {
+  // What the first bytes looked like: `tls`, `http`, or `raw`.
+  string classification = 1;
+  // Server name from a TLS ClientHello, when classification is `tls`.
+  string sni = 2;
+  // The first request's host, method, and path, when classification is `http`.
+  string http_host = 3;
+  string http_method = 4;
+  string http_path = 5;
+}
+
+// Udp is one UDP datagram flow to a non-DNS destination. type `net.udp`.
+message Udp {}
+
+// Dns is one DNS query. type `net.dns`.
+message Dns {
+  string qname = 1;
+  // A, AAAA, TXT, and so on.
+  string qtype = 2;
+  // The response code the gateway returned: NOERROR, NXDOMAIN, or REFUSED.
+  string rcode = 3;
+  // Addresses answered, if any.
+  repeated string answers = 4;
+}
+
+message Ack {
+  string record_id = 1;
+  // Id of the committed event that holds the record, for the gateway's log. Optional.
+  string event_id = 2;
+}
+
+// The worker could not commit the record. The gateway denies the traffic and closes it.
+message Reject {
+  string record_id = 1;
+  string reason = 2;
+}
