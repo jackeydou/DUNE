@@ -1,15 +1,17 @@
 # sandboxd
 
 Go. It is the only service with access to the docker or k8s API. It creates and destroys
-everything a run needs: sandboxes, their networks, the run's
-[net-gateway](net-gateway.md), and honeypot and mock containers. It executes tool calls inside
+everything a run needs: sandboxes today, and with the network capability (later) their networks,
+the run's [net-gateway](net-gateway.md), and honeypot and mock containers. It executes tool calls inside
 sandboxes and reports what each call changed on disk and left running. Its place among the
 services is in [architecture.md](../architecture.md).
 
 **Status:** the M0 part is built: the docker driver, `CreateSandbox`, `Exec` with file diff and
 process snapshot, `ReadFile`, `FinalDiff`, and `DestroyRun`. From M1: `CreateRun` with one
 network per sandbox, `resolv.conf` at the gateway, `os_user`s, and gVisor as the default where
-docker offers it. net-gateway and service containers are not built yet. Code: `go/cmd/sandboxd`,
+docker offers it. In M1 sandboxes move to `--network none` and `CreateRun` stops creating
+networks ([Networks](#networks)). net-gateway and service containers belong to the network
+capability, later. Code: `go/cmd/sandboxd`,
 `go/internal/sandboxd`, `go/internal/fsdiff`, `go/internal/driver`. The contract is
 `proto/swarmeval/sandbox/v1/sandbox.proto`; flags and limits are in [go/README.md](../../go/README.md).
 The worker-side client is `swarmeval.sandbox.RunSandboxes`, one per run. It turns output,
@@ -20,9 +22,10 @@ U+FFFD), checks every blob against its hash, and uploads blobs to the blob store
 | Milestone | Adds |
 |---|---|
 | M0 | Docker driver on runc, `Exec`, file diff, process snapshot |
-| M1 | gVisor as the default, one network per sandbox, net-gateway and service containers, `os_user` |
-| M2 | Freeze and thaw, reconciliation by label |
+| M1 | gVisor as the default, `os_user` (built); sandboxes with no network |
+| M3 | Freeze and thaw, reconciliation by label |
 | M5 | k8s driver |
+| Later | Per-sandbox networks in use again, net-gateway and service containers ([net-gateway.md](net-gateway.md)) |
 
 Items marked *(proposed)* go beyond what the specs decided; they are listed under
 [Not settled](#not-settled).
@@ -35,14 +38,14 @@ authentication, so only the internal network may reach it.
 
 | RPC | Does | State |
 |---|---|---|
-| `CreateSandbox` | Creates one sandbox on its network from a profile's image, key paths, limits, seed files, and users, labels it, and takes the initial manifest | Built |
+| `CreateSandbox` | Creates one sandbox from a profile's image, key paths, limits, seed files, and users, labels it, and takes the initial manifest | Built |
 | `Exec` | Runs one tool call and streams back its result, file changes, and surviving processes | Built |
 | `ReadFile` | Reads a file for final-state scorers, through the engine's copy API, so nothing runs in the sandbox | Built |
 | `FinalDiff` | Diffs every sandbox one last time at run end, catching background writes | Built |
 | `DestroyRun` | Removes every container and network labeled with the run, and its state directory | Built |
-| `CreateRun` | Creates the run's networks, net-gateway, and service containers from the compiled env. Comes before the run's `CreateSandbox` calls | Networks built; net-gateway and services M1 |
-| `Freeze`, `Thaw` | Pause and resume every container of a run | M2 |
-| `ListRun` | Lists a run's containers by label, for takeover | M2 |
+| `CreateRun` | Registers the run before its `CreateSandbox` calls. Today it also creates the per-sandbox networks, which M1 stops; with the network capability it creates them again, with net-gateway and service containers | Built |
+| `Freeze`, `Thaw` | Pause and resume every container of a run | M3 |
+| `ListRun` | Lists a run's containers by label, for takeover | M3 |
 
 Ids are checked at the boundary: `run_id` matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`, because it
 becomes a directory name, and `sandbox_id` uses the case format's names. Errors map to
@@ -53,7 +56,7 @@ becomes a directory name, and `sandbox_id` uses the case format's names. Errors 
 `go/internal/driver.Driver` holds everything that differs between single machine and k8s:
 listing runtimes, exporting a path from an image, creating networks and containers, writing
 files into a container before it starts, exec, reading a file, listing by label, and removal.
-Pause (M2) joins it when it is built. The process list is not a driver call: sandboxd reads it
+Pause (M3) joins it when it is built. The process list is not a driver call: sandboxd reads it
 from inside the sandbox (see [below](#exec-diff-and-process-snapshot)). The docker driver (`go/internal/driver/docker`) uses the Engine API. The k8s driver (M5) maps sandboxes to Pods with a gVisor
 `RuntimeClass`. On k8s, freezing and volume diffs have to happen on the node, and how is
 *(open, runtime spec Q10)*.
@@ -70,7 +73,7 @@ from inside the sandbox (see [below](#exec-diff-and-process-snapshot)). The dock
   and `/bin/sh`. sandboxd never pulls images; a missing image is an error that says to pull it on
   the docker host.
 - **Privileges.** All capabilities dropped and `no-new-privileges`. The only network is the
-  sandbox's own, whose gateway address nothing holds until net-gateway exists, so a sandbox
+  sandbox's own, whose gateway address nothing holds while net-gateway is deferred, so a sandbox
   reaches nothing. CPU, memory (swap equal to memory, so none extra), and pids limits apply per
   sandbox. A disk limit needs a storage driver that
   supports per-container size; without one, `CreateSandbox` fails rather than ignoring it.
@@ -106,7 +109,13 @@ from inside the sandbox (see [below](#exec-diff-and-process-snapshot)). The dock
 
 ## Networks
 
-One network per sandbox, created by `CreateRun`, whose only other member is net-gateway at the
+**From M1:** sandboxes run with `--network none` and have only a loopback interface, so they
+reach nothing, and docker's embedded DNS is absent under runc as well. The only egress is the
+worker's `web_request` ([orchestrator.md](orchestrator.md#web_request)). Why:
+[trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 2.
+
+**Today, and again with the network capability:** one network per sandbox, created by
+`CreateRun`, whose only other member is net-gateway at the
 network's gateway address. sandboxd carves each network's subnet out of `--sandbox-subnets`
 (default `10.231.0.0/16`), a `/28` each, skipping every subnet the docker daemon already has;
 docker's own default pools hold about 30 networks, too few for a sandbox each. The network is
@@ -172,8 +181,8 @@ it is not built in M0–M5.
 
 ## Freeze, reconcile, clean up
 
-- `Freeze` uses `docker pause` (the cgroup freezer, which `runsc` supports) on sandboxes, services,
-  and net-gateway alike.
+- `Freeze` uses `docker pause` (the cgroup freezer, which `runsc` supports) on sandboxes, and with
+  the network capability on services and net-gateway alike.
 - `ListRun` returns the labeled containers with their state. The new owner adopts live ones.
   Stopped ones are started again, which makes their fidelity `fs_preserved`.
 - `DestroyRun` removes the containers, networks, and state directory of one run. sandboxd never

@@ -449,6 +449,10 @@ hook 调度自己写，不用库：需要的语义是 async、三种合并方式
 
 阶段以 [v1 spec §9](../2026-09-27-swarmeval-v1/README.md) 为准。
 
+（2026-10-02）里程碑重排，下面的编号是重排前的：M2（恢复时的 `awaiting_admit`、接管后的扩展状态）现在是 M3，M3（信道
+干预、Monitor、`ctx.actions`、`async`、fork）现在是 M2。对照见
+[轨迹分析优先 spec](../2026-10-02-trajectory-first/README.md) 决定 7。
+
 - **M0**
   - 决定 1–3：自己的循环、登记与采纳两阶段、上下文只能持久化变化。
   - 决定 4–8、10–14：hook 调度（三类、屏障、超时）、`HookContext`、`extension_state` 表、entry point 注册、`case.yaml`

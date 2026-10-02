@@ -378,6 +378,9 @@ model-gateway、net-gateway、sandboxd 任一不可用时，owner 暂停受影�
 
 #### 24. net-gateway 是每个沙箱唯一的邻居和默认路由
 
+（2026-10-02）整条决定随网络能力延后；从 M1 起沙箱用 `--network none`，唯一出口是 worker 执行的 `web_request`。见
+[轨迹分析优先 spec](../2026-10-02-trajectory-first/README.md) 决定 1–3。
+
 只把沙箱接到 run 的 internal docker 网络做不到"所有出站流量必经网关"：同一网络上的沙箱之间、沙箱和蜜罐之间可以直连，
 不经网关、不留事件；bridge 上的宿主 IP 让沙箱能连到宿主上监听 0.0.0.0 的服务；发往其他 IP 的包被静默丢弃，谁也没有记录。
 所以单机 docker 下改成让 net-gateway 当路由器：
@@ -502,6 +505,12 @@ k8s 不适用：NetworkPolicy 只能放行或拒绝，改不了路由，被拒�
 
 阶段划分以 [v1 spec §9](../2026-09-27-swarmeval-v1/README.md) 为准（2026-09-29 重排）。本 spec 的决定落在：
 
+（2026-10-02）里程碑再次重排，下面的编号是重排前的。对照（[轨迹分析优先 spec](../2026-10-02-trajectory-first/README.md)
+决定 7）：M1 里决定 24 的 net-gateway 部分、蜜罐和可探测性自检移到不编号的"以后"，决定 6 的每沙箱 canary 和隔离自检留在
+新 M1，`os_user` 已完成；M2 的决定 11、12 移到新 M1，决定 13–15、18–23 的恢复与接管移到新 M3，门槛里"停掉
+net-gateway"一项随网络能力移到以后；M5 不变，Open question 12 随网络能力移到以后。沙箱改为 `--network none`
+（轨迹分析优先 spec 决定 2），决定 24 的每沙箱网络留给网络能力。
+
 - **M0**
   - 决定 1、2、5 的沙箱拓扑与加载校验；docker 驱动能让多个 agent 在同一容器里执行工具。
   - 决定 3 的文件 diff 与进程快照。
@@ -514,6 +523,21 @@ k8s 不适用：NetworkPolicy 只能放行或拒绝，改不了路由，被拒�
   - 决定 24：每沙箱网络与 net-gateway 透明网关。Open question 11 的验证已完成（2026-10-01）。
   - 决定 6：每沙箱 canary、按拓扑生成的隔离自检；`os_user`（Open question 7）。
   - 门槛：隔离的两个沙箱之间探针全部失败；探针直接连任意 IP 时事件流里出现对应的 `net.*` 事件，连宿主和平台服务全部失败。
+  - （2026-10-02）决定 24 的 net-gateway 部分延后，理由和影响范围见
+    [轨迹分析优先 spec](../2026-10-02-trajectory-first/README.md)。决定 24 本身不变，设计以 [docs/services/net-gateway.md](../../docs/services/net-gateway.md) 为准。
+    停下时的进度：
+    - 已合并（PR #4）：sandboxd 的每沙箱网络（`inhibit_ipv4`、`/28` 子网池）、`resolv.conf` 和 docker DNS 指向网关地址；
+      守护测试 `TestLiveSandboxRoutesOnlyToItsGatewayWhichNobodyHoldsYet`。
+    - 已写、未接入：`go/internal/netgw` 的 `Policy`（首条命中，
+      `allow` / `deny` / `log_and_deny`）、`Config`（sandboxd 挂载的只读 JSON）、`classifyTCP`（SNI 与 HTTP 请求行）；
+      `proto/swarmeval/netgw/v1/netevents.proto` 和生成的 Go、Python stub。`go.mod` 里预先加了
+      `codeberg.org/miekg/dns`（DNS 用）。
+    - 没写的，大致按这个顺序：net-gateway 二进制和容器镜像；启动时把网关地址加到各沙箱网络的网卡、nftables TPROXY 抓包
+      （`sigs.k8s.io/knftables`）；TCP / UDP 透明接收与转发；DNS 服务（合成地址池、NXDOMAIN 延迟）；TLS 拦截（每 run
+      CA、按 SNI 签叶子证书）；`NetEventsService` 服务端与"ack 之后才放行"；pcap 分块上传；`route` / `delay` / `rewrite` /
+      `read_only` 动作。平台侧：sandboxd `CreateRun` 启动 net-gateway 和蜜罐网络；worker 生成 CA 和每 run 证书、编译
+      `env.yaml` 的 `network:` 成 `Config`、拨 `NetEventsService` 并提交 `net.*` 事件；case 格式接受 `network`、`services`。
+    - 开工前要定：Open question 2（`net.*` 组提交窗口）、13（无 worker 时等待还是拒绝）。
 - **M2**
   - 决定 11：`Score` / metrics / reducer；决定 12：Parquet 导出与 run 级汇总表。
   - 决定 13–15、18–22：从 `agent_state` 恢复（与 fork 共用查询）、租约、写入 fencing、按标签认领容器、恢复保真度与 case

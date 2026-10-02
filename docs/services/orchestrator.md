@@ -7,9 +7,10 @@ writer of a run's events and state. Its place among the services is in
 
 **Status:** the M0 part is built: case loading, the Control API, the queue, one worker that drives
 each run from claim to export, the agent loop ([agent-runtime.md](../agent-runtime.md)), the
-Message Bus without interventions, canaries, and final-state scorers. M2 adds several workers,
-leases, fencing, takeover, and pausing. M3 adds interventions, fork, the online Monitor, and the
-async and event-driven turn policies. Items marked *(proposed)* go beyond what the specs decided;
+Message Bus without interventions, canaries, and final-state scorers. M1 adds `web_request`,
+several workers, and batch runs over variants and epochs. M2 adds interventions, fork, the online
+Monitor, and the async and event-driven turn policies. M3 adds leases, fencing, takeover, and
+pausing. Items marked *(proposed)* go beyond what the specs decided;
 they are listed under [Not settled](#not-settled).
 
 ## Roles
@@ -46,7 +47,7 @@ inference, so one asyncio process per worker is enough.
 | `swarmeval/runtime/` | Turn policies, the ReAct agent loop, tool dispatch, extensions. Knows no database or service |
 | `swarmeval/gateway/bus/` | Message Bus: channel ACLs, deliveries, interventions |
 | `swarmeval/monitor/` | Online detectors and their actions |
-| `swarmeval/honeypot/` | Canary generation and matching (decoding from M1), the `swarmeval.canary` and `swarmeval.env_state` extensions, honeypot templates (M1) |
+| `swarmeval/honeypot/` | Canary generation and matching (decoding from M1), the `swarmeval.canary` and `swarmeval.env_state` extensions, honeypot templates (with the network capability, later) |
 | `swarmeval/db/` | Table definitions for `control` and `runs`, engines, Alembic migrations (`migrate(url)`) |
 | `swarmeval/events/` | Records to Inspect events, the hash chain, the Postgres `RunStore`, export. The only `inspect_ai` import |
 | `swarmeval/scorers/` | Final-state scorers. Event-rule and judge scorers are shared with [analysis](analysis.md) |
@@ -65,7 +66,7 @@ proposed)*. Messages may be up to 64 MiB, for case bundles.
 | RPC | Does | From |
 |---|---|---|
 | `SubmitRuns` | Takes a case bundle, variant overrides (axis → list of values), and epochs (0 = the case's); validates, stores the bundle, and enqueues one run per variant and epoch; returns the submission id and run ids. A case that does not load is `INVALID_ARGUMENT` with the loader's message | Built |
-| `GetRun`, `ListRuns` | Status, variant and its values, epoch, owner, isolation level, error, timestamps. `ListRuns` filters by submission, case, and status, newest first | Built. Fidelity arrives with recovery (M2) |
+| `GetRun`, `ListRuns` | Status, variant and its values, epoch, owner, isolation level, error, timestamps. `ListRuns` filters by submission, case, and status, newest first | Built. Fidelity arrives with recovery (M3) |
 | `CancelRun` | Marks cancelled. A queued run never starts; a running one stops at its owner's next hook point, is not scored, and is still exported. A finished run is `FAILED_PRECONDITION` | Built |
 | `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent | Built |
 | Case CRUD | Read and write `case.yaml` / `env.yaml` for the console | M4 |
@@ -90,7 +91,7 @@ and the worker call the same function. `run_spec` turns one variant into the run
 `RunSpec`. The format, the substitution rules, and what is rejected are in
 [case-format.md](../case-format.md).
 
-Not built yet: rejecting an egress rule that points at a platform address (with `network:`, M1),
+Not built yet: rejecting an egress rule that points at a platform address (with `network:`, part of the network capability, later),
 and exporting JSON Schema from the models for editor validation.
 
 ### Queue and claiming
@@ -106,7 +107,7 @@ Status values are `queued`, `running`, `paused`, `interrupted`, `done`, `failed`
 In M0 a run ends `done` (finished, or stopped by a limit or an extension), `cancelled`, `failed`
 (the case no longer loads, an extension failed, the model backend refused or failed a call —
 model-gateway's `502` — or a bug), or `interrupted` (sandboxd or model-gateway itself was
-unavailable; M2 pauses instead). Leases are not taken yet (M2).
+unavailable; M3 pauses instead). Leases are not taken yet (M3).
 
 ### Live events
 
@@ -119,21 +120,21 @@ are the data, so a lost notification costs latency, never an event.
 
 ### Run lifecycle
 
-1. Claim a run. Load its bundle and generate per-run secrets: canaries, the TLS interception CA,
-   and the net-gateway certificate (the last two from M1).
-2. Ask [sandboxd](sandboxd.md) to create the run: networks, [net-gateway](net-gateway.md),
-   services, and sandboxes. Sandboxes and service containers carry `run_id` / `sandbox_id` labels.
-3. Attach the event streams to [model-gateway](model-gateway.md) and, from M1, to net-gateway.
+1. Claim a run. Load its bundle and generate per-run secrets: canaries.
+2. Ask [sandboxd](sandboxd.md) to create the run and its sandboxes. Sandboxes carry `run_id` /
+   `sandbox_id` labels.
+3. Attach the event stream to [model-gateway](model-gateway.md).
 4. From M1, run the isolation probes. The run fails if any probe gets through.
 5. Drive the turn policy until limits, task end, or cancel.
 6. Run the final-state scorers while the sandboxes still exist.
 7. Export ([event-log.md](../event-log.md#export)), tear down through sandboxd, and mark the
    run `done`.
 
-Built in `swarmeval.worker` for M0. Of the M1 steps, step 2 creates the networks (`CreateRun`)
-and then each sandbox with the `os_user`s of the agents in it; net-gateway, services, certificates,
-and probes are not built yet. Sandboxes are destroyed whatever
-happens. A cancel is seen by polling the run's status every 2 s, so it takes effect at the first
+Built in `swarmeval.worker` for M0. Step 2 calls `CreateRun` and then creates each sandbox with
+the `os_user`s of the agents in it; the probes are not built yet. With the network capability
+(later), steps 1–3 also generate the TLS interception CA and a net-gateway certificate, start
+[net-gateway](net-gateway.md) and service containers, and attach its event stream. Sandboxes are
+destroyed whatever happens. A cancel is seen by polling the run's status every 2 s, so it takes effect at the first
 hook point after that. A failed or interrupted run keeps its events but is not exported. The
 worker runs up to `--max-runs` runs at once (default 4); `--worker-id` (default the hostname)
 must stay the same across restarts, because on start the worker marks the runs it still owned
@@ -145,19 +146,47 @@ A built-in ReAct loop per agent, written in this repo rather than taken from an 
 How the loop and its extension hooks work today, and how to write an extension, is in
 [agent-runtime.md](../agent-runtime.md). The turn policy
 decides who steps next. `round_robin` is in M0;
-`async` and `event_driven` are in M3. A step builds the context from `messages`, calls
+`async` and `event_driven` are in M2. A step builds the context from `messages`, calls
 model-gateway with the agent's virtual key, then dispatches the parsed tool calls.
 
 | Tool | Runs where |
 |---|---|
 | `shell`, `fs` | Inside the agent's sandbox, through sandboxd `Exec` |
-| `http` | Inside the sandbox as well, so the request crosses net-gateway like any other traffic. The worker never makes network requests on an agent's behalf |
+| `web_request` | In the worker, for agents whose case lists it (M1). Sandboxes have no network, so this is the only way out. See [below](#web_request) |
 | `send_message`, `read_messages` | Message Bus |
 | `flag` (monitor agents) | Monitor |
 
 Tool calls on one sandbox run one at a time. Under `async`, each sandbox has an `asyncio.Lock`
 held for the length of an `Exec`, so a call window's file changes belong to one caller. Tool
 permissions are per agent; OS permissions are per sandbox.
+
+### `web_request`
+
+M1, not built yet. Decided in the
+[trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 3.
+
+- **Who gets it.** An agent whose `tools` list names `web_request`. Any public address, any
+  method.
+- **Where it runs.** In the worker, as a `RuntimeTool`. The sandbox stays offline.
+- **Address check.** The host is resolved, every resulting address is checked, and the
+  connection goes to the checked address without resolving again. Only global unicast addresses
+  pass: loopback, private, link-local (cloud metadata included), CGNAT, multicast, reserved, and
+  their IPv6-mapped forms are refused. A case cannot turn this off. The worker reaches Postgres,
+  object storage, model-gateway, and the Control API, so this check is what keeps an agent away
+  from them.
+- **No redirects followed.** A 3xx goes back to the agent as is, so one call is one outbound
+  request.
+- **Stateless.** The worker adds no credentials and keeps no cookies between calls.
+- **Recorded.** The call's `ToolEvent` holds the request (method, URL, headers, body) and the
+  response (status, headers, body). Bodies over the inline limit go to the blob store
+  ([event-log.md](../event-log.md#large-objects)). The agent gets the body truncated to a limit,
+  marked as truncated. A refused request is a `ToolEvent` too: the agent sees a connection error,
+  and the reason is in `metadata.swarmeval`.
+- **Rewritable.** The result passes through `after_tool_result` like any other tool's
+  ([agent-runtime.md](../agent-runtime.md)).
+
+Limits (timeout, body sizes, truncation, requests per run) are *(open, trajectory-first spec
+Q2)*. The HTTP client is `httpx2`, already the worker's client for model-gateway.
 
 ### Write-before rule
 
@@ -177,7 +206,7 @@ user message (``Message from <sender> on channel `<channel>`:`` and the content)
 `msg.deliver` event whose parent is the send. The store closes the `deliveries` row in the same
 transaction. `msg.deliver` carries the content actually delivered, which differs from the
 original when an intervention applies. A message to a finished agent gives it another turn.
-Interventions (`log`, `drop`, `delay`, `paraphrase`, `inject`) arrive in M3.
+Interventions (`log`, `drop`, `delay`, `paraphrase`, `inject`) arrive in M2.
 `paraphrase` calls model-gateway with a bus-owned key, so the rewrite is recorded like any other
 model call.
 
@@ -189,7 +218,7 @@ stops the agent or the run. Paused time does not count toward wall clock.
 
 ### Monitor
 
-From M3, detectors run in the worker and receive each event right after it commits. They share
+From M2, detectors run in the worker and receive each event right after it commits. They share
 their interface with the event-rule scorers. Actions are alert, pause for a human, terminate the
 run, and inject a message; each action is itself an event.
 
@@ -223,8 +252,8 @@ substring match; decoding (base64, gzip, XOR) and per-sandbox canaries arrive in
 
 ## Leases, fencing, and takeover
 
-From M2. In M0 a worker crash marks its runs `interrupted`. The tables are already shaped for
-recovery, so M2 needs no migration.
+From M3. Until then a worker crash marks its runs `interrupted`, and a batch reruns them as new
+epochs. The tables are already shaped for recovery, so M3 needs no migration.
 
 - **Lease.** The owner renews `lease_until` every third of the lease length. The default lease is
   30 s *(proposed)*. An owner that fails to renew stops executing before its lease runs out.
@@ -240,31 +269,32 @@ recovery, so M2 needs no migration.
   3. Handle half-done steps. A model request whose response was not committed is resent. A tool
      call without a result gets an `InterruptEvent`. An undelivered message is redelivered,
      deduplicated by `event_id`.
-  4. Re-attach the gateway streams. The gateways keep the stream with the highest `owner_epoch`
-     and drop the old one.
+  4. Re-attach the model-gateway stream. model-gateway keeps the stream with the highest
+     `owner_epoch` and drops the old one.
   5. Write a `CheckpointEvent`.
   6. Continue from the latest `agent_state` row.
 
   If fidelity falls below the case's `recovery.min_fidelity`, the run is marked `interrupted` and
   a new epoch is queued. On docker, a run can only be taken over on its own node *(open, runtime
   spec Q4)*.
-- **Fork.** Read the `agent_state` row at step *k*, replace one message, and continue as a new
-  run. This is the same query recovery uses.
+- **Fork** (M2, before the rest of this section). Read the `agent_state` row at step *k*, replace
+  one message, and continue as a new run. This is the same query recovery uses.
 
 ## Pausing on infrastructure failure
 
-From M2. When model-gateway, net-gateway, or sandboxd stops answering, the worker pauses the
+From M3. When model-gateway or sandboxd stops answering, the worker pauses the
 affected run. Signs are a dropped stream or gRPC `UNAVAILABLE`. While paused:
 
 - No new agent step is scheduled.
 - Sandboxes are frozen through sandboxd.
-- No connection error is handed to an agent as a model response, tool result, or network response.
+- No connection error is handed to an agent as a model response or tool result. A `web_request`
+  that fails on the public internet is an ordinary result: the agent sees the error, as it would
+  outside an evaluation.
 
 On recovery the worker thaws the sandboxes and writes a `CheckpointEvent`. It records how long the
 pause lasted, what was interrupted, and whether the agent could have seen anything, and counts the
 pause toward the run's fidelity. A pause longer than the deployment's limit marks the run
-`interrupted`. What happens between a worker dying and its lease expiring is *(open, runtime spec
-Q13)*.
+`interrupted`.
 
 ## Tech choices
 
@@ -275,7 +305,7 @@ also uses the following:
 |---|---|---|
 | Canonical JSON for the hash chain | `rfc8785` (Trail of Bits) | Small, pure-Python, no dependencies. The semantics must be exact, and RFC 8785 is a finished standard |
 | Object storage I/O | `pyarrow.fs.S3FileSystem` | pyarrow is already here for Parquet. One S3 client means no second dependency *(proposed)* |
-| Per-run certificates and the interception CA (M1) | `cryptography` | The standard Python X.509 library |
+| Per-run certificates and the interception CA (network capability, later) | `cryptography` | The standard Python X.509 library |
 | Event log format | `inspect_ai`, pinned, imported only in `swarmeval/events/` | See [event-log.md](../event-log.md) |
 | Agent loop | Our own | Frameworks such as Pydantic AI own the steps we must control: gateway-only model calls, commit before context, one sequencer per run, resume and fork from `agent_state` |
 

@@ -8,7 +8,7 @@ and how it leaves the database. Its code is `swarmeval/events/`, inside the
 
 **Status:** the tables, the record-to-event conversion, the hash chain, the Postgres `RunStore`,
 and the per-run `.eval` export are built (`swarmeval/db/`, `swarmeval/events/`). Parquet and the
-run summary table arrive in M2. Items marked *(proposed)* are implementation details the specs
+run summary table arrive in M1. Items marked *(proposed)* are implementation details the specs
 leave open. They are collected under [Not settled](#not-settled).
 
 ## Data model
@@ -43,7 +43,7 @@ One record is one event. The conversion is `swarmeval.events.convert.to_event`.
 | `schema_version` | Version of the SwarmEval extension. The full log version is the pinned Inspect version plus this |
 | `seq` | Run-wide sequence number, assigned by the run's worker |
 | `parent_id` | Causal parent event |
-| `source` | `model-gateway`, `net-gateway`, `sandboxd`, or `orchestrator` |
+| `source` | `model-gateway`, `sandboxd`, or `orchestrator`; `net-gateway` with the network capability (later) |
 | `agent_id`, `sandbox_id` | Attribution. Network events carry `sandbox_id`, because policy applies per sandbox |
 | `workspace` | Organizational field, required from the first version |
 | `extension` | Instance id of the extension that caused the event, if any |
@@ -147,8 +147,8 @@ only after the commit.
 | Events | Transaction |
 |---|---|
 | `ModelEvent` | Alone with the `messages` / `agent_state` rows it produces. Acked, then the gateway returns the response |
-| `ToolEvent` with its `fs.*` / `proc.*` | One transaction with the tool result |
-| `net.*` | Group commit about every 100 ms, then one ack per batch *(open, runtime spec Q2)* |
+| `ToolEvent` with its `fs.*` / `proc.*` | One transaction with the tool result. A `web_request` (M1) is a `ToolEvent` like any other |
+| `net.*` (network capability, later) | Group commit about every 100 ms, then one ack per batch *(open, runtime spec Q2)* |
 | Message Bus, lifecycle, monitor | With the state change they describe |
 
 Each transaction ends with `NOTIFY swarmeval_events, '<run_id>'`. Postgres delivers the
@@ -174,10 +174,10 @@ At run end the worker writes to the export bucket, which is created with object 
 | Object | Content | From |
 |---|---|---|
 | `runs/<run_id>/sample.eval` | Standard Inspect log, readable by `inspect view`. `ModelEvent.input` expanded | M0 |
-| `runs/<run_id>/events.parquet` | One row per event: the indexed columns, the hash columns, and `payload` as JSON text | M2 |
-| `summaries/<run_id>.parquet` | One row per run, like Inspect's log header. List queries read only these | M2 |
+| `runs/<run_id>/events.parquet` | One row per event: the indexed columns, the hash columns, and `payload` as JSON text | M1 |
+| `summaries/<run_id>.parquet` | One row per run, like Inspect's log header. List queries read only these | M1 |
 
-Object paths are *(proposed)*. From M2, one `.eval` per variant is assembled once all its epochs
+Object paths are *(proposed)*. From M1, one `.eval` per variant is assembled once all its epochs
 finish.
 
 How a run becomes a `.eval` (`swarmeval.events.export_run`):
@@ -208,7 +208,7 @@ archive original, is *(open, runtime spec Q3)*.
 1. JCS over `payload` as the hashed form, and the genesis value.
 2. Blob key layout, and upload before commit.
 3. Export object paths.
-4. Which service assembles the per-variant `.eval` in M2: the control plane, when a variant's last
+4. Which service assembles the per-variant `.eval` in M1: the control plane, when a variant's last
    epoch finishes, or the analysis batch job, which already reads all epochs.
 5. File changes and surviving processes ride in the `ToolEvent`'s `metadata.swarmeval.exec`,
    one record per event. The runtime spec (decision 3) describes them as their own `fs.*` /

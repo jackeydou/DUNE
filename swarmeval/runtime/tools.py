@@ -13,7 +13,7 @@ from swarmeval.runtime.records import EventDraft, Exec, ExecResult, ToolResult, 
 @dataclass(frozen=True)
 class SandboxTool:
     """Runs inside the calling agent's sandbox. `build` only translates arguments to a command;
-    sandboxd executes it, so its traffic crosses net-gateway like any other."""
+    sandboxd executes it, so it has only the sandbox's network, which reaches nothing."""
 
     name: str
     description: str
