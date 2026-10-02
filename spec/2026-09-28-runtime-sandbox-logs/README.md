@@ -476,10 +476,11 @@ k8s 不适用：NetworkPolicy 只能放行或拒绝，改不了路由，被拒�
 7. ~~`os_user` 在 gVisor 下的文件权限隔离是否可靠~~ 已验证（2026-10-01，runsc release-20260928.0）：runc 和 runsc 下，
    一个 `os_user` 读不到、改不了另一个的 `0600` 文件和 `0700` 家目录，写出的文件在宿主侧带它自己的 uid。测试是
    `go/internal/sandboxd/docker_integration_test.go` 的 `TestLiveOSUsersAreSeparatedByFilePermissions`。
-8. `inspect-scout`（Inspect 生态的 transcript 扫描分析工具）和 v1 spec §3 的「日志分析与评估」能力域（analysis 服务）重叠。
-   复用还是自建，需要先评估它的能力边界。
-9. 多 agent 行为分析的对外格式：Docent 原生格式支持一个 run 多条 transcript，是否作为多 agent 分析的主导出，Inspect
-   `.eval` 用于交换评分结果？
+8. ~~`inspect-scout`（Inspect 生态的 transcript 扫描分析工具）和 v1 spec §3 的「日志分析与评估」能力域（analysis 服务）重叠。
+   复用还是自建，需要先评估它的能力边界。~~ 已定（2026-10-02）：自建，`.eval` 作对外交换格式，见
+   [轨迹分析优先 spec](../2026-10-02-trajectory-first/README.md) 决定 9。
+9. ~~多 agent 行为分析的对外格式：Docent 原生格式支持一个 run 多条 transcript，是否作为多 agent 分析的主导出，Inspect
+   `.eval` 用于交换评分结果？~~ 已定（2026-10-02）：不以 Docent 为主，需要时再加导出适配，同上。
 10. k8s 下两件要在节点上做的事：决定 23 的冻结沙箱（k8s 没有原生的 Pod 暂停），决定 3 的宿主侧卷 diff。sandboxd
     不在节点上。候选是一个轻量的节点组件（操作 cgroup freezer、读卷，不用 eBPF），或者用 runsc 的 pause 加 exec 进 Pod
     采集；在 M5（k8s 后端）验证。

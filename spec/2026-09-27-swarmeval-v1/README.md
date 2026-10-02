@@ -521,7 +521,7 @@ edge、net-gateway、sandboxd、`swarm` CLI 在一个 Go 模块里，模块放�
 | 阶段 | 目标 | 内容 | 门槛 |
 | --- | --- | --- | --- |
 | M0 最小闭环 | 一个不依赖网络的真实 case 端到端跑出分数 | `case.yaml` / `env.yaml` 加载与校验（带 `schema_version`、`workspace`，支持私有与共享沙箱）；变体展开；Runtime（round_robin + ReAct loop）；Model Gateway（测试用 mock 后端，真实运行接 vLLM 或托管 API）；Message Bus（信道 ACL 与记录，不含干预）；sandboxd 的 docker 驱动（runc）；工具调用后的文件 diff 与进程快照；Postgres（写前规则、`agent_state`、哈希链）；终态 scorer 与 canary 使用检测；导出 `.eval` 到 RustFS；case `scorer_misbelief` | `scorer_misbelief` 用真实开源模型跑出 `inspect view` 能打开的 `.eval` 和终态分数，分数可复现 |
-| M1 批量与轨迹分析 | 不依赖网络的首批 case 出第一份可信报告，轨迹能在分析工具里查和读 | 已完成（PR #4）：gVisor 默认隔离并记录实际隔离等级、`os_user`、sandbox profile 的 `files:`。待做：沙箱断网（`--network none`）；`web_request` 工具（worker 执行，case 开启，只连公网地址）；变体矩阵、epoch、suite，多 worker 并行（worker 崩溃的 run 标记 interrupted、补跑新 epoch）；三层 scorer（LLM judge 引用 `event_id`）；Score / metrics / reducer；Parquet、run 级汇总表与 DuckDB（analysis 以批处理任务提供）；按 variant 组装 `.eval`；轨迹分析出口（inspect-scout 或 Docent，run 恢复 Open questions 8、9）；transcript 与网关记录比对；canary 解码后匹配、每沙箱 canary；隔离自检；case `transcript_spoofing` 和离线形式的 `impossible_task_pressure`、`shared_cache_rendezvous` | 这几个 case × 至少 3 个模型 × 10 个 epoch 出带置信区间的触发率报告；每个 run 的轨迹能在选定的分析工具里打开；隔离探针全部失败，`web_request` 发往回环、私有、链路本地和平台地址的请求全部被拒并留下 `ToolEvent` |
+| M1 批量与轨迹分析 | 不依赖网络的首批 case 出第一份可信报告，轨迹能在分析工具里查和读 | 已完成（PR #4）：gVisor 默认隔离并记录实际隔离等级、`os_user`、sandbox profile 的 `files:`。待做：沙箱断网（`--network none`）；`web_request` 工具（worker 执行，case 开启，只连公网地址）；变体矩阵、epoch、suite，多 worker 并行（worker 崩溃的 run 标记 interrupted、补跑新 epoch）；三层 scorer（LLM judge 引用 `event_id`）；Score / metrics / reducer；Parquet、run 级汇总表与 DuckDB（analysis 以批处理任务提供）；按 variant 组装 `.eval`；自建的轨迹分析（LLM judge 引用 `event_id`、单 run 时间线、规则扫描；Docent、inspect-scout 只作以后可加的导出，见轨迹分析优先 spec 决定 9）；transcript 与网关记录比对；canary 解码后匹配、每沙箱 canary；隔离自检；case `transcript_spoofing` 和离线形式的 `impossible_task_pressure`、`shared_cache_rendezvous` | 这几个 case × 至少 3 个模型 × 10 个 epoch 出带置信区间的触发率报告；每个 run 的轨迹能按 agent 和时间读到，LLM judge 的结论都引用到具体事件；隔离探针全部失败，`web_request` 发往回环、私有、链路本地和平台地址的请求全部被拒并留下 `ToolEvent` |
 | M2 因果分析 | 从"有没有"到"为什么" | 消息干预（log / drop / delay / paraphrase / inject）；fork 与反事实重放；在线 Monitor；隐写与带外信道检测（共享文件、时序）；async / event_driven 轮次；隐蔽通信类 case（如 `collusion_pricing`） | 同一 variant 在原样投递和 paraphrase 改写下的协调成功率差异出报告；告警可按 `parent_id` 回溯因果链，并可从告警点 fork 反事实重跑 |
 | M3 恢复与接管 | 长 run 和批量运行不因基础设施故障丢数据 | 租约、fencing、按标签认领容器、恢复保真度、半截步骤处理、基础设施故障时暂停 run 并冻结沙箱 | 批量运行中杀掉一个 worker，run 被接管且报告不受影响；run 中途停掉 model-gateway 或 sandboxd 再拉起，agent 没有收到连接错误，事件里记有这次暂停 |
 | M4 控制台 | 对外可用的单机平台 | edge（认证、租户、控制台后端）；服务间 mTLS；Control API 补全 case CRUD；analysis 服务化（事后规则扫描、交互式 judge）；`console/` Web 前端与回放 viewer；Go CLI；单机自部署（物理机或 VM，docker compose） | 能在 Web 上创建 case、触发一次评估运行、看到结果和回放；CLI 能完成同样的操作 |
@@ -534,7 +534,7 @@ edge、net-gateway、sandboxd、`swarm` CLI 在一个 Go 模块里，模块放�
   绑定内部网络、不带认证。M4 在 M0–M3 完成后开始，一次做齐对外的部分：edge、Web 前端与回放、CLI（待讨论问题 7、9），
   部署只做单机。
 - 开工前要定：M1 的报告之前定 [run 恢复](../2026-09-28-runtime-sandbox-logs/README.md) Open question 6（中断与补跑的
-  统计口径）和 Open questions 8、9（分析出口）；网络能力开工前定 Open questions 2、13。Open question 11 的验证已于
+  统计口径）；网络能力开工前定 Open questions 2、13。Open questions 8、9（分析出口）已于 2026-10-02 定为自建。Open question 11 的验证已于
   2026-10-01 完成。
 - 不在 M0–M5 里：闭源模型（第二期，见第 1 节）、系统调用级审计（run 恢复决定 3 留的接口）、macOS 适配。
 - （2026-10-02）net-gateway 停下时已有的代码和接着做的顺序，记在 run 恢复 spec Plan 里 M1 下的同日注记。
