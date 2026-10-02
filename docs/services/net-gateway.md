@@ -19,8 +19,7 @@ What exists:
   format, and TLS SNI and HTTP request-line classification. Unit-tested; no binary uses it.
 - `proto/swarmeval/netgw/v1/netevents.proto` and its generated stubs. Nothing serves or calls it.
 - In sandboxd, the per-sandbox networks and the `resolv.conf` described under [Topology](#topology)
-  and [DNS](#dns). They are in use until M1 moves sandboxes to `--network none`, and stay in the
-  code for this capability.
+  and [DNS](#dns), behind `--sandbox-network per-sandbox`. The default is `none`.
 
 The rest of this page is the design the work resumes from. The docker behavior it depends on was
 verified on 2026-10-01 (runtime spec Q11,

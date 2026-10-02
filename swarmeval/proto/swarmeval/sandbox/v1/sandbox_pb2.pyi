@@ -29,7 +29,7 @@ class CreateRunRequest(_message.Message):
     run_id: _builtins.str
     @_builtins.property
     def sandbox_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
-        """Every sandbox the run will create, each getting its own network."""
+        """Every sandbox the run will create."""
 
     def __init__(
         self,

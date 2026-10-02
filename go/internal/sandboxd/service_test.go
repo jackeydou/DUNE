@@ -162,6 +162,12 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newFixtureWith(t, NetworkNone)
+}
+
+// newFixtureWith runs sandboxd with the given network mode.
+func newFixtureWith(t *testing.T, network NetworkMode) *fixture {
+	t.Helper()
 	state := t.TempDir()
 	drv := &fakeDriver{
 		image: map[string]*tarEntry{"/workspace": {name: "workspace/seed.txt", body: "seed"}},
@@ -169,7 +175,9 @@ func newFixture(t *testing.T) *fixture {
 			return 0, nil
 		},
 	}
-	svc := New(DefaultConfig(state), drv, slog.New(slog.DiscardHandler))
+	cfg := DefaultConfig(state)
+	cfg.Network = network
+	svc := New(cfg, drv, slog.New(slog.DiscardHandler))
 	if err := svc.CreateRun(context.Background(), "run_1", []string{"box"}); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +223,7 @@ func TestCreateSandboxPopulatesKeyPathsAndMountsParentsFirst(t *testing.T) {
 		t.Fatalf("seed.txt = %q; key paths start with the image's content", got)
 	}
 	binds := f.drv.created[0].Binds
-	if len(binds) != 3 || binds[0].ContainerPath != "/workspace" || !binds[1].ReadOnly {
+	if len(binds) != 2 || binds[0].ContainerPath != "/workspace" || !binds[1].ReadOnly {
 		t.Fatalf("binds = %+v; /workspace must be mounted before its read-only child", binds)
 	}
 	if f.drv.created[0].Runtime != "runc" || f.drv.created[0].Labels[driver.LabelManaged] != "true" {

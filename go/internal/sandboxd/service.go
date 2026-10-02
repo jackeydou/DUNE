@@ -46,7 +46,10 @@ type Config struct {
 	StateDir string
 	// Runtime is "runc", "runsc", or "auto" (runsc when the backend offers it).
 	Runtime string
-	// SubnetPool is where sandbox networks get their subnets, SubnetBits long each.
+	// Network is how sandboxes are networked.
+	Network NetworkMode
+	// SubnetPool is where sandbox networks get their subnets, SubnetBits long each. Used only
+	// with NetworkPerSandbox.
 	SubnetPool netip.Prefix
 	SubnetBits int
 	// InlineLimit caps stdout and stderr in the exec header.
@@ -72,6 +75,7 @@ func DefaultConfig(stateDir string) Config {
 	return Config{
 		StateDir:         stateDir,
 		Runtime:          "auto",
+		Network:          NetworkNone,
 		SubnetPool:       netip.MustParsePrefix("10.231.0.0/16"),
 		SubnetBits:       28,
 		InlineLimit:      64 << 10,
@@ -85,7 +89,7 @@ func DefaultConfig(stateDir string) Config {
 }
 
 // Service holds every sandbox this sandboxd created. State is in memory only: after a
-// restart, sandboxes of earlier runs are unknown until takeover (M2) adopts them.
+// restart, sandboxes of earlier runs are unknown until takeover (M3) adopts them.
 type Service struct {
 	cfg Config
 	drv driver.Driver
@@ -142,8 +146,8 @@ type SeedFile struct {
 	Mode    fs.FileMode
 }
 
-// CreateSandbox creates and starts a sandbox on the network CreateRun made for it and takes
-// its first manifest. It returns the runtime the sandbox got.
+// CreateSandbox creates and starts a sandbox, on the network CreateRun made for it if there is
+// one, and takes its first manifest. It returns the runtime the sandbox got.
 func (s *Service) CreateSandbox(ctx context.Context, req CreateRequest) (string, error) {
 	if err := validateIDs(req.RunID, req.SandboxID); err != nil {
 		return "", err
@@ -217,17 +221,19 @@ func (s *Service) create(ctx context.Context, req CreateRequest, sb *sandbox, ru
 	if err := seed(sb.mounts, fsDir, req.Files); err != nil {
 		return fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
 	}
-	// Outside fs/, so it is not a key path and never diffed. Under runc docker's embedded
-	// resolver still listens on 127.0.0.11 (runtime spec Q14); DNS below makes the gateway its
-	// only upstream.
-	resolv := filepath.Join(s.cfg.StateDir, req.RunID, req.SandboxID, "resolv.conf")
-	if err := os.MkdirAll(filepath.Dir(resolv), 0o755); err != nil {
-		return fmt.Errorf("create state dir for sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+	if net.name != "" {
+		// Outside fs/, so it is not a key path and never diffed. Under runc docker's embedded
+		// resolver still listens on 127.0.0.11 (runtime spec Q14); DNS below makes the gateway
+		// its only upstream.
+		resolv := filepath.Join(s.cfg.StateDir, req.RunID, req.SandboxID, "resolv.conf")
+		if err := os.MkdirAll(filepath.Dir(resolv), 0o755); err != nil {
+			return fmt.Errorf("create state dir for sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+		}
+		if err := os.WriteFile(resolv, []byte("nameserver "+net.gateway.String()+"\n"), 0o644); err != nil {
+			return fmt.Errorf("write resolv.conf for sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+		}
+		binds = append(binds, driver.Bind{HostPath: resolv, ContainerPath: "/etc/resolv.conf", ReadOnly: true})
 	}
-	if err := os.WriteFile(resolv, []byte("nameserver "+net.gateway.String()+"\n"), 0o644); err != nil {
-		return fmt.Errorf("write resolv.conf for sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
-	}
-	binds = append(binds, driver.Bind{HostPath: resolv, ContainerPath: "/etc/resolv.conf", ReadOnly: true})
 	files, err := s.userFiles(ctx, req.Image, req.Users, labels)
 	if err != nil {
 		return fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)

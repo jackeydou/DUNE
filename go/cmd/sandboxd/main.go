@@ -33,7 +33,8 @@ func run(log *slog.Logger) error {
 	listen := flag.String("listen", "127.0.0.1:7071", "address to serve gRPC on. Only workers may reach it")
 	stateDir := flag.String("state-dir", "", "directory for sandbox key paths; the docker daemon must see it at the same path (required)")
 	runtime := flag.String("runtime", "auto", "container runtime: runc, runsc, or auto (runsc when docker offers it)")
-	subnets := flag.String("sandbox-subnets", "10.231.0.0/16", "IPv4 pool that sandbox networks take a /28 each from")
+	network := flag.String("sandbox-network", "none", "sandbox networking: none (loopback only), or per-sandbox (a network per sandbox for net-gateway, which is not built, so it reaches nothing)")
+	subnets := flag.String("sandbox-subnets", "10.231.0.0/16", "IPv4 pool that per-sandbox networks take a /28 each from")
 	flag.Parse()
 
 	if *stateDir == "" {
@@ -43,6 +44,11 @@ func run(log *slog.Logger) error {
 	case "runc", "runsc", "auto":
 	default:
 		return fmt.Errorf("--runtime %q: want runc, runsc, or auto", *runtime)
+	}
+	switch sandboxd.NetworkMode(*network) {
+	case sandboxd.NetworkNone, sandboxd.NetworkPerSandbox:
+	default:
+		return fmt.Errorf("--sandbox-network %q: want none or per-sandbox", *network)
 	}
 	pool, err := netip.ParsePrefix(*subnets)
 	if err != nil || !pool.Addr().Is4() || pool.Bits() > 28 {
@@ -68,6 +74,7 @@ func run(log *slog.Logger) error {
 
 	cfg := sandboxd.DefaultConfig(resolved)
 	cfg.Runtime = *runtime
+	cfg.Network = sandboxd.NetworkMode(*network)
 	cfg.SubnetPool = pool.Masked()
 	svc := sandboxd.New(cfg, drv, log)
 
@@ -82,6 +89,6 @@ func run(log *slog.Logger) error {
 		<-ctx.Done()
 		server.GracefulStop()
 	}()
-	log.Info("sandboxd serving", "listen", lis.Addr().String(), "state_dir", resolved, "runtime", *runtime, "sandbox_subnets", cfg.SubnetPool.String())
+	log.Info("sandboxd serving", "listen", lis.Addr().String(), "state_dir", resolved, "runtime", *runtime, "sandbox_network", *network, "sandbox_subnets", cfg.SubnetPool.String())
 	return server.Serve(lis)
 }

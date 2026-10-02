@@ -7,11 +7,11 @@ sandboxes and reports what each call changed on disk and left running. Its place
 services is in [architecture.md](../architecture.md).
 
 **Status:** the M0 part is built: the docker driver, `CreateSandbox`, `Exec` with file diff and
-process snapshot, `ReadFile`, `FinalDiff`, and `DestroyRun`. From M1: `CreateRun` with one
-network per sandbox, `resolv.conf` at the gateway, `os_user`s, and gVisor as the default where
-docker offers it. In M1 sandboxes move to `--network none` and `CreateRun` stops creating
-networks ([Networks](#networks)). net-gateway and service containers belong to the network
-capability, later. Code: `go/cmd/sandboxd`,
+process snapshot, `ReadFile`, `FinalDiff`, and `DestroyRun`. From M1: `CreateRun`, `os_user`s,
+gVisor as the default where docker offers it, and sandboxes with no network
+(`--sandbox-network none`, the default). The per-sandbox networks for net-gateway are built
+behind `--sandbox-network per-sandbox` ([Networks](#networks)); net-gateway and service
+containers belong to the network capability, later. Code: `go/cmd/sandboxd`,
 `go/internal/sandboxd`, `go/internal/fsdiff`, `go/internal/driver`. The contract is
 `proto/swarmeval/sandbox/v1/sandbox.proto`; flags and limits are in [go/README.md](../../go/README.md).
 The worker-side client is `swarmeval.sandbox.RunSandboxes`, one per run. It turns output,
@@ -22,10 +22,10 @@ U+FFFD), checks every blob against its hash, and uploads blobs to the blob store
 | Milestone | Adds |
 |---|---|
 | M0 | Docker driver on runc, `Exec`, file diff, process snapshot |
-| M1 | gVisor as the default, `os_user` (built); sandboxes with no network |
+| M1 | gVisor as the default, `os_user`, sandboxes with no network |
 | M3 | Freeze and thaw, reconciliation by label |
 | M5 | k8s driver |
-| Later | Per-sandbox networks in use again, net-gateway and service containers ([net-gateway.md](net-gateway.md)) |
+| Later | Per-sandbox networks as the default, net-gateway and service containers ([net-gateway.md](net-gateway.md)) |
 
 Items marked *(proposed)* go beyond what the specs decided; they are listed under
 [Not settled](#not-settled).
@@ -43,7 +43,7 @@ authentication, so only the internal network may reach it.
 | `ReadFile` | Reads a file for final-state scorers, through the engine's copy API, so nothing runs in the sandbox | Built |
 | `FinalDiff` | Diffs every sandbox one last time at run end, catching background writes | Built |
 | `DestroyRun` | Removes every container and network labeled with the run, and its state directory | Built |
-| `CreateRun` | Registers the run before its `CreateSandbox` calls. Today it also creates the per-sandbox networks, which M1 stops; with the network capability it creates them again, with net-gateway and service containers | Built |
+| `CreateRun` | Registers the run and its sandboxes before their `CreateSandbox` calls. With `--sandbox-network per-sandbox` it also creates a network per sandbox; with the network capability it will start net-gateway and service containers too | Built |
 | `Freeze`, `Thaw` | Pause and resume every container of a run | M3 |
 | `ListRun` | Lists a run's containers by label, for takeover | M3 |
 
@@ -66,15 +66,15 @@ from inside the sandbox (see [below](#exec-diff-and-process-snapshot)). The dock
 - **Runtime.** `--runtime` picks it: `auto` (the default), which takes `runsc` when the daemon
   lists it and `runc` otherwise, or `runc` or `runsc` outright. The integration tests, the
   host-side diff, and `os_user` permissions pass under both. The runtime actually used is
-  returned by `CreateSandbox` and recorded on the run as its isolation level; under runc,
-  docker's embedded DNS stays visible (runtime spec Q14).
+  returned by `CreateSandbox` and recorded on the run as its isolation level. With
+  `--sandbox-network per-sandbox` under runc, docker's embedded DNS stays visible (runtime spec
+  Q14); with no network it is absent.
 - **Process.** The container runs `sleep infinity` under docker's init, which reaps orphans so
   exited background processes do not linger as zombies. The image must provide `sleep`, `tr`,
   and `/bin/sh`. sandboxd never pulls images; a missing image is an error that says to pull it on
   the docker host.
-- **Privileges.** All capabilities dropped and `no-new-privileges`. The only network is the
-  sandbox's own, whose gateway address nothing holds while net-gateway is deferred, so a sandbox
-  reaches nothing. CPU, memory (swap equal to memory, so none extra), and pids limits apply per
+- **Privileges.** All capabilities dropped and `no-new-privileges`. No network but loopback
+  ([Networks](#networks)), so a sandbox reaches nothing. CPU, memory (swap equal to memory, so none extra), and pids limits apply per
   sandbox. A disk limit needs a storage driver that
   supports per-container size; without one, `CreateSandbox` fails rather than ignoring it.
 - **Labels.** `swarmeval.managed=true`, `swarmeval.run_id`, `swarmeval.sandbox_id`. sandboxd never
@@ -109,13 +109,19 @@ from inside the sandbox (see [below](#exec-diff-and-process-snapshot)). The dock
 
 ## Networks
 
-**From M1:** sandboxes run with `--network none` and have only a loopback interface, so they
-reach nothing, and docker's embedded DNS is absent under runc as well. The only egress is the
-worker's `web_request` ([orchestrator.md](orchestrator.md#web_request)). Why:
-[trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 2.
+`--sandbox-network` picks how sandboxes are networked.
 
-**Today, and again with the network capability:** one network per sandbox, created by
-`CreateRun`, whose only other member is net-gateway at the
+**`none`, the default.** Docker's `--network none`: a sandbox has only a loopback interface, a
+connection out fails at once with `Network is unreachable`, and docker's embedded DNS is absent
+under runc as well. `CreateRun` creates no networks and no `resolv.conf` is mounted. The only
+egress is the worker's `web_request` ([orchestrator.md](orchestrator.md#web_request)). Why:
+[trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 2. Guard:
+`TestLiveSandboxHasOnlyLoopbackAndReachesNothing`.
+
+**`per-sandbox`, for the network capability.** Nothing holds the gateway address until
+net-gateway exists, so a sandbox reaches nothing here either, but every attempt waits for a
+timeout. One network per sandbox, created by `CreateRun`, whose only other member is net-gateway
+at the
 network's gateway address. sandboxd carves each network's subnet out of `--sandbox-subnets`
 (default `10.231.0.0/16`), a `/28` each, skipping every subnet the docker daemon already has;
 docker's own default pools hold about 30 networks, too few for a sandbox each. The network is
