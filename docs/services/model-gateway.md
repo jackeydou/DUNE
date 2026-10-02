@@ -7,7 +7,7 @@ imported only here, in `swarmeval/gateway/model/`. Its place among the services 
 
 **Status:** built for M0: the HTTP API, the `Attach` stream, backend adapters, and the worker's
 client. Code: `swarmeval/gateway/model/`; contract: `proto/swarmeval/modelgw/v1/recorder.proto`.
-Not built: per-key rate limits, streaming upstream, and judge calls from analysis. Items marked
+Not built: per-key rate limits and streaming upstream. Items marked
 *(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ```bash
@@ -22,7 +22,7 @@ Both addresses have no authentication beyond the virtual keys; bind them to the 
 |---|---|---|
 | Run worker, for an agent | One virtual key per agent per run, registered when the worker attaches | Run evidence: a `ModelEvent` committed by the run's worker before the response is returned |
 | Run worker, for the Message Bus `paraphrase` intervention (M2) | A bus key for the run | Run evidence, the same way |
-| [analysis](analysis.md), for the LLM judge | A key per analysis job | Not run evidence. Returned directly, and analysis stores the call with its verdict *(proposed)* |
+| [analysis](analysis.md), for the LLM judge | One analysis key, from the environment variable the config's `analysis_key_env` names (at least 32 characters). Unset, no analysis call is served | Not run evidence. Answered directly, with no `Attach` stream; analysis stores the call with its verdict |
 
 Sandboxes cannot reach model-gateway, and neither can [net-gateway](net-gateway.md).
 
@@ -119,6 +119,7 @@ backends:
     max_retries: 2
 models:                                # the names cases write → where they are served
   qwen3-8b: { backend: vllm_local, upstream_model: Qwen/Qwen3-8B }
+analysis_key_env: SWARMEVAL_ANALYSIS_KEY   # optional: the key analysis jobs call with
 ```
 
 | Setting | Effect |
@@ -177,7 +178,7 @@ served in process through `httpx2.ASGITransport`, and so is the gateway's HTTP A
 ## Not settled
 
 1. The `RecorderService.Attach` stream, dialed by the worker, and the 120 s ack timeout.
-2. Judge calls from analysis returned directly, without a run to commit them.
+2. One analysis key for every analysis job, rather than one per job.
 3. Streaming upstream while returning complete responses.
 4. One replica in v1.
 5. Upstream errors (`502`) fail the run in M0: an agent whose context outgrew the model's window

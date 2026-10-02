@@ -124,7 +124,7 @@ flowchart LR
 | Postgres `tenant` schema | Users, tenants, workspaces | `edge` |
 | Postgres `control` schema | Run queue, run status, leases (`owner_id`, `lease_until`, `owner_epoch`) | `orchestrator` |
 | Postgres `runs` schema | `events`, `messages`, `agent_state`, `extension_state`, `deliveries`, `sandboxes` for every run, keyed by `run_id` ([event-log.md](event-log.md#tables)) | `orchestrator` |
-| Postgres `analysis` schema *(proposed)* | Derived results: rule matches, judge verdicts, offline scores | `analysis` |
+| Postgres `analysis` schema | Derived results: judge verdicts today; rule matches and offline scores later | `analysis` |
 | Object storage | Exported `.eval` and Parquet (with hash chain fields); large blobs such as file snapshots and `web_request` bodies, content-addressed | written by `orchestrator`, read by `analysis` |
 
 Object storage is always reached through the standard S3 API, on every deployment, and no
