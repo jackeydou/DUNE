@@ -110,7 +110,10 @@ One network per sandbox, created by `CreateRun`, whose only other member is net-
 network's gateway address. sandboxd carves each network's subnet out of `--sandbox-subnets`
 (default `10.231.0.0/16`), a `/28` each, skipping every subnet the docker daemon already has;
 docker's own default pools hold about 30 networks, too few for a sandbox each. The network is
-named `swarmeval-<run_id>-<sandbox_id>` and labeled like the run's containers. Honeypots and mocks sit on a separate network that only net-gateway joins, and
+named `swarmeval-<run_id>-<sandbox_id>` and labeled like the run's containers. Each sandbox's
+DNS server is set to the gateway address as well as its `resolv.conf`: under runc, docker's
+embedded resolver on 127.0.0.11 stays reachable and would otherwise forward to the host's
+resolvers. Honeypots and mocks sit on a separate network that only net-gateway joins, and
 net-gateway has one more upstream network for allowed internet traffic. `resolv.conf` is mounted
 pointing at the gateway address. Sandbox networks are bridges with
 `com.docker.network.bridge.inhibit_ipv4=true` and not `--internal`; net-gateway takes the gateway
@@ -131,7 +134,9 @@ Each `Exec` does the following:
    sandbox's own, the same ones the timeout kill uses. `docker top` is not used: under gVisor it
    looks the sandbox's pids up in the host's process table and lists unrelated host processes.
    The cost is one short exec per listing, which a background process watching the process
-   table at that moment could see.
+   table at that moment could see. Lines are written with `printf '%s\n'`, never `echo`, whose
+   escape expansion in dash would let a command line forge a process. A listing over 4 MiB fails
+   the call with a pointer to the profile's pids limit.
 3. Run the command through the driver, as the agent's `os_user`, with the call's timeout. The
    command is started as `sh -c 'echo $$ >&2; exec "$@"'`, so the first stderr line is its pid
    inside the sandbox; sandboxd strips that line. Exec'd processes do not lead a process group of

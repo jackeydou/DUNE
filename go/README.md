@@ -49,6 +49,6 @@ Requirements and limits:
 
 From the repo root: `mise run check` lints and tests this module with everything else.
 `mise run go:test-integration` runs sandboxd against the local docker daemon and needs
-`busybox:latest` on the host. `SWARMEVAL_IT_RUNTIME=runc` or `runsc` picks the runtime. On macOS,
+`busybox:latest` and `python:3.12-slim` on the host. `SWARMEVAL_IT_RUNTIME=runc` or `runsc` picks the runtime. On macOS,
 Docker Desktop and OrbStack enforce neither owners nor modes on bind mounts, so the `os_user`
 permission test skips there; run it on Linux.

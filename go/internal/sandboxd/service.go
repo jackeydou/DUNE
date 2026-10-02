@@ -62,21 +62,25 @@ type Config struct {
 	HelperTimeout time.Duration
 	// SeedLimit caps the total content of a CreateSandbox's seed files.
 	SeedLimit int
+	// ProcessListLimit caps a sandbox's process listing. A sandbox controls how many processes
+	// it has and how long their command lines are.
+	ProcessListLimit int
 }
 
 // DefaultConfig returns the limits sandboxd uses unless flags override them.
 func DefaultConfig(stateDir string) Config {
 	return Config{
-		StateDir:      stateDir,
-		Runtime:       "auto",
-		SubnetPool:    netip.MustParsePrefix("10.231.0.0/16"),
-		SubnetBits:    28,
-		InlineLimit:   64 << 10,
-		OutputLimit:   16 << 20,
-		ContentLimit:  1 << 20,
-		ContentBudget: 64 << 20,
-		HelperTimeout: 10 * time.Second,
-		SeedLimit:     1 << 20,
+		StateDir:         stateDir,
+		Runtime:          "auto",
+		SubnetPool:       netip.MustParsePrefix("10.231.0.0/16"),
+		SubnetBits:       28,
+		InlineLimit:      64 << 10,
+		OutputLimit:      16 << 20,
+		ContentLimit:     1 << 20,
+		ContentBudget:    64 << 20,
+		HelperTimeout:    10 * time.Second,
+		SeedLimit:        1 << 20,
+		ProcessListLimit: 4 << 20,
 	}
 }
 
@@ -213,8 +217,9 @@ func (s *Service) create(ctx context.Context, req CreateRequest, sb *sandbox, ru
 	if err := seed(sb.mounts, fsDir, req.Files); err != nil {
 		return fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
 	}
-	// Outside fs/, so it is not a key path and never diffed. Docker's embedded DNS still
-	// listens under runc (runtime spec Q14).
+	// Outside fs/, so it is not a key path and never diffed. Under runc docker's embedded
+	// resolver still listens on 127.0.0.11 (runtime spec Q14); DNS below makes the gateway its
+	// only upstream.
 	resolv := filepath.Join(s.cfg.StateDir, req.RunID, req.SandboxID, "resolv.conf")
 	if err := os.MkdirAll(filepath.Dir(resolv), 0o755); err != nil {
 		return fmt.Errorf("create state dir for sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
@@ -235,6 +240,7 @@ func (s *Service) create(ctx context.Context, req CreateRequest, sb *sandbox, ru
 		Resources: req.Resources,
 		Labels:    labels,
 		Network:   net.name,
+		DNS:       net.gateway,
 		Files:     files,
 	})
 	if err != nil {

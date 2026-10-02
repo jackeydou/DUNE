@@ -114,8 +114,10 @@ Every query is a `net.dns` event, qtype included.
 
 Under runc, docker's embedded DNS stays in the sandbox whatever `resolv.conf` says: its listener on
 127.0.0.11 shows in `/proc/net/udp` and `/proc/net/tcp`, and it resolves the names of containers on
-the same network, which is only net-gateway's. Docker has no option to turn it off. Under runsc it
-is absent. So `network_stealth: full` holds only under runsc: a runc run still goes ahead, the
+the same network, which is only net-gateway's. Docker has no option to turn it off. Left alone,
+it would also forward outside names to the host's resolvers, a way out past the gateway, so
+sandboxd sets each sandbox's DNS server to the gateway address: the embedded resolver then
+forwards only to net-gateway. Under runsc it is absent. So `network_stealth: full` holds only under runsc: a runc run still goes ahead, the
 detectability probes list the embedded DNS as a known trace, and reports group runs by their
 `isolation`.
 

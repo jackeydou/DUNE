@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"slices"
 	"strconv"
 	"time"
@@ -101,6 +102,7 @@ func (d *Driver) CreateContainer(ctx context.Context, spec driver.ContainerSpec)
 	}
 	host := &container.HostConfig{
 		NetworkMode: netMode,
+		DNS:         dnsServers(spec.DNS),
 		CapDrop:     []string{"ALL"},
 		SecurityOpt: []string{"no-new-privileges"},
 		Init:        &init,
@@ -181,6 +183,13 @@ func (d *Driver) writeFiles(ctx context.Context, id string, files []driver.File)
 		return fmt.Errorf("copy files into container %s: %w", id, err)
 	}
 	return nil
+}
+
+func dnsServers(a netip.Addr) []netip.Addr {
+	if !a.IsValid() {
+		return nil
+	}
+	return []netip.Addr{a}
 }
 
 func imageError(image string, err error) error {

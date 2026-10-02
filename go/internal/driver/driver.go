@@ -48,6 +48,10 @@ type ContainerSpec struct {
 	Labels    map[string]string
 	// Network is the name of the network the container joins. Empty means no network at all.
 	Network string
+	// DNS is the only upstream of docker's embedded resolver, which listens inside every
+	// container on a user-defined network under runc. Without it the resolver forwards to the
+	// host's resolvers, past the network's gateway.
+	DNS netip.Addr
 	// Files are written into the container's own filesystem after it is created and before it
 	// starts, so the runtime and the backend's user lookup both see them.
 	Files []File

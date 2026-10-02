@@ -1,8 +1,11 @@
 package sandboxd
 
 import (
+	"context"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackeydou/DUNE/go/internal/driver"
 )
@@ -45,5 +48,19 @@ func TestParseProcessesSkipsUserLinesWithoutANumericID(t *testing.T) {
 
 	if err != nil || len(procs) != 1 || procs[0].User != "0" {
 		t.Fatalf("procs = %+v, err = %v", procs, err)
+	}
+}
+
+func TestAProcessListingOverTheLimitFailsTheCall(t *testing.T) {
+	f := newFixture(t)
+	f.svc.cfg.ProcessListLimit = 64
+	f.drv.procs = []driver.Process{{PID: 9, PPID: 1, User: "agent", Cmdline: strings.Repeat("x", 100)}}
+
+	_, err := f.svc.Exec(context.Background(), ExecRequest{
+		RunID: "run_1", SandboxID: "box", CallID: "call_1", Argv: []string{"true"}, Timeout: time.Second,
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "pids limit") {
+		t.Fatalf("err = %v; an oversized listing must fail with a way out", err)
 	}
 }
