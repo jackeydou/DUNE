@@ -21,6 +21,46 @@ else:
 DESCRIPTOR: _descriptor.FileDescriptor
 
 @_typing.final
+class CreateRunRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RUN_ID_FIELD_NUMBER: _builtins.int
+    SANDBOX_IDS_FIELD_NUMBER: _builtins.int
+    run_id: _builtins.str
+    @_builtins.property
+    def sandbox_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Every sandbox the run will create, each getting its own network."""
+
+    def __init__(
+        self,
+        *,
+        run_id: _builtins.str = ...,
+        sandbox_ids: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["run_id", b"run_id", "sandbox_ids", b"sandbox_ids"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CreateRunRequest: _TypeAlias = CreateRunRequest  # noqa: Y015
+
+@_typing.final
+class CreateRunResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CreateRunResponse: _TypeAlias = CreateRunResponse  # noqa: Y015
+
+@_typing.final
 class Mount(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
@@ -89,6 +129,7 @@ class CreateSandboxRequest(_message.Message):
     MOUNTS_FIELD_NUMBER: _builtins.int
     RESOURCES_FIELD_NUMBER: _builtins.int
     FILES_FIELD_NUMBER: _builtins.int
+    USERS_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     sandbox_id: _builtins.str
     image: _builtins.str
@@ -105,6 +146,12 @@ class CreateSandboxRequest(_message.Message):
         as canaries.
         """
 
+    @_builtins.property
+    def users(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Unix users to add before the sandbox starts, each with a home directory under /home. A
+        name the image already has is left as it is. Names match [a-z_][a-z0-9_-]{0,31}.
+        """
+
     def __init__(
         self,
         *,
@@ -114,10 +161,11 @@ class CreateSandboxRequest(_message.Message):
         mounts: _abc.Iterable[Global___Mount] | None = ...,
         resources: Global___Resources | None = ...,
         files: _abc.Iterable[Global___SeedFile] | None = ...,
+        users: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["resources", b"resources"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["files", b"files", "image", b"image", "mounts", b"mounts", "resources", b"resources", "run_id", b"run_id", "sandbox_id", b"sandbox_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["files", b"files", "image", b"image", "mounts", b"mounts", "resources", b"resources", "run_id", b"run_id", "sandbox_id", b"sandbox_id", "users", b"users"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -457,9 +505,10 @@ class Process(_message.Message):
     USER_FIELD_NUMBER: _builtins.int
     CMDLINE_FIELD_NUMBER: _builtins.int
     pid: _builtins.int
-    """Host-side process id, as `docker top` reports it."""
+    """Process id inside the sandbox, read from the sandbox's own /proc."""
     ppid: _builtins.int
     user: _builtins.str
+    """Name from the sandbox's /etc/passwd, or the uid when it has none."""
     cmdline: _builtins.str
     def __init__(
         self,

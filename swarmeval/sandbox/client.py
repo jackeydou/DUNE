@@ -87,10 +87,24 @@ class RunSandboxes:
         self._blobs = blobs
         self._exec_margin_s = exec_margin_s
 
+    async def create_run(self, sandbox_ids: Sequence[str]) -> None:
+        """Creates the run's networks, one per sandbox. Comes before any `create`."""
+        try:
+            await self._stub.CreateRun(
+                pb.CreateRunRequest(run_id=self._run_id, sandbox_ids=sandbox_ids)
+            )
+        except grpc.aio.AioRpcError as err:
+            raise self._error("CreateRun", ", ".join(sandbox_ids), err) from err
+
     async def create(
-        self, sandbox_id: str, profile: SandboxProfile, files: Sequence[SeedFile] = ()
+        self,
+        sandbox_id: str,
+        profile: SandboxProfile,
+        files: Sequence[SeedFile] = (),
+        users: Sequence[str] = (),
     ) -> str:
-        """Creates and starts one sandbox. Returns the container runtime it got."""
+        """Creates and starts one sandbox, adding `users` to its image. Returns the container
+        runtime it got."""
         limits = profile.limits
         request = pb.CreateSandboxRequest(
             run_id=self._run_id,
@@ -107,6 +121,7 @@ class RunSandboxes:
                 disk_bytes=limits.disk or 0,
             ),
             files=[pb.SeedFile(path=f.path, content=f.content, mode=f.mode) for f in files],
+            users=users,
         )
         try:
             response = await self._stub.CreateSandbox(request)

@@ -38,8 +38,12 @@ class SandboxServiceStub:
     def __new__(cls, channel: _grpc.Channel) -> _Self: ...
     @_typing.overload
     def __new__(cls, channel: _aio.Channel) -> SandboxServiceAsyncStub: ...
+    CreateRun: _grpc.UnaryUnaryMultiCallable[_sandbox_pb2.CreateRunRequest, _sandbox_pb2.CreateRunResponse]
+    """Creates a run's networks: one per sandbox, on which the host has no address. Must come
+    before the run's CreateSandbox calls. Fails with ALREADY_EXISTS if the run exists.
+    """
     CreateSandbox: _grpc.UnaryUnaryMultiCallable[_sandbox_pb2.CreateSandboxRequest, _sandbox_pb2.CreateSandboxResponse]
-    """Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
+    """Creates and starts one sandbox on its network, made by CreateRun. Each top-level key path starts as a copy of the image's
     content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
     """
     Exec: _grpc.UnaryStreamMultiCallable[_sandbox_pb2.ExecRequest, _sandbox_pb2.ExecResponse]
@@ -53,7 +57,7 @@ class SandboxServiceStub:
     processes after the last call. Every change is attributed `AMBIGUOUS`.
     """
     DestroyRun: _grpc.UnaryUnaryMultiCallable[_sandbox_pb2.DestroyRunRequest, _sandbox_pb2.DestroyRunResponse]
-    """Removes every container labeled with the run, and the run's state directory."""
+    """Removes every container and network labeled with the run, and the run's state directory."""
 
 @_typing.type_check_only
 class SandboxServiceAsyncStub(SandboxServiceStub):
@@ -65,8 +69,12 @@ class SandboxServiceAsyncStub(SandboxServiceStub):
     """
 
     def __init__(self, channel: _aio.Channel) -> None: ...
+    CreateRun: _aio.UnaryUnaryMultiCallable[_sandbox_pb2.CreateRunRequest, _sandbox_pb2.CreateRunResponse]  # type: ignore[assignment]
+    """Creates a run's networks: one per sandbox, on which the host has no address. Must come
+    before the run's CreateSandbox calls. Fails with ALREADY_EXISTS if the run exists.
+    """
     CreateSandbox: _aio.UnaryUnaryMultiCallable[_sandbox_pb2.CreateSandboxRequest, _sandbox_pb2.CreateSandboxResponse]  # type: ignore[assignment]
-    """Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
+    """Creates and starts one sandbox on its network, made by CreateRun. Each top-level key path starts as a copy of the image's
     content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
     """
     Exec: _aio.UnaryStreamMultiCallable[_sandbox_pb2.ExecRequest, _sandbox_pb2.ExecResponse]  # type: ignore[assignment]
@@ -80,7 +88,7 @@ class SandboxServiceAsyncStub(SandboxServiceStub):
     processes after the last call. Every change is attributed `AMBIGUOUS`.
     """
     DestroyRun: _aio.UnaryUnaryMultiCallable[_sandbox_pb2.DestroyRunRequest, _sandbox_pb2.DestroyRunResponse]  # type: ignore[assignment]
-    """Removes every container labeled with the run, and the run's state directory."""
+    """Removes every container and network labeled with the run, and the run's state directory."""
 
 class SandboxServiceServicer(metaclass=_abc_1.ABCMeta):
     """SandboxService is sandboxd's API. Its only caller is the worker that owns the run.
@@ -91,12 +99,22 @@ class SandboxServiceServicer(metaclass=_abc_1.ABCMeta):
     """
 
     @_abc_1.abstractmethod
+    def CreateRun(
+        self,
+        request: _sandbox_pb2.CreateRunRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_sandbox_pb2.CreateRunResponse, _abc.Awaitable[_sandbox_pb2.CreateRunResponse]]:
+        """Creates a run's networks: one per sandbox, on which the host has no address. Must come
+        before the run's CreateSandbox calls. Fails with ALREADY_EXISTS if the run exists.
+        """
+
+    @_abc_1.abstractmethod
     def CreateSandbox(
         self,
         request: _sandbox_pb2.CreateSandboxRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_sandbox_pb2.CreateSandboxResponse, _abc.Awaitable[_sandbox_pb2.CreateSandboxResponse]]:
-        """Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
+        """Creates and starts one sandbox on its network, made by CreateRun. Each top-level key path starts as a copy of the image's
         content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
         """
 
@@ -134,6 +152,6 @@ class SandboxServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _sandbox_pb2.DestroyRunRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_sandbox_pb2.DestroyRunResponse, _abc.Awaitable[_sandbox_pb2.DestroyRunResponse]]:
-        """Removes every container labeled with the run, and the run's state directory."""
+        """Removes every container and network labeled with the run, and the run's state directory."""
 
 def add_SandboxServiceServicer_to_server(servicer: SandboxServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...

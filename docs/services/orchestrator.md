@@ -130,7 +130,9 @@ are the data, so a lost notification costs latency, never an event.
 7. Export ([event-log.md](../event-log.md#export)), tear down through sandboxd, and mark the
    run `done`.
 
-Built in `swarmeval.worker` for M0, without the M1 steps. Sandboxes are destroyed whatever
+Built in `swarmeval.worker` for M0. Of the M1 steps, step 2 creates the networks (`CreateRun`)
+and then each sandbox with the `os_user`s of the agents in it; net-gateway, services, certificates,
+and probes are not built yet. Sandboxes are destroyed whatever
 happens. A cancel is seen by polling the run's status every 2 s, so it takes effect at the first
 hook point after that. A failed or interrupted run keeps its events but is not exported. The
 worker runs up to `--max-runs` runs at once (default 4); `--worker-id` (default the hostname)

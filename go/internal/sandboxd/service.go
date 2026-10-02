@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"maps"
+	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
@@ -45,6 +46,9 @@ type Config struct {
 	StateDir string
 	// Runtime is "runc", "runsc", or "auto" (runsc when the backend offers it).
 	Runtime string
+	// SubnetPool is where sandbox networks get their subnets, SubnetBits long each.
+	SubnetPool netip.Prefix
+	SubnetBits int
 	// InlineLimit caps stdout and stderr in the exec header.
 	InlineLimit int
 	// OutputLimit caps the stdout or stderr kept at all.
@@ -53,8 +57,9 @@ type Config struct {
 	ContentLimit int64
 	// ContentBudget caps the file contents sent back for one Exec or FinalDiff.
 	ContentBudget int64
-	// KillTimeout bounds killing a timed-out command.
-	KillTimeout time.Duration
+	// HelperTimeout bounds each command sandboxd runs in a sandbox for itself: killing a
+	// timed-out call, and listing processes.
+	HelperTimeout time.Duration
 	// SeedLimit caps the total content of a CreateSandbox's seed files.
 	SeedLimit int
 }
@@ -63,12 +68,14 @@ type Config struct {
 func DefaultConfig(stateDir string) Config {
 	return Config{
 		StateDir:      stateDir,
-		Runtime:       "runc",
+		Runtime:       "auto",
+		SubnetPool:    netip.MustParsePrefix("10.231.0.0/16"),
+		SubnetBits:    28,
 		InlineLimit:   64 << 10,
 		OutputLimit:   16 << 20,
 		ContentLimit:  1 << 20,
 		ContentBudget: 64 << 20,
-		KillTimeout:   10 * time.Second,
+		HelperTimeout: 10 * time.Second,
 		SeedLimit:     1 << 20,
 	}
 }
@@ -82,6 +89,9 @@ type Service struct {
 
 	mu        sync.Mutex
 	sandboxes map[key]*sandbox
+	runs      map[string]*run
+	// netMu serializes subnet choice and network creation.
+	netMu sync.Mutex
 }
 
 type key struct{ run, sandbox string }
@@ -99,7 +109,7 @@ type sandbox struct {
 
 // New returns a Service. cfg.StateDir must exist.
 func New(cfg Config, drv driver.Driver, log *slog.Logger) *Service {
-	return &Service{cfg: cfg, drv: drv, log: log, sandboxes: map[key]*sandbox{}}
+	return &Service{cfg: cfg, drv: drv, log: log, sandboxes: map[key]*sandbox{}, runs: map[string]*run{}}
 }
 
 // Mount is a key path of a sandbox.
@@ -117,6 +127,8 @@ type CreateRequest struct {
 	Mounts    []Mount
 	Resources driver.Resources
 	Files     []SeedFile
+	// Users are added to the image before the sandbox starts.
+	Users []string
 }
 
 // SeedFile is written into a key path before the first manifest.
@@ -126,8 +138,8 @@ type SeedFile struct {
 	Mode    fs.FileMode
 }
 
-// CreateSandbox creates and starts a sandbox and takes its first manifest. It returns the
-// runtime the sandbox got.
+// CreateSandbox creates and starts a sandbox on the network CreateRun made for it and takes
+// its first manifest. It returns the runtime the sandbox got.
 func (s *Service) CreateSandbox(ctx context.Context, req CreateRequest) (string, error) {
 	if err := validateIDs(req.RunID, req.SandboxID); err != nil {
 		return "", err
@@ -141,6 +153,13 @@ func (s *Service) CreateSandbox(ctx context.Context, req CreateRequest) (string,
 	}
 	if err := checkSeeds(req.Files, mounts, s.cfg.SeedLimit); err != nil {
 		return "", fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+	}
+	if err := checkUsers(req.Users); err != nil {
+		return "", fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+	}
+	net, err := s.network(req.RunID, req.SandboxID)
+	if err != nil {
+		return "", err
 	}
 	runtime, err := s.runtime(ctx)
 	if err != nil {
@@ -159,7 +178,7 @@ func (s *Service) CreateSandbox(ctx context.Context, req CreateRequest) (string,
 	s.sandboxes[k] = sb
 	s.mu.Unlock()
 
-	if err := s.create(ctx, req, sb, runtime); err != nil {
+	if err := s.create(ctx, req, sb, runtime, net); err != nil {
 		s.mu.Lock()
 		delete(s.sandboxes, k)
 		s.mu.Unlock()
@@ -168,7 +187,7 @@ func (s *Service) CreateSandbox(ctx context.Context, req CreateRequest) (string,
 	return runtime, nil
 }
 
-func (s *Service) create(ctx context.Context, req CreateRequest, sb *sandbox, runtime string) error {
+func (s *Service) create(ctx context.Context, req CreateRequest, sb *sandbox, runtime string, net runNetwork) error {
 	labels := map[string]string{
 		driver.LabelManaged:   "true",
 		driver.LabelRunID:     req.RunID,
@@ -194,6 +213,20 @@ func (s *Service) create(ctx context.Context, req CreateRequest, sb *sandbox, ru
 	if err := seed(sb.mounts, fsDir, req.Files); err != nil {
 		return fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
 	}
+	// Outside fs/, so it is not a key path and never diffed. Docker's embedded DNS still
+	// listens under runc (runtime spec Q14).
+	resolv := filepath.Join(s.cfg.StateDir, req.RunID, req.SandboxID, "resolv.conf")
+	if err := os.MkdirAll(filepath.Dir(resolv), 0o755); err != nil {
+		return fmt.Errorf("create state dir for sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+	}
+	if err := os.WriteFile(resolv, []byte("nameserver "+net.gateway.String()+"\n"), 0o644); err != nil {
+		return fmt.Errorf("write resolv.conf for sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+	}
+	binds = append(binds, driver.Bind{HostPath: resolv, ContainerPath: "/etc/resolv.conf", ReadOnly: true})
+	files, err := s.userFiles(ctx, req.Image, req.Users, labels)
+	if err != nil {
+		return fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+	}
 
 	id, err := s.drv.CreateContainer(ctx, driver.ContainerSpec{
 		Image:     req.Image,
@@ -201,6 +234,8 @@ func (s *Service) create(ctx context.Context, req CreateRequest, sb *sandbox, ru
 		Binds:     binds,
 		Resources: req.Resources,
 		Labels:    labels,
+		Network:   net.name,
+		Files:     files,
 	})
 	if err != nil {
 		return fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
@@ -305,7 +340,7 @@ func (s *Service) Exec(ctx context.Context, req ExecRequest) (ExecResult, error)
 	if err != nil {
 		return ExecResult{}, err
 	}
-	baseline, err := s.drv.Processes(ctx, sb.container)
+	baseline, err := s.processes(ctx, sb)
 	if err != nil {
 		return ExecResult{}, err
 	}
@@ -341,7 +376,7 @@ func (s *Service) Exec(ctx context.Context, req ExecRequest) (ExecResult, error)
 	if err != nil {
 		return ExecResult{}, err
 	}
-	after, err := s.drv.Processes(ctx, sb.container)
+	after, err := s.processes(ctx, sb)
 	if err != nil {
 		return ExecResult{}, err
 	}
@@ -381,7 +416,7 @@ func (s *Service) killTree(ctx context.Context, sb *sandbox, req ExecRequest, pi
 			"run_id", req.RunID, "sandbox_id", req.SandboxID, "call_id", req.CallID)
 		return nil
 	}
-	killCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.KillTimeout)
+	killCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.HelperTimeout)
 	defer cancel()
 	argv := []string{"/bin/sh", "-c", killTreeScript, "sh", pid}
 	if _, err := s.drv.Exec(killCtx, sb.container, driver.ExecSpec{Argv: argv, User: req.User}, io.Discard, io.Discard); err != nil {
@@ -496,7 +531,7 @@ func (s *Service) finalDiff(ctx context.Context, sb *sandbox, budget *int64, blo
 	if err != nil {
 		return nil, err
 	}
-	procs, err := s.drv.Processes(ctx, sb.container)
+	procs, err := s.processes(ctx, sb)
 	if err != nil {
 		return nil, err
 	}
@@ -522,29 +557,6 @@ func (s *Service) ReadFile(ctx context.Context, runID, sandboxID, filePath strin
 		return nil, 0, fmt.Errorf("%w: %s in sandbox %s of run %s", ErrNotFound, filePath, sandboxID, runID)
 	}
 	return content, size, err
-}
-
-// DestroyRun removes every container labeled with the run, including ones this process did
-// not create, and the run's state directory.
-func (s *Service) DestroyRun(ctx context.Context, runID string) error {
-	if !runIDPattern.MatchString(runID) {
-		return fmt.Errorf("%w: run id %q", ErrInvalid, runID)
-	}
-	ids, err := s.drv.ListByLabels(ctx, map[string]string{driver.LabelManaged: "true", driver.LabelRunID: runID})
-	if err != nil {
-		return err
-	}
-	var errs []error
-	for _, id := range ids {
-		errs = append(errs, s.drv.Remove(ctx, id))
-	}
-	s.mu.Lock()
-	maps.DeleteFunc(s.sandboxes, func(k key, _ *sandbox) bool { return k.run == runID })
-	s.mu.Unlock()
-	if err := os.RemoveAll(filepath.Join(s.cfg.StateDir, runID)); err != nil {
-		errs = append(errs, fmt.Errorf("remove state of run %s: %w", runID, err))
-	}
-	return errors.Join(errs...)
 }
 
 func (s *Service) lookup(runID, sandboxID string) (*sandbox, error) {

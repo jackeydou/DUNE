@@ -96,3 +96,22 @@ func TestExtractCannotClimbWithDotDot(t *testing.T) {
 		t.Fatalf("file written outside: %v", err)
 	}
 }
+
+func TestExtractGivesTheKeyPathItsOwnModeFromTheImage(t *testing.T) {
+	dir := t.TempDir()
+	a := archive(t,
+		tarEntry{name: "tmp/", typ: tar.TypeDir, mode: 0o1777},
+		tarEntry{name: "tmp/tool", typ: tar.TypeReg, body: "x", mode: 0o2755},
+	)
+
+	if err := extract(a, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if info, _ := os.Stat(dir); info.Mode() != os.ModeDir|os.ModeSticky|0o777 {
+		t.Fatalf("key path mode = %v; want the image's drwxrwxrwt, or os_users cannot write /tmp", info.Mode())
+	}
+	if info, _ := os.Stat(filepath.Join(dir, "tool")); info.Mode() != os.ModeSetgid|0o755 {
+		t.Fatalf("tool mode = %v; setgid must survive", info.Mode())
+	}
+}

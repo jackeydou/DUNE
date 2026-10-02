@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	SandboxService_CreateRun_FullMethodName     = "/swarmeval.sandbox.v1.SandboxService/CreateRun"
 	SandboxService_CreateSandbox_FullMethodName = "/swarmeval.sandbox.v1.SandboxService/CreateSandbox"
 	SandboxService_Exec_FullMethodName          = "/swarmeval.sandbox.v1.SandboxService/Exec"
 	SandboxService_ReadFile_FullMethodName      = "/swarmeval.sandbox.v1.SandboxService/ReadFile"
@@ -36,7 +37,10 @@ const (
 // Identifiers: `run_id` matches [A-Za-z0-9][A-Za-z0-9._-]{0,127}; `sandbox_id` matches
 // [a-z][a-z0-9_]{0,62} (the case format's names). Anything else is INVALID_ARGUMENT.
 type SandboxServiceClient interface {
-	// Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
+	// Creates a run's networks: one per sandbox, on which the host has no address. Must come
+	// before the run's CreateSandbox calls. Fails with ALREADY_EXISTS if the run exists.
+	CreateRun(ctx context.Context, in *CreateRunRequest, opts ...grpc.CallOption) (*CreateRunResponse, error)
+	// Creates and starts one sandbox on its network, made by CreateRun. Each top-level key path starts as a copy of the image's
 	// content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
 	CreateSandbox(ctx context.Context, in *CreateSandboxRequest, opts ...grpc.CallOption) (*CreateSandboxResponse, error)
 	// Runs one tool call. The stream carries exactly one header first, then the blobs the
@@ -47,7 +51,7 @@ type SandboxServiceClient interface {
 	// Diffs every sandbox of a run against its last manifest, catching writes by background
 	// processes after the last call. Every change is attributed `AMBIGUOUS`.
 	FinalDiff(ctx context.Context, in *FinalDiffRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FinalDiffResponse], error)
-	// Removes every container labeled with the run, and the run's state directory.
+	// Removes every container and network labeled with the run, and the run's state directory.
 	DestroyRun(ctx context.Context, in *DestroyRunRequest, opts ...grpc.CallOption) (*DestroyRunResponse, error)
 }
 
@@ -57,6 +61,16 @@ type sandboxServiceClient struct {
 
 func NewSandboxServiceClient(cc grpc.ClientConnInterface) SandboxServiceClient {
 	return &sandboxServiceClient{cc}
+}
+
+func (c *sandboxServiceClient) CreateRun(ctx context.Context, in *CreateRunRequest, opts ...grpc.CallOption) (*CreateRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateRunResponse)
+	err := c.cc.Invoke(ctx, SandboxService_CreateRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *sandboxServiceClient) CreateSandbox(ctx context.Context, in *CreateSandboxRequest, opts ...grpc.CallOption) (*CreateSandboxResponse, error) {
@@ -137,7 +151,10 @@ func (c *sandboxServiceClient) DestroyRun(ctx context.Context, in *DestroyRunReq
 // Identifiers: `run_id` matches [A-Za-z0-9][A-Za-z0-9._-]{0,127}; `sandbox_id` matches
 // [a-z][a-z0-9_]{0,62} (the case format's names). Anything else is INVALID_ARGUMENT.
 type SandboxServiceServer interface {
-	// Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
+	// Creates a run's networks: one per sandbox, on which the host has no address. Must come
+	// before the run's CreateSandbox calls. Fails with ALREADY_EXISTS if the run exists.
+	CreateRun(context.Context, *CreateRunRequest) (*CreateRunResponse, error)
+	// Creates and starts one sandbox on its network, made by CreateRun. Each top-level key path starts as a copy of the image's
 	// content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
 	CreateSandbox(context.Context, *CreateSandboxRequest) (*CreateSandboxResponse, error)
 	// Runs one tool call. The stream carries exactly one header first, then the blobs the
@@ -148,7 +165,7 @@ type SandboxServiceServer interface {
 	// Diffs every sandbox of a run against its last manifest, catching writes by background
 	// processes after the last call. Every change is attributed `AMBIGUOUS`.
 	FinalDiff(*FinalDiffRequest, grpc.ServerStreamingServer[FinalDiffResponse]) error
-	// Removes every container labeled with the run, and the run's state directory.
+	// Removes every container and network labeled with the run, and the run's state directory.
 	DestroyRun(context.Context, *DestroyRunRequest) (*DestroyRunResponse, error)
 	mustEmbedUnimplementedSandboxServiceServer()
 }
@@ -160,6 +177,9 @@ type SandboxServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedSandboxServiceServer struct{}
 
+func (UnimplementedSandboxServiceServer) CreateRun(context.Context, *CreateRunRequest) (*CreateRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateRun not implemented")
+}
 func (UnimplementedSandboxServiceServer) CreateSandbox(context.Context, *CreateSandboxRequest) (*CreateSandboxResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateSandbox not implemented")
 }
@@ -194,6 +214,24 @@ func RegisterSandboxServiceServer(s grpc.ServiceRegistrar, srv SandboxServiceSer
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&SandboxService_ServiceDesc, srv)
+}
+
+func _SandboxService_CreateRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SandboxServiceServer).CreateRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SandboxService_CreateRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SandboxServiceServer).CreateRun(ctx, req.(*CreateRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _SandboxService_CreateSandbox_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -279,6 +317,10 @@ var SandboxService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "swarmeval.sandbox.v1.SandboxService",
 	HandlerType: (*SandboxServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateRun",
+			Handler:    _SandboxService_CreateRun_Handler,
+		},
 		{
 			MethodName: "CreateSandbox",
 			Handler:    _SandboxService_CreateSandbox_Handler,

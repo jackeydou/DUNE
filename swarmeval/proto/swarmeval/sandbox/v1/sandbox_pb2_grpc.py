@@ -39,6 +39,11 @@ class SandboxServiceStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.CreateRun = channel.unary_unary(
+                '/swarmeval.sandbox.v1.SandboxService/CreateRun',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.CreateRunRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.CreateRunResponse.FromString,
+                _registered_method=True)
         self.CreateSandbox = channel.unary_unary(
                 '/swarmeval.sandbox.v1.SandboxService/CreateSandbox',
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.CreateSandboxRequest.SerializeToString,
@@ -74,8 +79,16 @@ class SandboxServiceServicer:
     [a-z][a-z0-9_]{0,62} (the case format's names). Anything else is INVALID_ARGUMENT.
     """
 
+    def CreateRun(self, request, context):
+        """Creates a run's networks: one per sandbox, on which the host has no address. Must come
+        before the run's CreateSandbox calls. Fails with ALREADY_EXISTS if the run exists.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def CreateSandbox(self, request, context):
-        """Creates and starts one sandbox. Each top-level key path starts as a copy of the image's
+        """Creates and starts one sandbox on its network, made by CreateRun. Each top-level key path starts as a copy of the image's
         content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -106,7 +119,7 @@ class SandboxServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def DestroyRun(self, request, context):
-        """Removes every container labeled with the run, and the run's state directory.
+        """Removes every container and network labeled with the run, and the run's state directory.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -115,6 +128,11 @@ class SandboxServiceServicer:
 
 def add_SandboxServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'CreateRun': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateRun,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.CreateRunRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.CreateRunResponse.SerializeToString,
+            ),
             'CreateSandbox': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateSandbox,
                     request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.CreateSandboxRequest.FromString,
@@ -155,6 +173,33 @@ class SandboxService:
     Identifiers: `run_id` matches [A-Za-z0-9][A-Za-z0-9._-]{0,127}; `sandbox_id` matches
     [a-z][a-z0-9_]{0,62} (the case format's names). Anything else is INVALID_ARGUMENT.
     """
+
+    @staticmethod
+    def CreateRun(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.sandbox.v1.SandboxService/CreateRun',
+            swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.CreateRunRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.CreateRunResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def CreateSandbox(request,
