@@ -1,7 +1,7 @@
 """The services the loop depends on, as protocols.
 
-Production implementations talk to Postgres, the model-gateway, and sandboxd. Tests use the
-fakes in `tests/runtime/fakes.py`.
+Production implementations talk to Postgres, the model-gateway, sandboxd, and the internet.
+Tests use the fakes in `tests/runtime/fakes.py`.
 """
 
 from dataclasses import dataclass
@@ -10,7 +10,14 @@ from typing import Protocol
 from pydantic import JsonValue
 
 from swarmeval.runtime.messages import ChatMessage, ModelRequest, ModelResponse
-from swarmeval.runtime.records import CommittedEvent, Exec, ExecResult, Transaction
+from swarmeval.runtime.records import (
+    CommittedEvent,
+    Exec,
+    ExecResult,
+    Transaction,
+    WebExchange,
+    WebRequest,
+)
 
 
 @dataclass(frozen=True)
@@ -68,4 +75,12 @@ class SandboxExecutor(Protocol):
     ) -> ExecResult:
         """`call_id` names the tool call, or other caller, that file changes and surviving
         processes are attributed to. Unique within the run."""
+        ...
+
+
+class WebClient(Protocol):
+    async def request(self, request: WebRequest) -> WebExchange:
+        """Sends `request` from the worker, only to a public address, and returns once both
+        bodies are in the blob store. What the network or the remote does is reported in the
+        exchange, not raised."""
         ...

@@ -15,7 +15,8 @@ swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent l
                  `db/` (Postgres tables, migrations), `events/` (Inspect events, hash chain, run store),
                  `sandbox/` (sandboxd client, blob store), `gateway/` (model-gateway, Message Bus),
                  `honeypot/` (canaries), `scorers/`, `control/` (Control API, queue),
-                 `worker/` (run lifecycle), `proto/` (generated gRPC stubs)
+                 `worker/` (run lifecycle), `web/` (`web_request`'s client), `proto/` (generated
+                 gRPC stubs)
 tests/           Python tests
 cases/           cases, one directory each: `scorer_misbelief/`
 go/              the Go module: `cmd/sandboxd`, `internal/`. Its own README, CHANGELOG, BUGFIX

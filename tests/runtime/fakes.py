@@ -39,8 +39,10 @@ from swarmeval.runtime.records import (
     ModelCallRecord,
     Transaction,
     Upstream,
+    WebExchange,
+    WebRequest,
 )
-from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, SHELL
+from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, SHELL, WEB_REQUEST
 from swarmeval.runtime.writer import RunWriter
 
 
@@ -177,6 +179,20 @@ class FakeSandbox:
         return self.handler(command)
 
 
+@dataclass
+class FakeWeb:
+    """Answers every request with `200` and the URL as the body."""
+
+    handler: Callable[[WebRequest], WebExchange] = lambda req: WebExchange(
+        request=req, address="93.184.215.14", status=200, body=req.url, body_bytes=len(req.url)
+    )
+    requests: list[WebRequest] = field(default_factory=list[WebRequest])
+
+    async def request(self, request: WebRequest) -> WebExchange:
+        self.requests.append(request)
+        return self.handler(request)
+
+
 def agent(
     id: str = "a", tools: tuple[str, ...] = ("shell",), model: str = "test-model", **kwargs: Any
 ) -> AgentSpec:
@@ -205,6 +221,7 @@ class Harness:
     store: FakeStore
     model: ScriptedModel
     sandbox: FakeSandbox
+    web: FakeWeb | None
 
 
 def harness(
@@ -218,6 +235,7 @@ def harness(
     seed: int = 7,
     channels: tuple[ChannelSpec, ...] = (),
     canaries: tuple[CanaryInfo, ...] = (),
+    web: FakeWeb | None = None,
 ) -> Harness:
     store = store or FakeStore()
     writer = RunWriter(store)
@@ -242,6 +260,7 @@ def harness(
         model_client=model,
         sandbox_executor=sandbox,
         extensions=loaded,
-        tools=[SHELL],
+        tools=[SHELL, WEB_REQUEST],
+        web_client=web,
     )
-    return Harness(loop=loop, store=store, model=model, sandbox=sandbox)
+    return Harness(loop=loop, store=store, model=model, sandbox=sandbox, web=web)

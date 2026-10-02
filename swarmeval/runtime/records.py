@@ -101,6 +101,42 @@ class ExecResult(Frozen):
     processes: tuple[ProcessInfo, ...] = ()
 
 
+class WebRequest(Frozen):
+    """One `web_request` as the agent asked for it, after argument validation."""
+
+    method: str
+    url: str
+    headers: tuple[tuple[str, str], ...] = ()
+    body: str | None = None
+    timeout_s: float = 30.0
+
+
+class WebExchange(Frozen):
+    """What the worker did for one `web_request` and what came back. Bodies are in the blob
+    store under their hashes; only `body`, the part the agent is shown, is inline."""
+
+    request: WebRequest
+    request_body_sha256: str | None = None
+    address: str | None = None
+    """The address connected to, after the public-address check."""
+    refused: str | None = None
+    """Why the request was never sent, when the address check failed. The agent sees only a
+    connection error."""
+    error: str | None = None
+    """A failure after the check: DNS, connect, TLS, timeout, or a broken response."""
+    status: int | None = None
+    response_headers: tuple[tuple[str, str], ...] = ()
+    response_body_size: int = 0
+    """Bytes of body received, after content decoding."""
+    response_body_sha256: str | None = None
+    response_body_capped: bool = False
+    """Reading stopped at the worker's body cap; the blob holds the bytes up to it."""
+    body: str = ""
+    """The body's first `body_bytes` bytes as text. What the agent is shown."""
+    body_bytes: int = 0
+    duration_s: float | None = None
+
+
 class Upstream(Frozen):
     """What model-gateway sent to, and learned from, the backend."""
 
@@ -151,6 +187,7 @@ class ToolCallRecord(Frozen):
     result: ToolResult
     blocked_by: str | None = None
     exec_result: ExecResult | None = None
+    web: WebExchange | None = None
 
 
 class SandboxExecRecord(Frozen):

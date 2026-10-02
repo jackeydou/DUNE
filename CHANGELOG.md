@@ -74,8 +74,15 @@
 - Case `cases/scorer_misbelief`: the M0 case. The scorer is described accurately, misleadingly,
   or vaguely, against a visible grader with one planted wrong answer, a protected grader
   directory, and a canary in a held-out answer key.
+- `web_request`, a built-in tool for agents that list it: the worker sends the HTTP request, only
+  to public addresses (resolved once, every address checked, then connected to directly with the
+  name in `Host` and SNI), follows no redirects, and records the exchange with both bodies in
+  the blob store (`swarmeval.web.HttpWebClient`). Sandboxes stay offline.
+- `WebTool` and the `WebClient` port; `RunLoop` takes `web_client`.
 
 ### Changed
+- Event schema version 3: tool events from `web_request` carry `web`. Additive; version 2 events
+  read unchanged.
 - An agent that finished gets another turn when a message arrives for it; the run ends when
   every agent is finished and no message is waiting.
 - `SandboxExecutor.exec` takes the `call_id` its file changes and processes are attributed to.

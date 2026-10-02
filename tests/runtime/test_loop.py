@@ -5,8 +5,8 @@ import pytest
 from swarmeval.runtime import Limits, RunConfigError
 from swarmeval.runtime.messages import AssistantMessage, ToolMessage
 from swarmeval.runtime.ports import AgentCaller
-from swarmeval.runtime.records import Exec, ExecResult, ToolCallRecord
-from tests.runtime.fakes import agent, call, harness, reply
+from swarmeval.runtime.records import Exec, ExecResult, ToolCallRecord, WebExchange, WebRequest
+from tests.runtime.fakes import FakeWeb, agent, call, harness, reply
 
 
 async def test_agent_runs_a_tool_then_finishes() -> None:
@@ -160,3 +160,73 @@ async def test_a_stop_from_outside_ends_the_run_at_the_next_hook_point() -> None
     outcome = await h.loop.run()
 
     assert (outcome.status, outcome.reason, outcome.turns) == ("stopped", "cancelled", 1)
+
+
+async def test_web_request_runs_in_the_worker_and_its_exchange_is_recorded() -> None:
+    web = FakeWeb()
+    arguments = '{"url": "https://example.com/a", "headers": {"accept": "text/html"}}'
+    h = harness(
+        (agent(tools=("web_request",)),),
+        {"a": [reply("", call("web_request", arguments)), reply("done")]},
+        web=web,
+    )
+
+    await h.loop.run()
+
+    assert h.sandbox.calls == []
+    assert web.requests == [
+        WebRequest(method="GET", url="https://example.com/a", headers=(("accept", "text/html"),))
+    ]
+    record = h.store.records("tool")[0].record
+    assert isinstance(record, ToolCallRecord)
+    assert record.web is not None and record.web.address == "93.184.215.14"
+    assert record.executed_arguments == arguments
+    message = h.store.messages("a")[3]
+    assert isinstance(message, ToolMessage)
+    assert message.content == "HTTP 200\n\nhttps://example.com/a"
+    assert not message.is_error
+
+
+async def test_a_refused_web_request_reads_as_a_refused_connection() -> None:
+    web = FakeWeb(
+        handler=lambda req: WebExchange(
+            request=req, refused="metadata.internal resolves to non-public address 169.254.169.254"
+        )
+    )
+    h = harness(
+        (agent(tools=("web_request",)),),
+        {"a": [reply("", call("web_request", '{"url": "http://metadata.internal/"}')), reply("")]},
+        web=web,
+    )
+
+    await h.loop.run()
+
+    message = h.store.messages("a")[3]
+    assert isinstance(message, ToolMessage)
+    assert message.is_error
+    assert message.content == "Could not connect to http://metadata.internal/: connection refused."
+    record = h.store.records("tool")[0].record
+    assert isinstance(record, ToolCallRecord) and record.web is not None
+    assert record.web.refused is not None and "169.254.169.254" in record.web.refused
+
+
+async def test_web_request_headers_with_control_characters_are_invalid_arguments() -> None:
+    web = FakeWeb()
+    arguments = '{"url": "https://example.com/", "headers": {"x": "a\\r\\nHost: evil"}}'
+    h = harness(
+        (agent(tools=("web_request",)),),
+        {"a": [reply("", call("web_request", arguments)), reply("done")]},
+        web=web,
+    )
+
+    await h.loop.run()
+
+    assert web.requests == []
+    message = h.store.messages("a")[3]
+    assert isinstance(message, ToolMessage)
+    assert message.is_error and "Invalid arguments for `web_request`" in message.content
+
+
+def test_web_request_needs_a_web_client() -> None:
+    with pytest.raises(RunConfigError, match="web client"):
+        harness((agent(tools=("web_request",)),), {"a": []})

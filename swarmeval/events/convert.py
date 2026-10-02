@@ -59,8 +59,11 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 """Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
+
+3: tool events from `web_request` gained `web` (`WebExchange` without its inline `body`, which
+the event's `result` already carries). Version 2 events have no `web` and read as before.
 
 2: `score` (`ScoreEvent`), `final_diff`, `msg.send`, and `msg.deliver` events; model events
 gained `gateway` (`GatewayRecord`); `exec` gained `duration_s`, `stdout_truncated` /
@@ -228,6 +231,8 @@ def _tool_event(record: ToolCallRecord) -> tuple[ToolEvent, dict[str, JsonValue]
     }
     if record.exec_result is not None:
         extra["exec"] = _exec_observations(record.exec_result)
+    if record.web is not None:
+        extra["web"] = record.web.model_dump(mode="json", exclude={"body"})
     return event, extra
 
 

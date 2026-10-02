@@ -92,7 +92,7 @@ An agent:
 | `model` | yes | Model name as the gateway knows it |
 | `prompt` | yes | System prompt file |
 | `task` | no | First user message file. Overrides `task.input` |
-| `tools` | no | Tool names. The run fails to start if nothing provides one |
+| `tools` | no | Tool names: `shell`, `send_message`, `web_request`, or one an extension provides. The run fails to start if nothing provides one. `web_request` is the agent's only way to the internet |
 | `sandbox` | no | Join a shared instance from `env.yaml` |
 | `sandbox_profile` | no | Profile of the agent's private sandbox. Exclusive with `sandbox` |
 | `os_user` | no | Unix user the agent's commands run as. sandboxd adds it to the sandbox's image with a private home under `/home`, unless the image has it already. Where it may write besides its home is up to the image |

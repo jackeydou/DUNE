@@ -162,31 +162,40 @@ permissions are per agent; OS permissions are per sandbox.
 
 ### `web_request`
 
-M1, not built yet. Decided in the
+Built: `swarmeval.web.HttpWebClient`, one per run, and the `WebTool` `WEB_REQUEST` in
+`swarmeval.runtime.tools`. Decided in the
 [trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 3.
 
 - **Who gets it.** An agent whose `tools` list names `web_request`. Any public address, any
   method.
-- **Where it runs.** In the worker, as a `RuntimeTool`. The sandbox stays offline.
+- **Where it runs.** In the worker, through the `WebClient` the loop is given. The sandbox stays
+  offline. A run whose agent lists `web_request` fails to start without one.
 - **Address check.** The host is resolved, every resulting address is checked, and the
-  connection goes to the checked address without resolving again. Only global unicast addresses
-  pass: loopback, private, link-local (cloud metadata included), CGNAT, multicast, reserved, and
-  their IPv6-mapped forms are refused. A case cannot turn this off. The worker reaches Postgres,
+  connection goes to the checked address without resolving again, with the name in `Host` and in
+  TLS SNI, so certificates are verified against the name. If any address is not global unicast,
+  the request is refused: loopback, private, link-local (cloud metadata included), CGNAT,
+  multicast, reserved, and IPv6 forms carrying such an IPv4 address (mapped, 6to4, Teredo,
+  NAT64). IPv4 is tried before IPv6. Proxy settings in the worker's environment are ignored. A case cannot turn this off. The worker reaches Postgres,
   object storage, model-gateway, and the Control API, so this check is what keeps an agent away
   from them.
 - **No redirects followed.** A 3xx goes back to the agent as is, so one call is one outbound
   request.
-- **Stateless.** The worker adds no credentials and keeps no cookies between calls.
-- **Recorded.** The call's `ToolEvent` holds the request (method, URL, headers, body) and the
-  response (status, headers, body). Bodies over the inline limit go to the blob store
-  ([event-log.md](../event-log.md#large-objects)). The agent gets the body truncated to a limit,
-  marked as truncated. A refused request is a `ToolEvent` too: the agent sees a connection error,
-  and the reason is in `metadata.swarmeval`.
+- **Stateless.** The worker adds no credentials, keeps no cookies, and opens a new connection
+  for every call.
+- **Recorded.** The call's `ToolEvent` carries a `WebExchange` under `metadata.swarmeval.web`:
+  the request, the address connected to, the status and headers, and both bodies by hash in the
+  blob store ([event-log.md](../event-log.md#large-objects)), uploaded before the event commits.
+  The agent sees the body's first bytes, decoded by the response's charset, with a note when it
+  was cut. A refused request is a `ToolEvent` too: the agent sees a connection error, and the
+  reason is in `web.refused`. DNS, connect, TLS, and timeout failures are in `web.error` and are
+  shown to the agent, as they would be outside an evaluation.
 - **Rewritable.** The result passes through `after_tool_result` like any other tool's
   ([agent-runtime.md](../agent-runtime.md)).
 
-Limits (timeout, body sizes, truncation, requests per run) are *(open, trajectory-first spec
-Q2)*. The HTTP client is `httpx2`, already the worker's client for model-gateway.
+Limits are in `WebLimits`: 64 KiB of body shown, 16 MiB read, 1 MiB of request body; the
+timeout covers resolution, connect, and the whole body. These values and a per-run request limit
+are *(proposed, trajectory-first spec Q2)*. The HTTP client is `httpx2`, already the worker's
+client for model-gateway.
 
 ### Write-before rule
 

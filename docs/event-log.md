@@ -25,7 +25,7 @@ defines a second event structure. It extends Inspect in two ways only:
 | SwarmEval event | Inspect type |
 |---|---|
 | `llm.request` / `llm.response` | `ModelEvent`. The gateway's record goes in `metadata.swarmeval.gateway`: request hash, backend raw response, `reasoning_passback`, sampling actually sent, weight hash, latency, attempts |
-| `tool.call` / `tool.result` | `ToolEvent`. The file changes and surviving processes sandboxd saw go in `metadata.swarmeval.exec` |
+| `tool.call` / `tool.result` | `ToolEvent`. The file changes and surviving processes sandboxd saw go in `metadata.swarmeval.exec`; a `web_request`'s exchange goes in `metadata.swarmeval.web` (schema version 3) |
 | A command an extension ran through `ctx.sandbox` | `SandboxEvent` |
 | Interrupted tool call | `InterruptEvent` |
 | Recovery point, pause | `CheckpointEvent` |
