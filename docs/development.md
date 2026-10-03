@@ -93,7 +93,8 @@ uv run python -m swarmeval.analysis report --suite m1_core.<hex> $S3
 
 More workers run more runs at once. Start each with its own `--worker-id`; a second worker with
 an id already in use exits. Restart a worker with the same id, so the runs it left unfinished are
-marked `interrupted` and rerun:
+marked `interrupted` and rerun at once; otherwise another worker takes them over, and reruns them,
+once their leases run out (`--lease-s`, default 30 s):
 
 ```bash
 uv run swarmeval-worker $S3 --worker-id dev2 --max-runs 2 &

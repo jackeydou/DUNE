@@ -197,10 +197,21 @@
   between two values of an axis, the other axes held equal, with a 95% Newcombe hybrid score
   interval (`swarmeval.analysis.compare`).
 - pyright checks case extensions (`cases/*/extensions`).
+- Run leases: a claim sets `control.runs.lease_until`, and the worker renews the lease of every
+  run it holds each third of `--lease-s` (default 30 s, `swarmeval-worker`). A run a renewal no
+  longer finds is stopped at once; when renewals keep failing, every held run is stopped two
+  thirds of a lease after the last renewal went out (`swarmeval.worker.leases`, `Queue.renew`).
+- Takeover: a serving worker claims an unfinished run whose lease ran out, before any queued run
+  (`Queue.claim_expired`), which fences the old owner. Until resuming is built it removes the
+  run's sandboxes through its sandboxd and finishes it `interrupted`, which reruns it, or
+  `cancelled` if it was cancelled while it ran, and writes its summary. Runs claimed before
+  leases existed have none and never expire.
 
 ### Changed
 - `case.yaml` schema version 3: `case:` extension references and the `event_value` scorer need
   it; older cases load unchanged and refuse them, naming the field.
+- A worker restarting with its old id also asks its sandboxd to remove the sandboxes of the runs
+  it finishes (`Worker.recover`). Before, their containers were left on the host.
 - `case.yaml` schema version 2: channel `interventions`, list values for variant axes, and the
   `cross_sandbox` scorer need it; version 1 cases load unchanged and refuse those with an error
   naming the field. `env.yaml` and suites stay at version 1. Versioning now bumps for any change

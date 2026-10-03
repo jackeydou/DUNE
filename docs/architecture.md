@@ -173,7 +173,7 @@ place with DuckDB's `httpfs` extension.
 
 | Failure | What happens |
 |---|---|
-| A worker dies | Another worker, or the same one after restart, takes the run over once its lease expires. `owner_epoch` goes up by one, and running sandboxes are claimed by their labels instead of being recreated |
+| A worker dies | Another worker, or the same one after restart, takes the run over once its lease expires. `owner_epoch` goes up by one, and running sandboxes are claimed by their labels instead of being recreated. Until resuming is built, the taker removes the sandboxes instead and the run is rerun as a new epoch ([orchestrator](services/orchestrator.md#leases-fencing-and-takeover)) |
 | `model-gateway` or `sandboxd` is unavailable | The run pauses and its sandboxes are frozen; no connection error is handed to the agent. On recovery a `CheckpointEvent` records the pause, and paused time does not count toward timeouts. A pause over the configured limit marks the run interrupted and schedules a new epoch |
 | A step was half done | A model request whose response was not committed is resent and sampled again; the agent never saw the lost response, and the recovery `CheckpointEvent` notes it. `model-gateway` keeps no response cache. A tool call without a result is not rerun; the agent sees an `InterruptEvent` |
 

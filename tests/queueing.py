@@ -3,9 +3,10 @@ Postgres, with no case bundle behind them."""
 
 import secrets
 from collections.abc import AsyncIterator
+from datetime import timedelta
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.control.queue import NewRun, Queue, run_id_of
@@ -67,6 +68,26 @@ async def start(engine: AsyncEngine, run_id: str, owner_id: str) -> int:
                 update(control_runs)
                 .where(runs.run_id == run_id, runs.status == "queued")
                 .values(status="running", owner_id=owner_id, owner_epoch=runs.owner_epoch + 1)
+                .returning(runs.owner_epoch)
+            )
+        ).scalar_one()
+
+
+async def lease(engine: AsyncEngine, run_id: str, owner_id: str, seconds: float) -> int:
+    """Claims one particular run for `owner_id` with a lease of `seconds` from now, which may be
+    negative for one that has already run out; returns the new `owner_epoch`."""
+    runs = control_runs.c
+    async with engine.begin() as conn:
+        return (
+            await conn.execute(
+                update(control_runs)
+                .where(runs.run_id == run_id, runs.status == "queued")
+                .values(
+                    status="running",
+                    owner_id=owner_id,
+                    owner_epoch=runs.owner_epoch + 1,
+                    lease_until=func.now() + timedelta(seconds=seconds),
+                )
                 .returning(runs.owner_epoch)
             )
         ).scalar_one()

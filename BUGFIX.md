@@ -1,5 +1,20 @@
 # Bug fixes
 
+## 2026-10-03 — A restarted worker leaves its interrupted runs' containers on the host
+
+**Symptom.** After a worker restarted and marked the runs it had owned `interrupted` (or finished
+the ones cancelled meanwhile), their sandbox containers and state directories stayed on the host
+for good: nothing ever removed them.
+**Root cause.** `Worker.recover` only changed the runs' rows and wrote their summaries. Only the
+run's own `execute` called `DestroyRun`, and that process was gone.
+**Fix.** `recover` asks the worker's sandboxd to remove each finished run's sandboxes, as taking
+over a run whose lease ran out does. A sandboxd that cannot is logged as a warning and leaves the
+labeled containers. `swarmeval/worker/worker.py`.
+**Guard.** `tests/worker/test_takeover.py::test_a_restarted_worker_removes_the_sandboxes_of_the_runs_it_finishes`.
+**Touches.** 2026-10-02 (cancelled while the worker was down) and 2026-10-02 (stale worker
+overwrites an interrupted run): same `interrupt_owned` path, unchanged. A run whose containers
+are on another node than the worker that finishes it still leaves them there.
+
 ## 2026-10-03 — A canary a delivery rewrite shows its recipient is missed
 
 **Symptom.** When a `before_deliver` hook replaced a message's content with text holding a
