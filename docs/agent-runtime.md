@@ -54,7 +54,9 @@ the remaining tool calls of the same response. A tool call already executing fin
 Under `async`:
 
 - `max_turns` is each agent's own; one that reaches it stops with a `limit` event naming it,
-  and the run ends `limit` once the others are done. `max_tokens` and `wall_clock` end the run
+  and the run ends `limit` once the others are done, its last lifecycle event parented to the
+  last such `limit` event. Whatever ends the run for one agent (a gate's `Stop`, a run-wide
+  limit) stops the others at their next hook point, tool calls included. `max_tokens` and `wall_clock` end the run
   for all.
 - `before_deliver` holds a message for `Delay(seconds=…)` (`swarmeval.bus.delay` with
   `seconds`), not for turns: a waiting agent takes none, so a turn delay would never end, and

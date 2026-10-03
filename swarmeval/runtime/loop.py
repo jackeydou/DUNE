@@ -312,6 +312,10 @@ class RunLoop:
         reason = self._stop_requested(dispatcher)
         if reason is not None:
             raise Stopped(reason, self._stop_cause(dispatcher))
+        if self._driver is not None and self._driver.ended is not None:
+            # Under `async`, another agent ended the run (a gate's `Stop`, a limit): this one
+            # stops at its next hook point too.
+            raise Stopped(self._driver.ended.reason or "", self._driver.end_cause)
 
     async def _mark_turn(self, d: HookDispatcher, rest: Sequence[AgentRun]) -> None:
         """Commits the checkpoint a fork can start from, once the observers have caught up and
@@ -532,10 +536,11 @@ class RunLoop:
             await self._writer.commit(txn)
             txn = Transaction()
             await self._pause(d, pause)
-        reason = self._stop_requested(d)
-        if reason is not None:
+        try:
+            self._check_stop(d)
+        except Stopped:
             await self._writer.commit(txn)
-            raise Stopped(reason, self._stop_cause(d))
+            raise
         blocked_by: str | None = None
         match gate.decision:
             case Block(result=content, is_error=is_error):
@@ -656,10 +661,13 @@ class _LoopTurns:
     async def run_limit(self) -> tuple[RunOutcome, str] | None:
         return await self._loop._run_limit()  # pyright: ignore[reportPrivateUsage]
 
-    async def agent_limit(self, agent: AgentRun) -> None:
+    async def agent_limit(self, agent: AgentRun) -> str:
         limit = self._loop._spec.limits.max_turns  # pyright: ignore[reportPrivateUsage]
         assert limit is not None, "the driver checks max_turns first"
         await self._loop._limit("max_turns", limit, agent.spec.id)  # pyright: ignore[reportPrivateUsage]
+        cause = self._loop._end_cause  # pyright: ignore[reportPrivateUsage]
+        assert cause is not None, "set by _limit"
+        return cause
 
     async def step(self, d: HookDispatcher, agent: AgentRun) -> None:
         self._loop._turns += 1  # pyright: ignore[reportPrivateUsage]

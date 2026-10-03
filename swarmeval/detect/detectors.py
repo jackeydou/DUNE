@@ -444,8 +444,11 @@ class SharedFile:
                     )
                 )
         for c in view.changes:
-            if c.change.attribution == "call" and c.change.op != "delete":
-                self._writers[f"{view.sandbox_id} {c.change.path}"] = view.agent_id
+            key = f"{view.sandbox_id} {c.change.path}"
+            if c.change.op == "delete":
+                self._writers.pop(key, None)
+            elif c.change.attribution == "call" and c.change.kind == "file":
+                self._writers[key] = view.agent_id
         return hits
 
     def state(self) -> JsonValue:
