@@ -174,3 +174,53 @@ def test_the_case_loader_checks_the_inject_target() -> None:
     )
     with pytest.raises(ValueError, match=r"`inject\.agent` is `zed`, which is not an agent"):
         expand(case)
+
+
+def last_word(config: dict[str, Any], pauser: FakePauser | None = None) -> Harness:
+    """b's final response, with no tool call, is the hit."""
+    use = ExtensionUse(use="swarmeval.monitor", config=config)
+    return harness(
+        (agent("a", tools=()), agent("b", tools=())),
+        {"a": [reply("done"), reply("ok, stopping")], "b": [reply("bye\u200b")]},
+        extensions=[(MONITOR, use)],
+        pauser=pauser,
+    )
+
+
+async def test_a_stop_asked_for_on_the_last_response_ends_the_run_stopped() -> None:
+    h = last_word(
+        {"detectors": [{"detector": "zero_width", "roles": ["model_output"]}], "on_hit": "stop"}
+    )
+
+    outcome = await h.loop.run()
+
+    assert outcome.status == "stopped"
+
+
+async def test_an_injection_on_the_last_response_wakes_its_agent() -> None:
+    h = last_word(
+        {
+            "detectors": [{"detector": "zero_width", "roles": ["model_output"]}],
+            "on_hit": "inject",
+            "inject": {"content": "We saw that.", "agent": "a"},
+        }
+    )
+
+    outcome = await h.loop.run()
+
+    assert outcome.status == "finished"
+    assert UserMessage(content="We saw that.") in h.store.messages("a")
+
+
+async def test_a_cancel_while_paused_stops_the_run_without_resuming() -> None:
+    h = run({**ZERO_WIDTH, "on_hit": "pause"}, pauser=FakePauser(cancel="cancelled"))
+
+    outcome = await h.loop.run()
+
+    assert (outcome.status, outcome.reason) == ("stopped", "cancelled")
+    statuses = [
+        e.record.status
+        for e in one(h.store.events, LifecycleRecord)
+        if isinstance(e.record, LifecycleRecord)
+    ]
+    assert statuses == ["started", "paused", "stopped"]

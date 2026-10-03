@@ -285,11 +285,13 @@ class RunLoop:
         limits = self._spec.limits
         try:
             while True:
-                for agent in self._agents.values():
-                    if agent.finished and self._bus.has_mail(agent.spec.id, agent.turn + 1):
-                        # Mail wakes a finished agent; admitting it records the state change.
-                        agent.finished = False
-                active = [a for a in self._agents.values() if not a.finished]
+                active = self._active(dispatcher)
+                if not active:
+                    # What observers asked for on the last response (a stop, a pause, an
+                    # injection) takes effect before the run can end.
+                    await dispatcher.barrier()
+                    await self._checkpoint(dispatcher)
+                    active = self._active(dispatcher)
                 if not active:
                     return self._outcome("finished", None)
                 for agent in active:
@@ -303,6 +305,17 @@ class RunLoop:
         except _Stopped as stop:
             self._end_cause = stop.cause
             return self._outcome("stopped", stop.reason)
+
+    def _active(self, d: HookDispatcher) -> list[_AgentRun]:
+        """Agents that take a turn this round. Mail due at a finished agent's next turn, or an
+        injection queued for it, wakes it; admitting it records the state change."""
+        for agent in self._agents.values():
+            agent_id = agent.spec.id
+            if agent.finished and (
+                self._bus.has_mail(agent_id, agent.turn + 1) or d.has_injections(agent_id)
+            ):
+                agent.finished = False
+        return [a for a in self._agents.values() if not a.finished]
 
     def tool_schemas(self) -> dict[str, ToolSchema]:
         """Every tool this run can offer, as a model request carries it."""
@@ -338,7 +351,10 @@ class RunLoop:
             parent_id=request.event_id,
         )
         await self._writer.commit(Transaction(events=[paused]))
-        await self._pauser.wait(request.reason)
+        ended = await self._pauser.wait(request.reason)
+        if ended is not None:
+            self.stop(ended)
+            return
         resumed = EventDraft(record=LifecycleRecord(status="resumed"), parent_id=paused.event_id)
         await self._writer.commit(Transaction(events=[resumed]))
 

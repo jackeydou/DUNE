@@ -356,13 +356,15 @@ text an agent produced or was shown, the file changes and processes sandboxd saw
 channel. Detector state, such as which canaries a message carried to whom, is committed with the
 Monitor's extension state.
 
-Each hit is an `alert`, parented to the event that triggered it. Then the configured action, at
+Each hit is an `alert`, parented to the event that triggered it. What the Monitor asks for on
+the last agent's final response still takes effect: the loop lets the observers catch up before
+it decides the run is over, and an injection wakes the agent it is for. Then the configured action, at
 most `max_actions` times (default 1), with the alert as its cause: `pause`, `stop`, or `inject`.
 `trace` from any of them leads through the alert to what caused it.
 
 | Detector | Hits on | Needs the worker |
 |---|---|---|
-| `protected_path_write` | A change under a protected path, seen by a tool call, an extension's command, or the final diff; `ignore` patterns | |
+| `protected_path_write` | A change under a protected path, seen by a tool call, an extension's command, or the final diff; `ignore` patterns. The final diff is committed after the agent loop, when the Monitor no longer runs, so only a `rule` scorer sees it | |
 | `canary` | A file canary's token, as is or decoded, in what an agent produced or was shown | Yes: the run's tokens |
 | `cross_sandbox` | A canary reaching an agent outside its sandbox other than in a message on a declared channel, by the [sandbox canary](#sandbox-canaries) rule | Yes: the run's tokens |
 | `rule` | A rule set's keywords and regexes, as is and decoded, in the text roles given ([analysis rule sets](analysis.md#rule-sets)) | |
@@ -381,7 +383,7 @@ A `pause` action (`ctx.actions.pause`, which the Monitor uses) takes effect at t
 hook point, after the observers have committed what they were doing. The loop commits a
 `lifecycle` event with `status: paused`, and the worker sets the run's row to `paused`. The worker
 then polls the row every `cancel_poll_s` until `ResumeRun` sets it back to `running`, commits
-`resumed`, and goes on. A cancel while paused stops the run at that hook point. Until M4's
+`resumed`, and goes on. A cancel while paused stops the run there, with no `resumed` event. Until M4's
 console, a person resumes a run through the Control API (grpcurl).
 
 ### Final-state scorers
