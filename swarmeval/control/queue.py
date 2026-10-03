@@ -2,6 +2,10 @@
 
 The control plane only inserts and reads; a worker claims with `FOR UPDATE SKIP LOCKED`, which
 sets the owner and increments `owner_epoch` in the same statement. Shared by both roles.
+
+A run that becomes `interrupted` gets its rerun in the same transaction: one queued run for the
+same submission and variant at the next unused epoch, up to `epochs` reruns per variant
+(docs/services/orchestrator.md#reruns).
 """
 
 from collections.abc import Sequence
@@ -11,7 +15,7 @@ from typing import Any, Literal
 
 from pydantic import JsonValue
 from sqlalchemy import Row, Select, case, func, insert, select, update
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from swarmeval.db import control_runs, run_specs
 
@@ -27,6 +31,10 @@ class RunFinished(Exception):
     """The run has already finished, so the request no longer applies."""
 
 
+def run_id_of(case_id: str, submission_id: str, variant: int, epoch: int) -> str:
+    return f"{case_id}.{submission_id}.v{variant}.e{epoch}"
+
+
 @dataclass(frozen=True)
 class NewRun:
     run_id: str
@@ -39,6 +47,8 @@ class NewRun:
     task_args: dict[str, JsonValue]
     epoch: int
     epochs: int
+    replaces: str | None = None
+    suite: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +64,8 @@ class RunRow:
     task_args: dict[str, JsonValue]
     epoch: int
     epochs: int
+    replaces: str | None
+    suite: str | None
     owner_id: str | None
     owner_epoch: int
     isolation: str | None
@@ -77,6 +89,8 @@ def _joined() -> Select[*tuple[Any, ...]]:
         s.task_args,
         s.epoch,
         s.epochs,
+        s.replaces,
+        s.suite,
         r.owner_id,
         r.owner_epoch,
         r.isolation,
@@ -90,6 +104,17 @@ def _joined() -> Select[*tuple[Any, ...]]:
 def _row(row: Row[*tuple[Any, ...]]) -> RunRow:
     # `_asdict` is public API; the underscore only avoids clashing with column names.
     return RunRow(**row._asdict())  # pyright: ignore[reportPrivateUsage]
+
+
+@dataclass(frozen=True)
+class Recovered:
+    """A run a restarted worker found it still owned, now finished."""
+
+    run_id: str
+    status: RunStatus
+    """`interrupted`, or `cancelled` for a run cancelled while it ran."""
+    replacement: str | None
+    """The rerun queued for an interrupted run; `None` once its variant used up its reruns."""
 
 
 class Queue:
@@ -115,6 +140,8 @@ class Queue:
                         "task_args": r.task_args,
                         "epoch": r.epoch,
                         "epochs": r.epochs,
+                        "replaces": r.replaces,
+                        "suite": r.suite,
                     }
                     for r in runs
                 ],
@@ -135,6 +162,7 @@ class Queue:
         submission_id: str | None = None,
         case_id: str | None = None,
         status: str | None = None,
+        suite: str | None = None,
         limit: int = 100,
     ) -> list[RunRow]:
         query = _joined().order_by(control_runs.c.created_at.desc(), control_runs.c.run_id)
@@ -144,6 +172,8 @@ class Queue:
             query = query.where(run_specs.c.case_id == case_id)
         if status:
             query = query.where(control_runs.c.status == status)
+        if suite:
+            query = query.where(run_specs.c.suite == suite)
         async with self._engine.connect() as conn:
             rows = await conn.execute(query.limit(limit))
             return [_row(r) for r in rows]
@@ -218,26 +248,41 @@ class Queue:
 
     async def finish(
         self, run_id: str, owner_epoch: int, status: RunStatus, error: str | None = None
-    ) -> None:
-        """Records the outcome. A run cancelled meanwhile stays `cancelled`."""
+    ) -> str | None:
+        """Records the outcome. A run cancelled meanwhile stays `cancelled`. A run that becomes
+        `interrupted` gets its rerun in the same transaction, whose id is returned. Does nothing
+        when `owner_epoch` is no longer the run's."""
         runs = control_runs.c
         async with self._engine.begin() as conn:
+            current = (
+                await conn.execute(
+                    select(runs.status)
+                    .where(runs.run_id == run_id, runs.owner_epoch == owner_epoch)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if current is None:
+                return None
+            final: RunStatus = "cancelled" if current == "cancelled" else status
             await conn.execute(
                 update(control_runs)
-                .where(runs.run_id == run_id, runs.owner_epoch == owner_epoch)
-                .values(
-                    status=case((runs.status == "cancelled", "cancelled"), else_=status),
-                    error=error,
-                    finished_at=func.now(),
-                )
+                .where(runs.run_id == run_id)
+                .values(status=final, error=error, finished_at=func.now())
             )
+            if final == "interrupted" and current != "interrupted":
+                return await _rerun(conn, run_id)
+            return None
 
-    async def interrupt_owned(self, owner_id: str) -> list[str]:
-        """Marks runs a previous process of this worker left running as `interrupted`. M0 has no
-        takeover; M3 resumes them instead."""
+    async def interrupt_owned(self, owner_id: str) -> list[Recovered]:
+        """Finishes the runs a previous process of this worker left unfinished: running or paused
+        ones become `interrupted` and get their reruns in the same transaction; ones cancelled
+        while they ran get their `finished_at`. M3 resumes them instead.
+
+        Only rows owned by `owner_id` are touched, which is why worker ids must be unique
+        (`swarmeval.worker.hold_worker_id`)."""
         runs = control_runs.c
         async with self._engine.begin() as conn:
-            rows = await conn.execute(
+            interrupted = await conn.execute(
                 update(control_runs)
                 .where(runs.owner_id == owner_id, runs.status.in_(("running", "paused")))
                 .values(
@@ -247,4 +292,82 @@ class Queue:
                 )
                 .returning(runs.run_id)
             )
-            return list(rows.scalars())
+            recovered = [
+                Recovered(run_id, "interrupted", await _rerun(conn, run_id))
+                for run_id in sorted(interrupted.scalars())
+            ]
+            cancelled = await conn.execute(
+                update(control_runs)
+                .where(
+                    runs.owner_id == owner_id,
+                    runs.status == "cancelled",
+                    runs.finished_at.is_(None),
+                )
+                .values(finished_at=func.now())
+                .returning(runs.run_id)
+            )
+            recovered += [Recovered(r, "cancelled", None) for r in sorted(cancelled.scalars())]
+        return recovered
+
+
+async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
+    """Queues the rerun of interrupted `run_id` in `conn`'s transaction: same submission, case
+    revision, overrides, and variant, at the next unused epoch, so its seed differs too. A
+    variant gets at most `epochs` reruns in all, so a broken backend cannot requeue forever;
+    past that, returns `None` and the gap shows in reports."""
+    s = run_specs.c
+    spec = (
+        (
+            await conn.execute(
+                select(
+                    s.submission_id,
+                    s.case_id,
+                    s.case_sha256,
+                    s.overrides,
+                    s.variant,
+                    s.task_args,
+                    s.epochs,
+                    s.suite,
+                    control_runs.c.workspace,
+                )
+                .join_from(run_specs, control_runs, s.run_id == control_runs.c.run_id)
+                .where(s.run_id == run_id)
+            )
+        )
+        .mappings()
+        .one()
+    )
+    # Serializes the reruns of one variant, so two runs interrupted at once take different
+    # epochs: under READ COMMITTED each statement after the lock sees the other's commit.
+    lock = f"swarmeval.rerun:{spec['submission_id']}:{spec['variant']}"
+    await conn.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(lock, 0))))
+    reruns, last = (
+        await conn.execute(
+            select(func.count(s.replaces), func.max(s.epoch)).where(
+                s.submission_id == spec["submission_id"], s.variant == spec["variant"]
+            )
+        )
+    ).one()
+    if reruns >= spec["epochs"]:
+        return None
+    epoch = last + 1
+    rerun_id = run_id_of(spec["case_id"], spec["submission_id"], spec["variant"], epoch)
+    await conn.execute(
+        insert(control_runs).values(run_id=rerun_id, workspace=spec["workspace"], status="queued")
+    )
+    await conn.execute(
+        insert(run_specs).values(
+            run_id=rerun_id,
+            submission_id=spec["submission_id"],
+            case_id=spec["case_id"],
+            case_sha256=spec["case_sha256"],
+            overrides=spec["overrides"],
+            variant=spec["variant"],
+            task_args=spec["task_args"],
+            epoch=epoch,
+            epochs=spec["epochs"],
+            replaces=run_id,
+            suite=spec["suite"],
+        )
+    )
+    return rerun_id

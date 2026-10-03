@@ -5,13 +5,13 @@ writer of a run's events and state. Its place among the services is in
 [architecture.md](../architecture.md). The stored event format is in
 [event-log.md](../event-log.md).
 
-**Status:** the M0 part is built: case loading, the Control API, the queue, one worker that drives
+**Status:** the M0 part is built: case loading, the Control API, the queue, a worker that drives
 each run from claim to export, the agent loop ([agent-runtime.md](../agent-runtime.md)), the
-Message Bus without interventions, canaries, and final-state scorers. M1 adds `web_request`,
-several workers, and batch runs over variants and epochs. M2 adds interventions, fork, the online
-Monitor, and the async and event-driven turn policies. M3 adds leases, fencing, takeover, and
-pausing. Items marked *(proposed)* go beyond what the specs decided;
-they are listed under [Not settled](#not-settled).
+Message Bus without interventions, canaries, and final-state scorers. Of M1, `web_request`,
+several workers, reruns of interrupted runs, and suites are built. M2 adds interventions, fork,
+the online Monitor, and the async and event-driven turn policies. M3 adds leases, fencing,
+takeover, and pausing. Items marked *(proposed)* go beyond what the specs decided; they are
+listed under [Not settled](#not-settled).
 
 ## Roles
 
@@ -65,8 +65,8 @@ proposed)*. Messages may be up to 64 MiB, for case bundles.
 
 | RPC | Does | From |
 |---|---|---|
-| `SubmitRuns` | Takes a case bundle, variant overrides (axis → list of values), and epochs (0 = the case's); validates, stores the bundle, and enqueues one run per variant and epoch; returns the submission id and run ids. A case that does not load is `INVALID_ARGUMENT` with the loader's message | Built |
-| `GetRun`, `ListRuns` | Status, variant and its values, epoch, owner, isolation level, error, timestamps. `ListRuns` filters by submission, case, and status, newest first | Built. Fidelity arrives with recovery (M3) |
+| `SubmitRuns` | Takes a case bundle, variant overrides (axis → list of values), epochs (0 = the case's), and an optional [suite](#suites) label; validates, stores the bundle, and enqueues one run per variant and epoch; returns the submission id and run ids. A case that does not load is `INVALID_ARGUMENT` with the loader's message | Built |
+| `GetRun`, `ListRuns` | Status, variant and its values, epoch, the run it [reruns](#reruns), owner, isolation level, error, timestamps. `ListRuns` filters by submission, suite label, case, and status, newest first | Built. Fidelity arrives with recovery (M3) |
 | `CancelRun` | Marks cancelled. A queued run never starts; a running one stops at its owner's next hook point, is not scored, and is still exported. A finished run is `FAILED_PRECONDITION` | Built |
 | `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent | Built |
 | Case CRUD | Read and write `case.yaml` / `env.yaml` for the console | M4 |
@@ -82,6 +82,25 @@ Each run row references that hash. Control plane and workers share no disk, and 
 exact prompts, hooks, and data a run used *(proposed)*. Bundles are extracted with tarfile's
 `data` filter: `..`, links that leave the directory, and device files are refused, and absolute
 member paths land inside the directory. `case.yaml` must be at the archive's root.
+
+### Suites
+
+A [suite](../case-format.md#suites) runs as one submission per case, all carrying one suite
+label. Until the CLI (M4), `python -m swarmeval.control.suite` submits it:
+
+```bash
+uv run python -m swarmeval.control.suite check suites/m1_core.yaml     # load; submit nothing
+uv run python -m swarmeval.control.suite submit suites/m1_core.yaml --control 127.0.0.1:7090
+```
+
+`submit` loads the suite and every case first, so a broken case submits nothing. Then it packs
+each case as a [bundle](#case-bundles) and calls `SubmitRuns` with the case's overrides (the
+suite's `models` as the `model` axis), its epochs, and the label `<suite id>.<8 hex>`, fresh for
+each submit *(proposed)*. It prints the label. A case the Control API refuses stops the submit,
+and the error names the submissions already made. The label is stored as
+`control.run_specs.suite`, copied to reruns and summaries, and `ListRuns` and
+`python -m swarmeval.analysis report --suite` filter on it. Labels are lowercase letters, digits,
+`_`, `.`, and `-`.
 
 ### Case loading
 
@@ -104,10 +123,32 @@ therefore a claimable row, not a push, and the control plane holds no state of i
 concurrency per submission and per model backend are conditions in the claim query *(proposed)*.
 
 Status values are `queued`, `running`, `paused`, `interrupted`, `done`, `failed`, and `cancelled`.
-In M0 a run ends `done` (finished, or stopped by a limit or an extension), `cancelled`, `failed`
-(the case no longer loads, an extension failed, the model backend refused or failed a call —
-model-gateway's `502` — or a bug), or `interrupted` (sandboxd or model-gateway itself was
-unavailable; M3 pauses instead). Leases are not taken yet (M3).
+A run ends `done` (finished, or stopped by a limit or an extension), `cancelled`, `failed` (the
+case no longer loads, an extension failed, model-gateway gave an answer it would give again — the
+backend refused or failed a call, `502`, or the request was refused, any `4xx` such as an unknown
+model — or a bug), or `interrupted` (sandboxd or model-gateway itself was unavailable, or the
+worker that owned the run restarted; M3 pauses or takes over instead). Leases are not taken yet
+(M3).
+
+### Reruns
+
+A run that becomes `interrupted` is rerun as a new epoch. In the same transaction that sets the
+status, the queue adds one queued run for the same submission, case revision, overrides, and
+variant, at the variant's next unused epoch number, so its seed differs too
+(`swarmeval.control.queue`). The rerun's `run_specs.replaces` names the run it stands in for, and
+`GetRun` shows it as `replaces`. Both places a run becomes `interrupted` do this: `finish`, when
+a worker's run ends on an outage, and `interrupt_owned`, when a worker restarts. A run cancelled
+meanwhile stays `cancelled` and is not rerun; `failed` and `cancelled` runs are never rerun.
+
+A variant gets at most `epochs` reruns per submission, counted over all its runs, so a backend
+that stays broken cannot requeue forever *(proposed)*. Past the cap the run stays `interrupted`
+with no rerun, and the report shows the gap: per variant it lists the epochs requested, `done`,
+replaced, and missing ([analysis](analysis.md#capabilities)). Interrupted runs never count toward
+rates. Reruns of one variant are serialized with a transaction-scoped advisory lock, so two runs
+interrupted at once take different epochs.
+
+This is the default from trajectory-first spec Open question 4, pending its asker's confirmation.
+From M3, a run whose recovery falls below `recovery.min_fidelity` is rerun the same way.
 
 ### Live events
 
@@ -142,7 +183,28 @@ destroyed whatever happens. A cancel is seen by polling the run's status every 2
 hook point after that. A failed or interrupted run keeps its events but is not exported. The
 worker runs up to `--max-runs` runs at once (default 4); `--worker-id` (default the hostname)
 must stay the same across restarts, because on start the worker marks the runs it still owned
-`interrupted`.
+`interrupted`, which [reruns](#reruns) them, and gives a run cancelled while it ran its
+`finished_at` and summary.
+
+### Several workers
+
+Any number of worker processes can share one Postgres and one bucket. A claim is one
+`UPDATE … WHERE run_id = (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1)`, so two workers never take
+the same run, and every later write to the run's `control.runs` row is conditioned on the
+`owner_epoch` the claim set. Summaries are one object per run, so workers never write the same
+object. Each worker still runs up to `--max-runs` runs at once.
+
+Worker ids must be unique among live workers, because at start a worker finishes every run its id
+owns. While it serves, a worker holds a Postgres session-level advisory lock on its id
+(`swarmeval.worker.hold_worker_id`), on a connection of its own; a second worker with an id in use
+exits before touching any run. The lock goes with the connection, so a crashed worker's id is free
+at once; if that connection alone drops while the worker keeps going, the id is unguarded until
+it restarts. Until M3's leases, a worker that never comes back leaves its runs `running`:
+starting a worker with its id, on any host, interrupts and reruns them.
+
+Stopping a worker (SIGINT, or cancelling `serve`) cancels its runs, which stay `running` until it
+restarts. A run whose final status is being written finishes writing it and its summary first, so
+no run ends without a summary.
 
 ### Agent loop
 
@@ -281,8 +343,8 @@ Per-sandbox canaries arrive in M1.
 
 ## Leases, fencing, and takeover
 
-From M3. Until then a worker crash marks its runs `interrupted`, and a batch reruns them as new
-epochs. The tables are already shaped for recovery, so M3 needs no migration.
+From M3. Until then a worker crash marks its runs `interrupted` when the worker restarts, and
+each is [rerun](#reruns) as a new epoch. The tables are already shaped for recovery, so M3 needs no migration.
 
 - **Lease.** The owner renews `lease_until` every third of the lease length. The default lease is
   30 s *(proposed)*. An owner that fails to renew stops executing before its lease runs out.
@@ -352,3 +414,6 @@ connection.
 5. `pyarrow.fs` as the only S3 client. Export is built this way today: it writes `.eval` to a
    scratch file with `inspect_ai` and uploads it. The alternative is letting `inspect_ai` write to `s3://` through
    its own fsspec dependency, which means a second S3 client with its own configuration.
+6. At most `epochs` reruns per variant and submission, and reruns going to the back of the queue.
+7. A suite label per submit (`<id>.<8 hex>`), so submitting a suite twice gives two batches that
+   reports keep apart unless asked for both.

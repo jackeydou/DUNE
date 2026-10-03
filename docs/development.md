@@ -76,7 +76,24 @@ grpcurl -plaintext -import-path proto -proto swarmeval/control/v1/control.proto 
   127.0.0.1:7090 swarmeval.control.v1.ControlService/SubmitRuns
 ```
 
-`GetRun`, `ListRuns`, `CancelRun`, and `StreamEvents` take the run ids it returns. A finished
+`GetRun`, `ListRuns`, `CancelRun`, and `StreamEvents` take the run ids it returns.
+
+A [suite](case-format.md#suites) submits a set of cases over a model matrix. Edit its `models:`
+to names the gateway serves, check it, and submit it; it prints the label to report on:
+
+```bash
+uv run python -m swarmeval.control.suite check suites/m1_core.yaml
+uv run python -m swarmeval.control.suite submit suites/m1_core.yaml --control 127.0.0.1:7090
+uv run python -m swarmeval.analysis report --suite m1_core.<hex> $S3
+```
+
+More workers run more runs at once. Start each with its own `--worker-id`; a second worker with
+an id already in use exits. Restart a worker with the same id, so the runs it left unfinished are
+marked `interrupted` and rerun:
+
+```bash
+uv run swarmeval-worker $S3 --worker-id dev2 --max-runs 2 &
+``` A finished
 run's log is `runs/<run_id>/sample.eval` in the bucket; download it and open it with
 `uv run inspect view`.
 

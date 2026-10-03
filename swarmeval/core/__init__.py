@@ -1,4 +1,5 @@
-"""Cases: the `case.yaml` / `env.yaml` models, the loader, and variant expansion.
+"""Cases: the `case.yaml` / `env.yaml` models, the loader, and variant expansion; and suites of
+cases.
 
 The format is documented in docs/case-format.md.
 """
@@ -14,6 +15,7 @@ from swarmeval.core.loader import (
 )
 from swarmeval.core.models import CaseFile, EnvFile
 from swarmeval.core.plan import run_spec
+from swarmeval.core.suite import LoadedSuite, SuiteEntry, SuiteError, load_suite
 
 __all__ = [
     "AgentPrompts",
@@ -22,8 +24,12 @@ __all__ = [
     "EnvFile",
     "FileSeed",
     "LoadedCase",
+    "LoadedSuite",
     "SandboxPlan",
+    "SuiteEntry",
+    "SuiteError",
     "Variant",
     "load_case",
+    "load_suite",
     "run_spec",
 ]

@@ -1,6 +1,6 @@
 """`python -m swarmeval.analysis <job>`: batch jobs over exported runs.
 
-- `report [--submission ID ...]`: trigger rates as a Markdown table on stdout.
+- `report [--submission ID ...] [--suite LABEL ...]`: trigger rates as Markdown on stdout.
 - `judge --question Q --model M (--run ID ... | --submission ID ...)`: one LLM judge verdict per
   run, stored in `analysis.judge_verdicts`; one line per run on stdout. The gateway key comes
   from SWARMEVAL_ANALYSIS_KEY.
@@ -42,6 +42,13 @@ def main() -> None:
         action="append",
         default=[],
         help="only runs from this submission; repeatable. Default: every run in the bucket",
+    )
+    rates.add_argument(
+        "--suite",
+        action="append",
+        default=[],
+        help="only runs from this suite run (the label `swarmeval.control.suite submit` "
+        "prints); repeatable, and adds to --submission",
     )
     config.add_object_store(rates)
 
@@ -112,7 +119,7 @@ def main() -> None:
         match args.job:
             case "report":
                 summaries = load_summaries(config.object_store(args))
-                print(markdown(report(summaries, args.submission)), end="")
+                print(markdown(report(summaries, args.submission, args.suite)), end="")
             case "judge":
                 asyncio.run(_judge(args))
             case "eval-set":

@@ -1,5 +1,47 @@
 # Bug fixes
 
+## 2026-10-02 — A worker stopped while recording a run leaves it without a summary
+
+**Symptom.** Stopping a worker right after a run's final status was written, but before its
+summary was, left a `done` (or `failed`, `interrupted`) run that no report listed and no restart
+revisited. Found by the multi-worker test, which stops its workers once every run is finished.
+**Root cause.** `Worker._execute` awaited `finish` and `export_summary` directly, so a cancel
+between them ended the task.
+**Fix.** Both run in `_to_the_end`, which shields them from a cancel and lets the cancel through
+once they are done. `swarmeval/worker/worker.py`.
+**Guard.** `tests/worker/test_multi_worker.py::test_a_worker_stopped_while_recording_a_run_still_writes_its_summary`.
+**Touches.** The summary-failure path in the same step, which ends the run `failed`. A worker
+killed outright in that window still loses the summary; M3's recovery should check for it.
+
+## 2026-10-02 — A model-gateway `4xx` ends a run as `interrupted`
+
+**Symptom.** A run whose agent names a model the gateway has no route for (`404
+model_not_found`), or whose request the gateway refused (`400`), ended `interrupted`. With
+reruns, each such run is queued again until its variant runs out of reruns, every attempt
+failing the same way.
+**Root cause.** `service_failure` treated every gateway status except `502` as an outage.
+**Fix.** Any `4xx`, like `502`, ends the run `failed`; `503`, other `5xx`, and an unreachable
+gateway still interrupt it. `swarmeval/worker/run.py`.
+**Guard.** `tests/worker/test_outcomes.py::test_a_backend_refusal_fails_the_run_and_an_outage_interrupts_it`
+(`404` and `400` cases).
+**Touches.** Extends 2026-10-01 (backend error ends a run `interrupted`); `502` stays `failed`.
+M3's pause must still pause only on `503`, other `5xx`, and unreachable gateways or sandboxd.
+The rerun cap in `swarmeval/control/queue.py` is the backstop for any outage that is really
+permanent.
+
+## 2026-10-02 — A run cancelled while its worker was down never finishes
+
+**Symptom.** A running run cancelled through the Control API while its worker was down kept
+`finished_at` empty and never got a summary after the worker restarted, so reports did not list
+it.
+**Root cause.** `Queue.interrupt_owned` only looked at `running` and `paused` runs; a cancelled
+one is finished by its worker, which was gone.
+**Fix.** It also sets `finished_at` on the worker's `cancelled` runs that have none, and
+`Worker.recover` writes their summaries. `swarmeval/control/queue.py`, `swarmeval/worker/worker.py`.
+**Guard.** `tests/control/test_queue.py::test_a_restarted_worker_finishes_only_its_own_runs`.
+**Touches.** `CancelRun` sets `finished_at` itself only for queued runs, and `finish` keeps
+`cancelled`. Any new path that ends a run must also write its summary.
+
 ## 2026-10-01 — A model backend error ends a run as `interrupted`
 
 **Symptom.** When the model backend refused a call (for example, the context outgrew the model's

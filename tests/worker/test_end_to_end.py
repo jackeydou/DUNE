@@ -215,19 +215,30 @@ async def test_a_cancel_that_lands_while_a_run_finishes_is_what_the_summary_says
     assert [(u.status, u.runs) for u in result.unscored] == [("cancelled", 1)]
 
 
-async def test_runs_interrupted_by_a_worker_restart_get_a_summary(
+async def test_runs_interrupted_by_a_worker_restart_get_a_summary_and_a_rerun(
     platform: Platform, tmp_path: Path
 ) -> None:
+    for _ in range(3):
+        platform.backend.reply(completion("done"))
     submitted = await platform.control.SubmitRuns(
         pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
     )
+    (run_id,) = submitted.run_ids
     claimed = await platform.queue.claim("worker_e2e")
-    assert claimed is not None
+    assert claimed is not None and claimed.run_id == run_id
 
-    assert await platform.worker.recover() == [claimed.run_id]
+    (recovered,) = await platform.worker.recover()
 
-    unscored = report(load_summaries(platform.store), [submitted.submission_id]).unscored
-    assert [(u.status, u.runs) for u in unscored] == [("interrupted", 1)]
+    assert (recovered.run_id, recovered.status) == (run_id, "interrupted")
+    assert recovered.replacement is not None
+    rerun = (await platform.control.GetRun(pb.GetRunRequest(run_id=recovered.replacement))).run
+    assert (rerun.status, rerun.epoch, rerun.replaces) == ("queued", 2, run_id)
+    outcomes = await platform.worker.drain()
+    assert outcomes[rerun.run_id].status == "done", outcomes[rerun.run_id].error
+    result = report(load_summaries(platform.store), [submitted.submission_id])
+    assert [(u.status, u.runs) for u in result.unscored] == [("interrupted", 1)]
+    assert [(c.requested, c.done, c.replaced, c.missing) for c in result.coverage] == [(1, 1, 1, 0)]
+    assert {r.epochs for r in result.rates} == {1}
 
 
 async def test_a_case_that_does_not_load_is_refused(platform: Platform, tmp_path: Path) -> None:

@@ -101,7 +101,9 @@ since the run's first event.
 `control.runs` holds `run_id`, `workspace`, `status`, `owner_id`, `lease_until`, `owner_epoch`,
 `created_at`, `started_at`, `finished_at`, `isolation`, and `error`. Every `runs` table references
 it. `control.run_specs` holds each run's `submission_id`, `case_id`, `case_sha256`, `overrides`,
-`variant`, `task_args`, `epoch`, and `epochs`.
+`variant`, `task_args`, `epoch`, `epochs`, `replaces`, the interrupted run a
+[rerun](services/orchestrator.md#reruns) stands in for, and `suite`, the
+[suite](services/orchestrator.md#suites) label of the submission.
 
 An agent's context at step *k* is the `(gen, len)` from its last `agent_state` row with
 `seq ≤ k`, followed by the first `len` rows of `messages` for that `gen`. Compaction or truncation
@@ -206,7 +208,7 @@ At run end the worker writes to the export bucket, which is created with object 
 |---|---|---|
 | `runs/<run_id>/sample.eval` | Standard Inspect log, readable by `inspect view`. `ModelEvent.input` expanded | M0 |
 | `runs/<run_id>/events.parquet` | One row per event: the indexed columns, `prev_hash` / `hash` as hex, and `payload` as JSON text. Written after the `.eval`, so only for runs that verified and ended `done` or `cancelled` | Built |
-| `summaries/<run_id>.parquet` | One row per run: submission, case and its hash, variant and `task_args` (JSON, sorted keys), epoch, status and error, isolation, times, and each scorer's last score. Written for every run that reaches a final status, copying the status `control.runs` holds: by the worker once it has finished a run (a cancel that lands meanwhile wins), by the Control API when it cancels a queued run, and by a worker marking its old runs `interrupted` at start. If the worker cannot write one, the run is `failed` and says why; at start, the worker does not start. Reports read only these | Built |
+| `summaries/<run_id>.parquet` | One row per run: submission and its suite label, case and its hash, variant and `task_args` (JSON, sorted keys), epoch and the epochs requested per variant, `replaces` and `replaced_by` (an interrupted run and its [rerun](services/orchestrator.md#reruns)), status and error, isolation, times, and each scorer's last score. Written for every run that reaches a final status, copying the status `control.runs` holds: by the worker once it has finished a run (a cancel that lands meanwhile wins), by the Control API when it cancels a queued run, and by a worker marking its old runs `interrupted` at start. If the worker cannot write one, the run is `failed` and says why; at start, the worker does not start. Reports read only these. A column added later reads as null in older summaries | Built |
 
 Code: `swarmeval.events.export_events`, `export_summary`, and the schemas `EVENTS_SCHEMA` and
 `SUMMARY_SCHEMA`. Object paths are *(proposed)*. The per-variant `.eval` is not in the bucket: the

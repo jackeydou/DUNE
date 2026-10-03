@@ -43,6 +43,24 @@ class Platform:
 
 
 @pytest.fixture
+async def bare_deps(engine: AsyncEngine, object_store: ObjectStore) -> AsyncIterator[WorkerDeps]:
+    """Postgres and RustFS only: sandboxd and model-gateway point nowhere, for tests that
+    replace `execute`."""
+    async with (
+        grpc.aio.insecure_channel("127.0.0.1:9") as nowhere,
+        httpx2.AsyncClient(base_url="http://127.0.0.1:9") as http,
+    ):
+        yield WorkerDeps(
+            engine=engine,
+            queue=Queue(engine),
+            store=object_store,
+            sandboxd=nowhere,
+            gateway_http=http,
+            gateway_grpc=nowhere,
+        )
+
+
+@pytest.fixture
 async def platform(
     postgres_url: str, engine: AsyncEngine, object_store: ObjectStore, sandboxd: str
 ) -> AsyncIterator[Platform]:

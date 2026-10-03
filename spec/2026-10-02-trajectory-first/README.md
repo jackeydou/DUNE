@@ -143,6 +143,12 @@ AGENTS.md 的隔离一条同步修改。
    届时策略动作（`read_only`、`route`、`rewrite`）和出口记录就是落点。见
    [docs/services/net-gateway.md](../../docs/services/net-gateway.md#not-settled)。
 4. runtime spec Open question 6（中断与补跑的统计口径）原定 M2 之前定，现在 M1 的报告就要用到，提前到 M1 报告之前。
+   （2026-10-02）暂定，待提出人确认：以 `interrupted` 结束的 run 不计入触发率（`report` 原本就这样）；控制面在把 run
+   标成 `interrupted` 的同一事务里，为同一 submission、同一 variant 排一个补跑的 run，epoch 取这个 variant 下一个没用过的
+   编号（seed 跟着 epoch 走），并记下它替换的是哪个 run。每个 variant 最多补跑 `epochs` 次，坏掉的后端不会无限补跑；
+   到了上限，缺口留在报告里。`failed`、`cancelled` 不补跑；model-gateway 的 `4xx` 和 `502` 是重试也一样的回答，算
+   `failed`。报告按 variant 列出要求的 epoch 数、`done` 数、被补跑的数和缺口。见
+   [docs/services/orchestrator.md](../../docs/services/orchestrator.md#reruns)。
 5. 是否把 `web_request` 移到一个只能出公网、连不到平台网络的独立出口进程或容器里，作为地址检查之外的第二道防线。
 6. ~~runtime spec Open questions 8、9（inspect-scout、Docent）要在 M1 的分析出口之前定~~ 已定（2026-10-02）：自建，见决定 9。
 

@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import json
+import re
 import secrets
 import tempfile
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -20,7 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.control.bundles import bundle_hash, bundle_key, unpack
 from swarmeval.control.live import EventListener
-from swarmeval.control.queue import FINISHED, NewRun, Queue, RunFinished, RunNotFound, RunRow
+from swarmeval.control.queue import (
+    FINISHED,
+    NewRun,
+    Queue,
+    RunFinished,
+    RunNotFound,
+    RunRow,
+    run_id_of,
+)
 from swarmeval.core import CaseError, LoadedCase, load_case
 from swarmeval.core.models import Scalar
 from swarmeval.db import events
@@ -32,6 +41,8 @@ Context = grpc.aio.ServicerContext[Any, Any]
 
 POLL_S = 5.0
 """How long a live stream waits for a wakeup before it reads again anyway."""
+
+SUITE_LABEL = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,127}$")
 
 
 def _struct(values: Mapping[str, JsonValue]) -> Struct:
@@ -66,6 +77,8 @@ def to_proto(run: RunRow) -> pb.Run:
         created_at=_timestamp(run.created_at),
         started_at=_timestamp(run.started_at),
         finished_at=_timestamp(run.finished_at),
+        replaces=run.replaces or "",
+        suite=run.suite or "",
     )
 
 
@@ -94,10 +107,11 @@ def plan_runs(
     case_sha256: str,
     overrides: Mapping[str, Sequence[Scalar]],
     epochs: int,
+    suite: str | None = None,
 ) -> list[NewRun]:
     return [
         NewRun(
-            run_id=f"{loaded.id}.{submission_id}.v{variant.index}.e{epoch}",
+            run_id=run_id_of(loaded.id, submission_id, variant.index, epoch),
             submission_id=submission_id,
             case_id=loaded.id,
             workspace=loaded.workspace,
@@ -107,6 +121,7 @@ def plan_runs(
             task_args=dict(variant.values),
             epoch=epoch,
             epochs=epochs,
+            suite=suite,
         )
         for variant in loaded.variants
         for epoch in range(1, epochs + 1)
@@ -132,6 +147,12 @@ class ControlService(ControlServiceServicer):
     ) -> pb.SubmitRunsResponse:
         if request.epochs < 0:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "epochs must not be negative.")
+        if request.suite and not SUITE_LABEL.fullmatch(request.suite):
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"suite label {request.suite!r} is not valid. Use up to 128 lowercase letters, "
+                "digits, `_`, `.`, and `-`, starting with a letter or digit.",
+            )
         try:
             overrides = overrides_of(request.overrides)
             loaded = await asyncio.to_thread(_load, request.case_bundle, overrides)
@@ -146,6 +167,7 @@ class ControlService(ControlServiceServicer):
             case_sha256=sha256,
             overrides=overrides,
             epochs=request.epochs or loaded.epochs,
+            suite=request.suite or None,
         )
         await self._queue.enqueue(runs)
         return pb.SubmitRunsResponse(submission_id=submission_id, run_ids=[r.run_id for r in runs])
@@ -161,6 +183,7 @@ class ControlService(ControlServiceServicer):
             submission_id=request.submission_id or None,
             case_id=request.case_id or None,
             status=request.status or None,
+            suite=request.suite or None,
             limit=request.limit or 100,
         )
         return pb.ListRunsResponse(runs=[to_proto(r) for r in runs])

@@ -30,7 +30,10 @@ type SubmitRunsRequest struct {
 	// Variant axis → list of values, replacing that axis's values in the case.
 	Overrides *structpb.Struct `protobuf:"bytes,2,opt,name=overrides,proto3" json:"overrides,omitempty"`
 	// Runs per variant. Zero means the case's `epochs`.
-	Epochs        int32 `protobuf:"varint,3,opt,name=epochs,proto3" json:"epochs,omitempty"`
+	Epochs int32 `protobuf:"varint,3,opt,name=epochs,proto3" json:"epochs,omitempty"`
+	// Labels the submissions of one suite run, so a report can cover them together: lowercase
+	// letters, digits, `_`, `.`, and `-`, starting with a letter or digit. Empty for none.
+	Suite         string `protobuf:"bytes,4,opt,name=suite,proto3" json:"suite,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -84,6 +87,13 @@ func (x *SubmitRunsRequest) GetEpochs() int32 {
 		return x.Epochs
 	}
 	return 0
+}
+
+func (x *SubmitRunsRequest) GetSuite() string {
+	if x != nil {
+		return x.Suite
+	}
+	return ""
 }
 
 type SubmitRunsResponse struct {
@@ -156,10 +166,14 @@ type Run struct {
 	// Container runtime the run's sandboxes got: `runc` or `runsc`. Empty until they exist.
 	Isolation string `protobuf:"bytes,12,opt,name=isolation,proto3" json:"isolation,omitempty"`
 	// Why the run failed or was interrupted.
-	Error         string                 `protobuf:"bytes,13,opt,name=error,proto3" json:"error,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	FinishedAt    *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	Error      string                 `protobuf:"bytes,13,opt,name=error,proto3" json:"error,omitempty"`
+	CreatedAt  *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	StartedAt  *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	FinishedAt *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	// The interrupted run this one reruns at a new epoch; empty for a run the submission asked for.
+	Replaces string `protobuf:"bytes,17,opt,name=replaces,proto3" json:"replaces,omitempty"`
+	// The suite label of the run's submission; empty for none.
+	Suite         string `protobuf:"bytes,18,opt,name=suite,proto3" json:"suite,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -306,6 +320,20 @@ func (x *Run) GetFinishedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Run) GetReplaces() string {
+	if x != nil {
+		return x.Replaces
+	}
+	return ""
+}
+
+func (x *Run) GetSuite() string {
+	if x != nil {
+		return x.Suite
+	}
+	return ""
+}
+
 type GetRunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -400,6 +428,7 @@ type ListRunsRequest struct {
 	SubmissionId string `protobuf:"bytes,1,opt,name=submission_id,json=submissionId,proto3" json:"submission_id,omitempty"`
 	CaseId       string `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
 	Status       string `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	Suite        string `protobuf:"bytes,5,opt,name=suite,proto3" json:"suite,omitempty"`
 	// Zero means 100.
 	Limit         int32 `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -453,6 +482,13 @@ func (x *ListRunsRequest) GetCaseId() string {
 func (x *ListRunsRequest) GetStatus() string {
 	if x != nil {
 		return x.Status
+	}
+	return ""
+}
+
+func (x *ListRunsRequest) GetSuite() string {
+	if x != nil {
+		return x.Suite
 	}
 	return ""
 }
@@ -730,15 +766,16 @@ var File_swarmeval_control_v1_control_proto protoreflect.FileDescriptor
 
 const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\n" +
-	"\"swarmeval/control/v1/control.proto\x12\x14swarmeval.control.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x83\x01\n" +
+	"\"swarmeval/control/v1/control.proto\x12\x14swarmeval.control.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x99\x01\n" +
 	"\x11SubmitRunsRequest\x12\x1f\n" +
 	"\vcase_bundle\x18\x01 \x01(\fR\n" +
 	"caseBundle\x125\n" +
 	"\toverrides\x18\x02 \x01(\v2\x17.google.protobuf.StructR\toverrides\x12\x16\n" +
-	"\x06epochs\x18\x03 \x01(\x05R\x06epochs\"R\n" +
+	"\x06epochs\x18\x03 \x01(\x05R\x06epochs\x12\x14\n" +
+	"\x05suite\x18\x04 \x01(\tR\x05suite\"R\n" +
 	"\x12SubmitRunsResponse\x12#\n" +
 	"\rsubmission_id\x18\x01 \x01(\tR\fsubmissionId\x12\x17\n" +
-	"\arun_ids\x18\x02 \x03(\tR\x06runIds\"\xb1\x04\n" +
+	"\arun_ids\x18\x02 \x03(\tR\x06runIds\"\xe3\x04\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12#\n" +
 	"\rsubmission_id\x18\x02 \x01(\tR\fsubmissionId\x12\x17\n" +
@@ -760,15 +797,18 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\n" +
 	"started_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12;\n" +
 	"\vfinished_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"finishedAt\"&\n" +
+	"finishedAt\x12\x1a\n" +
+	"\breplaces\x18\x11 \x01(\tR\breplaces\x12\x14\n" +
+	"\x05suite\x18\x12 \x01(\tR\x05suite\"&\n" +
 	"\rGetRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"=\n" +
 	"\x0eGetRunResponse\x12+\n" +
-	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\"}\n" +
+	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\"\x93\x01\n" +
 	"\x0fListRunsRequest\x12#\n" +
 	"\rsubmission_id\x18\x01 \x01(\tR\fsubmissionId\x12\x17\n" +
 	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x14\n" +
+	"\x05suite\x18\x05 \x01(\tR\x05suite\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\x05R\x05limit\"A\n" +
 	"\x10ListRunsResponse\x12-\n" +
 	"\x04runs\x18\x01 \x03(\v2\x19.swarmeval.control.v1.RunR\x04runs\")\n" +

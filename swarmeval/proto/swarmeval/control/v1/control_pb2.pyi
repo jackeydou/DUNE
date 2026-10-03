@@ -27,10 +27,15 @@ class SubmitRunsRequest(_message.Message):
     CASE_BUNDLE_FIELD_NUMBER: _builtins.int
     OVERRIDES_FIELD_NUMBER: _builtins.int
     EPOCHS_FIELD_NUMBER: _builtins.int
+    SUITE_FIELD_NUMBER: _builtins.int
     case_bundle: _builtins.bytes
     """The case directory as an uncompressed tar archive, with `case.yaml` at its root."""
     epochs: _builtins.int
     """Runs per variant. Zero means the case's `epochs`."""
+    suite: _builtins.str
+    """Labels the submissions of one suite run, so a report can cover them together: lowercase
+    letters, digits, `_`, `.`, and `-`, starting with a letter or digit. Empty for none.
+    """
     @_builtins.property
     def overrides(self) -> _struct_pb2.Struct:
         """Variant axis → list of values, replacing that axis's values in the case."""
@@ -41,10 +46,11 @@ class SubmitRunsRequest(_message.Message):
         case_bundle: _builtins.bytes = ...,
         overrides: _struct_pb2.Struct | None = ...,
         epochs: _builtins.int = ...,
+        suite: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["overrides", b"overrides"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_bundle", b"case_bundle", "epochs", b"epochs", "overrides", b"overrides"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_bundle", b"case_bundle", "epochs", b"epochs", "overrides", b"overrides", "suite", b"suite"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -93,6 +99,8 @@ class Run(_message.Message):
     CREATED_AT_FIELD_NUMBER: _builtins.int
     STARTED_AT_FIELD_NUMBER: _builtins.int
     FINISHED_AT_FIELD_NUMBER: _builtins.int
+    REPLACES_FIELD_NUMBER: _builtins.int
+    SUITE_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     submission_id: _builtins.str
     case_id: _builtins.str
@@ -108,6 +116,10 @@ class Run(_message.Message):
     """Container runtime the run's sandboxes got: `runc` or `runsc`. Empty until they exist."""
     error: _builtins.str
     """Why the run failed or was interrupted."""
+    replaces: _builtins.str
+    """The interrupted run this one reruns at a new epoch; empty for a run the submission asked for."""
+    suite: _builtins.str
+    """The suite label of the run's submission; empty for none."""
     @_builtins.property
     def task_args(self) -> _struct_pb2.Struct:
         """The variant's axis values."""
@@ -137,10 +149,12 @@ class Run(_message.Message):
         created_at: _timestamp_pb2.Timestamp | None = ...,
         started_at: _timestamp_pb2.Timestamp | None = ...,
         finished_at: _timestamp_pb2.Timestamp | None = ...,
+        replaces: _builtins.str = ...,
+        suite: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["created_at", b"created_at", "finished_at", b"finished_at", "started_at", b"started_at", "task_args", b"task_args"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "case_sha256", b"case_sha256", "created_at", b"created_at", "epoch", b"epoch", "epochs", b"epochs", "error", b"error", "finished_at", b"finished_at", "isolation", b"isolation", "owner_id", b"owner_id", "run_id", b"run_id", "started_at", b"started_at", "status", b"status", "submission_id", b"submission_id", "task_args", b"task_args", "variant", b"variant", "workspace", b"workspace"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "case_sha256", b"case_sha256", "created_at", b"created_at", "epoch", b"epoch", "epochs", b"epochs", "error", b"error", "finished_at", b"finished_at", "isolation", b"isolation", "owner_id", b"owner_id", "replaces", b"replaces", "run_id", b"run_id", "started_at", b"started_at", "status", b"status", "submission_id", b"submission_id", "suite", b"suite", "task_args", b"task_args", "variant", b"variant", "workspace", b"workspace"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -192,11 +206,13 @@ class ListRunsRequest(_message.Message):
     SUBMISSION_ID_FIELD_NUMBER: _builtins.int
     CASE_ID_FIELD_NUMBER: _builtins.int
     STATUS_FIELD_NUMBER: _builtins.int
+    SUITE_FIELD_NUMBER: _builtins.int
     LIMIT_FIELD_NUMBER: _builtins.int
     submission_id: _builtins.str
     """Filters; empty matches everything."""
     case_id: _builtins.str
     status: _builtins.str
+    suite: _builtins.str
     limit: _builtins.int
     """Zero means 100."""
     def __init__(
@@ -205,11 +221,12 @@ class ListRunsRequest(_message.Message):
         submission_id: _builtins.str = ...,
         case_id: _builtins.str = ...,
         status: _builtins.str = ...,
+        suite: _builtins.str = ...,
         limit: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "limit", b"limit", "status", b"status", "submission_id", b"submission_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "limit", b"limit", "status", b"status", "submission_id", b"submission_id", "suite", b"suite"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

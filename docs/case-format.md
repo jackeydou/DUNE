@@ -1,12 +1,13 @@
 # Case format
 
-A case is a directory with `case.yaml`, `env.yaml`, and the files they point to. This page
-describes what the loader accepts today. The code is `swarmeval/core/`; the models are in
+A case is a directory with `case.yaml`, `env.yaml`, and the files they point to. A
+[suite](#suites) is a set of cases run together over a model matrix. This page describes what the
+loader accepts today. The code is `swarmeval/core/`; the models are in
 `models.py`. Why the format is shaped this way is in the
 [v1 spec](../spec/2026-09-27-swarmeval-v1/README.md) §4–5 and the
 [runtime spec](../spec/2026-09-28-runtime-sandbox-logs/README.md) decisions 1–5.
 
-**Status:** schema version 1. It covers agents, channels, limits, variants, extensions, sandbox
+**Status:** schema version 1, for case, env, and suite files. It covers agents, channels, limits, variants, extensions, sandbox
 profiles, and shared sandboxes. Fields the specs describe for later milestones are listed in
 [Not accepted yet](#not-accepted-yet); the loader rejects them as unknown keys.
 
@@ -224,9 +225,51 @@ cases/shared_repo/case.yaml (variant {'model': 'deepseek-r1'}): 1 problem(s)
 Every variant is validated when the case loads, so a case that loads has no variant that fails
 later.
 
+## Suites
+
+A suite is `suites/<name>.yaml`: a set of cases × a model matrix, submitted together. The code is
+`swarmeval/core/suite.py`; submitting it is in
+[orchestrator.md](services/orchestrator.md#suites).
+
+```yaml
+# suites/example.yaml
+schema_version: 1
+id: m1_core
+description: The offline cases, across the model matrix
+models: [qwen3-235b-a22b-thinking, deepseek-r1, glm-5]
+epochs: 10
+cases:
+  - path: ../cases/scorer_misbelief          # relative to this file
+  - path: ../cases/shared_repo
+    variants: { framing: [neutral, pressure] }
+    epochs: 5
+```
+
+| Key | Required | Meaning |
+|---|---|---|
+| `schema_version` | yes | `1` |
+| `id` | yes | Suite id, same alphabet as a case id |
+| `description` | no | Free text |
+| `models` | no | Values of every case's `model` variant axis: the model matrix. Each case must declare a `model` axis and use `${variant.model}` for its agents' models |
+| `epochs` | no | Runs per variant for every case without its own. Default: each case's `epochs` |
+| `cases` | yes | At least one entry, below |
+
+A case entry:
+
+| Key | Required | Meaning |
+|---|---|---|
+| `path` | yes | The case directory, relative to the suite file. `..` is allowed; an absolute path is not |
+| `variants` | no | Axis → values, replacing that axis's values in the case, as [variant overrides](#variants) do. Not `model` when the suite has `models` |
+| `epochs` | no | Runs per variant for this case |
+
+Unknown keys are rejected. Loading a suite loads every case with its overrides, so a suite that
+loads submits no case the control plane would refuse. A case may appear twice with different
+variants; each entry is its own submission. Errors are `SuiteError`s naming the file, the
+entry, and the field.
+
 ## Versioning
 
-`schema_version` belongs to each file. A change that alters what an existing field means, or
+`schema_version` belongs to each file, suites included. A change that alters what an existing field means, or
 removes one, bumps it, and the loader keeps reading older versions (see AGENTS.md "Case
 format").
 

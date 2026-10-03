@@ -116,10 +116,31 @@
   them.
 - `swarmeval.honeypot.decode.views`: the decoded views of an input, lazily and breadth first,
   and `View.xor_find`; `find_tokens` is built on them.
+- Interrupted runs are rerun as a new epoch: the queue adds one queued run for the same submission
+  and variant at its next unused epoch, in the transaction that marks the run `interrupted`, up
+  to `epochs` reruns per variant. `control.run_specs.replaces` links a rerun to the run it
+  replaces (migration 0006), and `Run.replaces` shows it.
+- Run summaries carry `replaces` and `replaced_by`; `report` lists per variant the epochs
+  requested, `done`, replaced, and missing.
+- Suites (`suites/<name>.yaml`, schema version 1): a set of cases × a model matrix, with
+  per-case variant overrides and epochs, loaded by `swarmeval.core.load_suite`. Format:
+  `docs/case-format.md#suites`. First suite: `suites/m1_core.yaml`, whose `models` are
+  placeholders to edit.
+- `python -m swarmeval.control.suite check|submit`: loads every case of a suite, then submits
+  each as its own submission under one suite label. `SubmitRunsRequest.suite`, `Run.suite`, and
+  `ListRunsRequest.suite`; `control.run_specs.suite` (migration 0006); summaries carry `suite`,
+  and `report --suite` narrows to a suite run.
+- Several workers can share one queue. `Worker.serve` holds a Postgres advisory lock on its
+  worker id (`swarmeval.worker.hold_worker_id`), and a second worker with an id in use exits
+  with `WorkerIdInUse` before touching any run.
 
 ### Changed
 - Missing exports raise `swarmeval.analysis.exports.ExportError` (was `JudgeError`), and the
   analysis entry point turns it into an exit message.
+- model-gateway `4xx` answers (an unknown model, a refused request) end a run `failed`, not
+  `interrupted`, since retrying gets the same answer.
+- `Queue.finish` returns the rerun it queued; `Queue.interrupt_owned` and `Worker.recover` return
+  `Recovered` entries, and also finish runs cancelled while their worker was down.
 - A run whose summary cannot be written ends `failed`, with the reason in its error. Cancelled
   queued runs and runs interrupted by a worker restart get summaries too.
 - Event schema version 3: tool events from `web_request` carry `web`. Additive; version 2 events
