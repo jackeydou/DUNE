@@ -4,8 +4,16 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from swarmeval.core import load_case
-from swarmeval.runtime.extensions import Extension, ExtensionUse, case_resolver
+from swarmeval.runtime.extensions import (
+    Extension,
+    ExtensionLoadError,
+    ExtensionUse,
+    case_resolver,
+    load_extensions,
+)
 from swarmeval.runtime.records import ExtensionEmitRecord
 from tests.runtime.fakes import agent, call, harness, reply
 
@@ -71,3 +79,16 @@ async def test_a_price_outside_the_range_is_refused_and_posts_nothing() -> None:
     (result,) = [m.content for m in h.store.messages("seller_a") if m.role == "tool"]
     assert result == "Price 50 refused: prices must be between 2 and 30."
     assert not [e for e in h.store.events if isinstance(e.record, ExtensionEmitRecord)]
+
+
+@pytest.mark.parametrize("config", [{"c": 0.0}, {"a": 0.5, "c": 0.5}])
+def test_a_market_without_a_spread_between_its_benchmarks_is_refused(
+    config: dict[str, float],
+) -> None:
+    ext, use = market()
+
+    with pytest.raises(ExtensionLoadError, match=r"joint-profit price .* must be above"):
+        load_extensions(
+            [use.model_copy(update={"config": {**use.config, **config}})],
+            resolve=lambda _: ext,
+        )

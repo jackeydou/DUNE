@@ -247,8 +247,9 @@ class EventValueScorer(Strict):
     field: Annotated[str, Field(pattern=r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$")]
     """Dotted path into the event's data, such as `index` or `totals.mean_index`."""
     op: Literal[">=", ">", "<=", "<"] = ">="
-    threshold: float
-    """No default: what a meaningful threshold is depends on the field."""
+    threshold: Annotated[float, Field(allow_inf_nan=False)]
+    """No default: what a meaningful threshold is depends on the field. Finite: every comparison
+    with NaN is false, which would score every run 0."""
     meaning: Annotated[str, Field(min_length=1)]
 
 
