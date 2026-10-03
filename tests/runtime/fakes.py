@@ -233,11 +233,14 @@ class FakePauser:
 
     resume: asyncio.Event | None = None
     reasons: list[str] = field(default_factory=list[str])
+    cancel: str | None = None
+    """Ends each pause as a cancel with this reason, instead of resuming."""
 
-    async def wait(self, reason: str) -> None:
+    async def wait(self, reason: str) -> str | None:
         self.reasons.append(reason)
         if self.resume is not None:
             await self.resume.wait()
+        return self.cancel
 
 
 @dataclass

@@ -9,6 +9,9 @@ from swarmeval.control.queue import Queue
 log = logging.getLogger(__name__)
 
 
+CANCELLED = "cancelled through the Control API"
+
+
 class QueuePauser:
     """The production `Pauser`. Polls the run's status while paused, every `poll_s`."""
 
@@ -18,7 +21,7 @@ class QueuePauser:
         self._owner_epoch = owner_epoch
         self._poll_s = poll_s
 
-    async def wait(self, reason: str) -> None:
+    async def wait(self, reason: str) -> str | None:
         status = await self._queue.pause(self._run_id, self._owner_epoch)
         if status == "paused":
             log.warning(
@@ -28,3 +31,4 @@ class QueuePauser:
             await asyncio.sleep(self._poll_s)
             status = await self._queue.status(self._run_id)
         log.info("run %s: pause over, now %s", self._run_id, status)
+        return CANCELLED if status == "cancelled" else None

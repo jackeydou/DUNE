@@ -270,6 +270,9 @@ class HookDispatcher:
         if self._failure is None:
             self._failure = err
 
+    def has_injections(self, agent_id: str) -> bool:
+        return bool(self._injections.get(agent_id))
+
     def take_injections(self, agent_id: str) -> list[tuple[UserMessage, str]]:
         """Queued injections for `agent_id`, each with its intervention event."""
         return self._injections.pop(agent_id, [])

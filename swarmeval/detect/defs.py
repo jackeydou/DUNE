@@ -20,7 +20,7 @@ Roles = Annotated[tuple[TextRole, ...], Field(min_length=1)]
 
 class ProtectedPathWriteDetect(_Def):
     """A change under a protected path, seen by a tool call, an extension's command, or the
-    final diff."""
+    final diff (which only a `rule` scorer sees: the Monitor stops with the agent loop)."""
 
     detector: Literal["protected_path_write"]
     ignore: tuple[str, ...] = ()

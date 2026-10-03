@@ -81,9 +81,9 @@ class SandboxExecutor(Protocol):
 
 
 class Pauser(Protocol):
-    async def wait(self, reason: str) -> None:
-        """Holds the run paused until a person resumes it, or until it is cancelled, then
-        returns. The loop checks for a stop after it returns."""
+    async def wait(self, reason: str) -> str | None:
+        """Holds the run paused until a person resumes it (`None`), or until it is cancelled:
+        then the stop reason, which the loop stops with instead of resuming."""
         ...
 
 
