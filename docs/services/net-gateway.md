@@ -179,3 +179,9 @@ needs a transparent layer below HTTP that a Python proxy would not give us.
    capability exists, `web_request` reaches any public address with any method, and nothing but
    its address check stands in the way. Designed together with this page's policy actions and
    egress records.
+3. Binding a host rule to the destination. `netgw.Policy` matches a connection's SNI or HTTP
+   `Host` without checking that its original destination IP belongs to that host, and `allow`
+   forwards to that IP. A client that skips certificate checks could present an allowed name to
+   any address. Before `allow` is served, a host match has to be tied to the addresses the
+   gateway itself resolved for that name (its DNS answers to this sandbox), or the connection
+   re-targeted to them.
