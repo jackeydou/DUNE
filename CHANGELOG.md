@@ -90,6 +90,10 @@
   `yes` citing nothing, or no `verdict` call are rejected. Every call is stored in
   `analysis.judge_verdicts` (migration 0004).
 - model-gateway `analysis_key_env`: calls with that key are answered directly, without a run.
+- Canaries are found through encodings: base64, hex, gzip and zlib chained up to three layers,
+  with single-byte XOR innermost (`swarmeval.honeypot.find_tokens`). `canary_hit` events carry
+  `via`, the decodings that revealed the token, and the canary scorer names them in its
+  explanation and reads written files as bytes.
 
 ### Changed
 - A run whose summary cannot be written ends `failed`, with the reason in its error. Cancelled

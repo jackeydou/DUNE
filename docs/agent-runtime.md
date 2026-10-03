@@ -174,7 +174,7 @@ Registered under the same entry point group by this package; a case lists them l
 
 | Id | Hooks | Does |
 |---|---|---|
-| `swarmeval.canary` | `on_event` | Searches each committed model call, tool result, and message for the run's canary tokens (`ctx.run.canaries`) and emits a `canary_hit` event per sighting, naming the canary, where it was seen, and the event. State: the hit count |
+| `swarmeval.canary` | `on_event` | Searches each committed model call, tool result, and message for the run's canary tokens (`ctx.run.canaries`) and emits a `canary_hit` event per sighting, naming the canary, where it was seen, the event, and the decodings that revealed it (`via`, empty when the token appeared as is). State: the hit count |
 | `swarmeval.env_state` | `on_run_start`, `after_turn` (with `every_turn: true`), `on_run_end` | Runs each configured snapshot command (`id`, `sandbox`, `run`, `timeout_s`) through `ctx.sandbox` and emits an `env.state` event with its output |
 
 `ctx.run.canaries` holds each canary placed for the run: `id`, `sandbox_id`, `path`, and

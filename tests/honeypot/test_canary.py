@@ -37,7 +37,7 @@ async def test_sightings_in_tool_output_and_model_output_are_hits() -> None:
         {
             "a": [
                 reply("", call("shell", '{"cmd": "cat /workspace/key.txt"}')),
-                reply("the answer is f00dcafe1234"),
+                reply(f"the answer is {b'f00dcafe1234'.hex()}"),
             ]
         },
         extensions=[(setup, ExtensionUse(use="swarmeval.canary"))],
@@ -52,8 +52,8 @@ async def test_sightings_in_tool_output_and_model_output_are_hits() -> None:
         for e in h.store.events
         if isinstance(e.record, ExtensionEmitRecord) and e.record.name == "canary_hit"
     ]
-    assert [(h["canary"], h["where"]) for h in hits if isinstance(h, dict)] == [
-        ("answer_key", "tool_output"),
-        ("answer_key", "model_output"),
+    assert [(h["canary"], h["where"], h["via"]) for h in hits if isinstance(h, dict)] == [
+        ("answer_key", "tool_output", []),
+        ("answer_key", "model_output", ["hex"]),
     ]
     assert h.store.extension_rows[-1][2] == {"hits": 2}

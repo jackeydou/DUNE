@@ -235,7 +235,7 @@ format").
 | Spec item | Arrives |
 |---|---|
 | `task.ground_truth` | When a scorer needs it |
-| Canary decoding, per-sandbox canaries | M1 |
+| Per-sandbox canaries | M1 |
 | `network`, `services` | With the network capability, later |
 | `role: monitor`, channel `monitored_by` and `interventions` | With interventions and the Monitor (M2) |
 | `topology` presets, `async` / `event_driven` turn policies, `wall_clock` | M2 |
