@@ -11,7 +11,8 @@ Message Bus, canaries, and final-state scorers. Of M1, `web_request`,
 several workers, reruns of interrupted runs, suites, per-sandbox canaries, and the isolation
 self-check are built. Of M2, the causal chain, channel interventions, case code, and the
 `event_value` scorer are built; fork, the online Monitor, and the async and event-driven turn
-policies are not yet. M3 adds leases, fencing, takeover, and pausing. Items marked
+policies are not yet. Of M3, leases and taking over a run whose lease ran out are built; resuming
+a taken-over run, fidelity, and pausing are not yet, so a taken-over run is rerun. Items marked
 *(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ## Roles
@@ -151,10 +152,11 @@ failed, a service gave an answer it would give again — model-gateway's backend
 a call, `502`, model-gateway refused the request, any `4xx` such as an unknown model, or sandboxd
 refused the request, `INVALID_ARGUMENT` such as a bad user, hostname, or seed file — or a bug), or
 `interrupted` (sandboxd or model-gateway itself was unavailable, sandboxd forgot the run after a
-restart, `NOT_FOUND`, or the worker that owned the run restarted; M3 pauses or takes over
+restart, `NOT_FOUND`, the worker that owned the run restarted, or it stopped renewing its lease
+and another worker [took the run over](#leases-fencing-and-takeover); M3 pauses or resumes
 instead). A finished run's status is final: `finish` changes a run only while it is `running`,
-`paused`, or `cancelled` (a cancel lands before its owner finishes the run). Leases are not taken
-yet (M3).
+`paused`, or `cancelled` (a cancel lands before its owner finishes the run). A claim also sets the
+run's `lease_until`.
 
 ### Reruns
 
@@ -163,7 +165,8 @@ status, the queue adds one queued run for the same submission, case revision, ov
 variant, at the variant's next unused epoch number, so its seed differs too
 (`swarmeval.control.queue`). The rerun's `run_specs.replaces` names the run it stands in for, and
 `GetRun` shows it as `replaces`. Both places a run becomes `interrupted` do this: `finish`, when
-a worker's run ends on an outage, and `interrupt_owned`, when a worker restarts. `interrupt_owned`
+a worker's run ends on an outage or a worker finishes a run it took over, and `interrupt_owned`,
+when a worker restarts. `interrupt_owned`
 also increments the `owner_epoch` of every run it finishes, so a process of the old owner that
 still runs one is fenced: its next write fails and its `finish` changes nothing. A run cancelled
 meanwhile stays `cancelled` and is not rerun; `failed` and `cancelled` runs are never rerun.
@@ -215,9 +218,10 @@ run's summary cannot be written once its status is, a `done` run becomes `failed
 report can see it; any other status stays, so an interrupted run keeps its rerun and a cancel
 still wins. Either way the run's error adds why (`Queue.summary_failed`). The
 worker runs up to `--max-runs` runs at once (default 4); `--worker-id` (default the hostname)
-must stay the same across restarts, because on start the worker marks the runs it still owned
-`interrupted`, which [reruns](#reruns) them, and gives a run cancelled while it ran its
-`finished_at` and summary.
+should stay the same across restarts, because on start the worker marks the runs it still owned
+`interrupted`, which [reruns](#reruns) them, gives a run cancelled while it ran its `finished_at`
+and summary, and asks its sandboxd to remove both kinds' sandboxes. Under a new id, the old id's
+runs wait for their leases to run out and are [taken over](#leases-fencing-and-takeover).
 
 ### Several workers
 
@@ -233,12 +237,13 @@ owns. While it serves, a worker holds a Postgres session-level advisory lock on 
 exits before touching any run. The lock goes with the connection, so a crashed worker's id is free
 at once. Every 10 s the worker checks that connection is still the session holding the lock; if
 it dropped, the worker stops serving (its runs are cancelled and stay `running` until a worker
-with its id starts) and exits with `WorkerIdLost`, since another process could now take the id.
-For up to those 10 s the id is unguarded. Until M3's leases, a worker that never comes back
-leaves its runs `running`: starting a worker with its id, on any host, interrupts and reruns them.
+with its id starts or their leases run out) and exits with `WorkerIdLost`, since another process
+could now take the id. For up to those 10 s the id is unguarded. A worker that never comes back
+leaves its runs to be [taken over](#leases-fencing-and-takeover) by any worker once their leases
+run out.
 
 Stopping a worker (SIGINT, or cancelling `serve`) cancels its runs, which stay `running` until it
-restarts. A run whose final status is being written finishes writing it and its summary first, so
+restarts or their leases run out. A run whose final status is being written finishes writing it and its summary first, so
 no run ends without a summary.
 
 ### Agent loop
@@ -481,17 +486,35 @@ run metadata, not built.
 
 ## Leases, fencing, and takeover
 
-From M3. Until then a worker crash marks its runs `interrupted` when the worker restarts, and
-each is [rerun](#reruns) as a new epoch. The tables are already shaped for recovery, so M3 needs no migration.
+M3. Leases, fencing, and taking a run over are built (`swarmeval.worker.leases`,
+`Queue.claim_expired`); resuming a taken-over run is not, so for now every takeover reruns the
+run. The tables were shaped for recovery from the start, so none of this needed a migration.
 
-- **Lease.** The owner renews `lease_until` every third of the lease length. The default lease is
-  30 s *(proposed)*. An owner that fails to renew stops executing before its lease runs out.
+- **Lease.** A claim sets `lease_until` to `--lease-s` from now (default 30 s *(proposed)*), by the
+  database's clock, so workers' clocks never have to agree. While a worker works on a run, until
+  only its final status is left to write, it renews the lease every third of that. A run a
+  renewal no longer finds (another worker took it over, or it was finished elsewhere) is stopped
+  at once. If renewals keep failing, the worker stops every run it holds once two thirds of the
+  lease have passed since the last renewal went out, before any lease can run out. A stopped run
+  is cancelled where it is: its sandboxes are removed and nothing is recorded, since the run now
+  belongs to whoever takes it over.
 - **Fencing.** Every write transaction starts with
   `SELECT owner_epoch FROM control.runs WHERE run_id = :run FOR SHARE`. On a mismatch it rolls
   back, and the worker drops the run. A takeover's `UPDATE` waits for in-flight transactions, so a
-  stale owner's next transaction fails. This is why `control` and `runs` share one Postgres.
-- **Takeover.** Another worker claims a run whose lease has expired, which increments
-  `owner_epoch`. It then does the following:
+  stale owner's next transaction fails. This is why `control` and `runs` share one Postgres. It
+  also covers an owner that missed its own deadline, for instance because its process was
+  suspended.
+- **Taking a run over.** Before claiming a queued run, a serving worker claims the unfinished run
+  (`running`, `paused`, or cancelled while it ran) whose lease ran out first, with
+  `FOR UPDATE SKIP LOCKED`, which increments `owner_epoch` and gives it a lease of its own. Today
+  it then asks its sandboxd to remove the run's sandboxes, and finishes the run: `interrupted`
+  with its error naming both workers, which [reruns](#reruns) it, or `cancelled` if it was
+  cancelled while it ran. Then it writes the run's summary. Containers live on the node that
+  created them, so a sandboxd on another node finds none, and they are left, labeled with the run,
+  until the old worker's id restarts on that node *(proposed)*. A run claimed before leases
+  existed has no lease, never runs out, and is still finished when its worker id restarts.
+
+  With resuming, a takeover will do the following instead:
   1. Reconcile the run's containers through sandboxd `ListRun`. Live ones are adopted, not
      recreated.
   2. Set each sandbox's fidelity: `exact`, `fs_preserved`, or `lost`.
@@ -504,8 +527,8 @@ each is [rerun](#reruns) as a new epoch. The tables are already shaped for recov
   6. Continue from the latest `agent_state` row.
 
   If fidelity falls below the case's `recovery.min_fidelity`, the run is marked `interrupted` and
-  a new epoch is queued. On docker, a run can only be taken over on its own node *(open, runtime
-  spec Q4)*.
+  a new epoch is queued, as every takeover does today. On docker, a run can only be resumed on its
+  own node *(open, runtime spec Q4)*.
 - **Fork** (M2, before the rest of this section). Read the `agent_state` row at step *k*, replace
   one message, and continue as a new run. This is the same query recovery uses.
 
@@ -548,7 +571,9 @@ connection.
 2. Case bundles uploaded with `SubmitRuns` and stored by hash, as opposed to a case store the
    Control API manages. M4's case CRUD may change this.
 3. Concurrency limits expressed in the claim query.
-4. Default lease length of 30 s.
+4. Default lease length of 30 s; stopping held runs two thirds of a lease after the last renewal
+   that went out; and, until resuming is built, any worker taking over a run, whatever node its
+   containers are on, since taking over only reruns it.
 5. `pyarrow.fs` as the only S3 client. Export is built this way today: it writes `.eval` to a
    scratch file with `inspect_ai` and uploads it. The alternative is letting `inspect_ai` write to `s3://` through
    its own fsspec dependency, which means a second S3 client with its own configuration.

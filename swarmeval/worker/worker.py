@@ -1,8 +1,10 @@
 """The worker's main loop: claim queued runs and execute them, up to a concurrency limit.
 
-Any number of workers share one queue; each claim takes a run no other worker holds. A run whose
-worker dies is marked `interrupted`, and rerun at a new epoch, when that worker (same `owner_id`)
-starts again; M3 replaces this with leases and takeover.
+Any number of workers share one queue; each claim takes a run no other worker holds, with a lease
+the worker renews while it works on the run. A run whose worker dies is taken over by any worker
+once its lease runs out, or finished by that worker (same `owner_id`) when it starts again. Until
+a run can be resumed, taking it over means removing its sandboxes and marking it `interrupted`,
+which reruns it at a new epoch (docs/services/orchestrator.md#leases-fencing-and-takeover).
 """
 
 import asyncio
@@ -16,8 +18,10 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from swarmeval.control.queue import Recovered, RunRow
+from swarmeval.control.queue import LEASE_S, Expired, Recovered, RunRow
 from swarmeval.events import FencedError, export_summary
+from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError
+from swarmeval.worker.leases import LeaseLost, Leases
 from swarmeval.worker.run import Outcome, WorkerDeps, execute
 
 log = logging.getLogger(__name__)
@@ -110,9 +114,12 @@ async def _watch_lock(
 
 
 class Worker:
-    def __init__(self, deps: WorkerDeps, *, owner_id: str, max_runs: int = 4) -> None:
+    def __init__(
+        self, deps: WorkerDeps, *, owner_id: str, max_runs: int = 4, lease_s: float = LEASE_S
+    ) -> None:
         self._deps = deps
         self._owner_id = owner_id
+        self._leases = Leases(deps.queue, owner_id, lease_s)
         self._slots = asyncio.Semaphore(max_runs)
         self._tasks: set[asyncio.Task[None]] = set()
         self._halt: str | None = None
@@ -120,8 +127,8 @@ class Worker:
 
     async def recover(self) -> list[Recovered]:
         """Finishes the runs this worker owned before a restart (interrupted ones get reruns),
-        and writes their summaries. Raises if a summary cannot be written: the worker does not
-        start."""
+        removes their sandboxes, and writes their summaries. Raises if a summary cannot be
+        written: the worker does not start."""
         recovered = await self._deps.queue.interrupt_owned(self._owner_id)
         for run in recovered:
             log.warning(
@@ -131,27 +138,34 @@ class Worker:
                 run.status,
                 run.replacement or "nothing",
             )
+            await self._remove_sandboxes(run.run_id)
             await export_summary(self._deps.engine, run.run_id, self._deps.store)
         return recovered
 
     async def serve(self, poll_s: float = 1.0) -> None:
-        """Claims and executes runs until cancelled. Raises `WorkerIdInUse`, before touching any
-        run, when another live worker has this worker's id, and `WorkerIdLost` if it stops
-        holding the id. When a run finds this host broken, claims nothing more, lets its other
-        runs finish, and raises `WorkerHalted`."""
-        async with hold_worker_id(self._deps.engine, self._owner_id):
+        """Takes over runs whose lease ran out, and claims and executes queued runs, until
+        cancelled. Raises `WorkerIdInUse`, before touching any run, when another live worker has
+        this worker's id, and `WorkerIdLost` if it stops holding the id. When a run finds this
+        host broken, claims nothing more, lets its other runs finish, and raises
+        `WorkerHalted`."""
+        queue, lease_s = self._deps.queue, self._leases.lease_s
+        async with hold_worker_id(self._deps.engine, self._owner_id), self._leases.renewing():
             await self.recover()
             try:
                 while self._halt is None:
                     await self._slots.acquire()
                     if self._halt is not None:
                         break
-                    run = await self._deps.queue.claim(self._owner_id)
-                    if run is None:
+                    work: Coroutine[Any, Any, Outcome]
+                    if (expired := await queue.claim_expired(self._owner_id, lease_s)) is not None:
+                        work = self._take_over(expired)
+                    elif (run := await queue.claim(self._owner_id, lease_s)) is not None:
+                        work = self._execute(run)
+                    else:
                         self._slots.release()
                         await asyncio.sleep(poll_s)
                         continue
-                    task = asyncio.create_task(self._run(run))
+                    task = asyncio.create_task(self._in_slot(work))
                     self._tasks.add(task)
                     task.add_done_callback(self._tasks.discard)
                 await asyncio.gather(*self._tasks)
@@ -163,24 +177,76 @@ class Worker:
 
     async def drain(self) -> dict[str, Outcome]:
         """Executes queued runs one at a time until none is left, or until a run finds this host
-        broken. For tests and one-shot use."""
+        broken. Takes over no run. For tests and one-shot use."""
         outcomes: dict[str, Outcome] = {}
-        while (
-            self._halt is None and (run := await self._deps.queue.claim(self._owner_id)) is not None
-        ):
-            outcomes[run.run_id] = await self._execute(run)
+        async with self._leases.renewing():
+            while (
+                self._halt is None
+                and (run := await self._deps.queue.claim(self._owner_id, self._leases.lease_s))
+                is not None
+            ):
+                outcomes[run.run_id] = await self._execute(run)
         return outcomes
 
-    async def _run(self, run: RunRow) -> None:
+    async def _in_slot(self, work: Coroutine[Any, Any, Outcome]) -> None:
         try:
-            await self._execute(run)
+            await work
         finally:
             self._slots.release()
+
+    async def _take_over(self, expired: Expired) -> Outcome:
+        """Finishes a run whose owner stopped renewing its lease: removes its sandboxes and
+        marks it `interrupted`, which queues its rerun, or finishes it `cancelled` if it was
+        cancelled while it ran. Resuming it instead is not built yet."""
+        run = expired.run
+        log.warning(
+            "run %s: worker %s's lease ran out at %s; worker %s took it over at owner_epoch %d",
+            run.run_id,
+            expired.previous_owner,
+            expired.expired_at.isoformat(),
+            self._owner_id,
+            run.owner_epoch,
+        )
+        try:
+            await self._leases.hold(run.run_id, run.owner_epoch, self._remove_sandboxes(run.run_id))
+        except LeaseLost as err:
+            log.warning("run %s: %s", run.run_id, err)
+            return Outcome("interrupted", str(err))
+        if run.status == "cancelled":
+            outcome = Outcome("cancelled")
+        else:
+            outcome = Outcome(
+                "interrupted",
+                f"worker `{expired.previous_owner}` stopped renewing its lease, which ran out at "
+                f"{expired.expired_at.isoformat()}; worker `{self._owner_id}` took the run over. "
+                "Resuming a run is not built yet, so it is rerun as a new epoch.",
+            )
+        return await _to_the_end(self._record(run, outcome))
+
+    async def _remove_sandboxes(self, run_id: str) -> None:
+        """Removes whatever this worker's sandboxd holds of a run another process owned.
+        Containers live on the node that created them, so a sandboxd on another node finds
+        none, and they are left until the old worker's id restarts there. A sandboxd that cannot
+        remove them leaves them too, labeled with the run; the run's evidence is in Postgres
+        either way."""
+        try:
+            await RunSandboxes(self._deps.sandboxd, run_id, S3BlobStore(self._deps.store)).destroy()
+        except SandboxdError:
+            log.warning(
+                "run %s: could not remove its sandboxes; containers labeled "
+                "swarmeval.run_id=%s may be left on the host",
+                run_id,
+                run_id,
+                exc_info=True,
+            )
 
     async def _execute(self, run: RunRow) -> Outcome:
         log.info("run %s: claimed at owner_epoch %d", run.run_id, run.owner_epoch)
         try:
-            outcome = await execute(run, self._deps)
+            outcome = await self._leases.hold(run.run_id, run.owner_epoch, execute(run, self._deps))
+        except LeaseLost as err:
+            log.warning("run %s: %s", run.run_id, err)
+            return Outcome("interrupted", str(err))
         except FencedError:
             log.warning("run %s: another worker owns it now; dropping it", run.run_id)
             return Outcome("interrupted", "fenced")

@@ -15,7 +15,7 @@ from swarmeval.config import (
     database_url,
     object_store,
 )
-from swarmeval.control.queue import Queue
+from swarmeval.control.queue import LEASE_S, Queue
 from swarmeval.db import async_engine
 from swarmeval.events import ObjectStore
 from swarmeval.worker.run import WorkerDeps
@@ -32,6 +32,7 @@ async def serve(
     owner_id: str,
     max_runs: int,
     allow_case_code: bool,
+    lease_s: float,
 ) -> None:
     engine = async_engine(url)
     async with (
@@ -50,7 +51,7 @@ async def serve(
             allow_case_code=allow_case_code,
         )
         try:
-            await Worker(deps, owner_id=owner_id, max_runs=max_runs).serve()
+            await Worker(deps, owner_id=owner_id, max_runs=max_runs, lease_s=lease_s).serve()
         finally:
             await engine.dispose()
 
@@ -73,6 +74,13 @@ def main() -> None:
         "to start",
     )
     parser.add_argument("--max-runs", type=int, default=4, help="runs executed at once")
+    parser.add_argument(
+        "--lease-s",
+        type=float,
+        default=LEASE_S,
+        help="lease on each run this worker claims, renewed every third of it. Once a lease has "
+        "run out, any worker may take the run over",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     try:
@@ -86,6 +94,7 @@ def main() -> None:
                 owner_id=args.worker_id,
                 max_runs=args.max_runs,
                 allow_case_code=args.allow_case_code,
+                lease_s=args.lease_s,
             )
         )
     except (WorkerIdInUse, WorkerIdLost, WorkerHalted) as err:

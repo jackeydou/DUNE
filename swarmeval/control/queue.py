@@ -3,18 +3,22 @@
 The control plane only inserts and reads; a worker claims with `FOR UPDATE SKIP LOCKED`, which
 sets the owner and increments `owner_epoch` in the same statement. Shared by both roles.
 
+A claim also gives the run a lease, which its owner renews; a run whose lease ran out can be
+claimed by another worker (docs/services/orchestrator.md#leases-fencing-and-takeover). All lease
+times are the database's clock, so workers' clocks never have to agree.
+
 A run that becomes `interrupted` gets its rerun in the same transaction: one queued run for the
 same submission and variant at the next unused epoch, up to `epochs` reruns per variant
 (docs/services/orchestrator.md#reruns).
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import JsonValue
-from sqlalchemy import Row, Select, case, func, insert, select, update
+from sqlalchemy import ColumnElement, Row, Select, case, func, insert, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from swarmeval.db import control_runs, run_specs
@@ -23,6 +27,13 @@ RunStatus = Literal["queued", "running", "paused", "interrupted", "done", "faile
 FINISHED: tuple[RunStatus, ...] = ("interrupted", "done", "failed", "cancelled")
 _FINISHABLE: tuple[RunStatus, ...] = ("running", "paused", "cancelled")
 """What `finish` may change. `cancelled` because a cancel while the run ran waits for its owner."""
+
+LEASE_S = 30.0
+"""Default lease length in seconds. The owner renews every third of it."""
+
+
+def _lease_end(lease_s: float) -> ColumnElement[datetime]:
+    return func.now() + timedelta(seconds=lease_s)
 
 
 class RunNotFound(Exception):
@@ -119,6 +130,17 @@ class Recovered:
     """The rerun queued for an interrupted run; `None` once its variant used up its reruns."""
 
 
+@dataclass(frozen=True)
+class Expired:
+    """A run whose owner stopped renewing its lease, now claimed by another worker."""
+
+    run: RunRow
+    """As claimed: the new owner and `owner_epoch`, and the status the run had (`running`,
+    `paused`, or `cancelled` while it ran)."""
+    previous_owner: str
+    expired_at: datetime
+
+
 class Queue:
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
@@ -202,8 +224,9 @@ class Queue:
             )
         return await self.get(run_id)
 
-    async def claim(self, owner_id: str) -> RunRow | None:
-        """The oldest queued run, now owned by `owner_id` at a new `owner_epoch`."""
+    async def claim(self, owner_id: str, lease_s: float = LEASE_S) -> RunRow | None:
+        """The oldest queued run, now owned by `owner_id` at a new `owner_epoch`, with a lease
+        of `lease_s` from now."""
         runs = control_runs.c
         oldest = (
             select(runs.run_id)
@@ -222,12 +245,78 @@ class Queue:
                         status="running",
                         owner_id=owner_id,
                         owner_epoch=runs.owner_epoch + 1,
+                        lease_until=_lease_end(lease_s),
                         started_at=func.now(),
                     )
                     .returning(runs.run_id)
                 )
             ).scalar_one_or_none()
         return None if claimed is None else await self.get(claimed)
+
+    async def claim_expired(self, owner_id: str, lease_s: float = LEASE_S) -> Expired | None:
+        """The unfinished run whose lease ran out first, now owned by `owner_id` at a new
+        `owner_epoch` with a lease of `lease_s` from now. Its status is left as it was. The
+        epoch bump fences the previous owner: its next write raises `FencedError`, and its
+        `finish` does nothing.
+
+        A run claimed before leases existed has none, never expires, and is still finished by
+        `interrupt_owned` when its worker restarts."""
+        runs = control_runs.c
+        stale = (
+            select(
+                runs.run_id,
+                runs.owner_id.label("previous_owner"),
+                runs.lease_until.label("expired_at"),
+            )
+            .where(
+                runs.status.in_(_FINISHABLE),
+                runs.finished_at.is_(None),
+                runs.lease_until < func.now(),
+            )
+            .order_by(runs.lease_until, runs.run_id)
+            .limit(1)
+            .with_for_update(skip_locked=True)
+            .subquery()
+        )
+        async with self._engine.begin() as conn:
+            claimed = (
+                await conn.execute(
+                    update(control_runs)
+                    .where(runs.run_id == stale.c.run_id)
+                    .values(
+                        owner_id=owner_id,
+                        owner_epoch=runs.owner_epoch + 1,
+                        lease_until=_lease_end(lease_s),
+                    )
+                    .returning(runs.run_id, stale.c.previous_owner, stale.c.expired_at)
+                )
+            ).one_or_none()
+        if claimed is None:
+            return None
+        run_id, previous_owner, expired_at = claimed
+        return Expired(await self.get(run_id), previous_owner, expired_at)
+
+    async def renew(
+        self, owner_id: str, held: Mapping[str, int], lease_s: float = LEASE_S
+    ) -> set[str]:
+        """Extends to `lease_s` from now the lease of each unfinished run `owner_id` holds at the
+        given `owner_epoch` (`run_id` → epoch). Returns the runs renewed; one left out was taken
+        over or finished elsewhere, and its owner must stop executing it."""
+        if not held:
+            return set()
+        runs = control_runs.c
+        async with self._engine.begin() as conn:
+            renewed = await conn.execute(
+                update(control_runs)
+                .where(
+                    runs.owner_id == owner_id,
+                    tuple_(runs.run_id, runs.owner_epoch).in_(list(held.items())),
+                    runs.finished_at.is_(None),
+                )
+                .values(lease_until=_lease_end(lease_s))
+                .returning(runs.run_id)
+            )
+            return set(renewed.scalars())
 
     async def status(self, run_id: str) -> RunStatus:
         async with self._engine.connect() as conn:
