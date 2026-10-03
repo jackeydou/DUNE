@@ -291,6 +291,27 @@ def to_inspect_assistant(message: AssistantMessage) -> ChatMessageAssistant:
     )
 
 
+def from_inspect_assistant(
+    message: ChatMessageAssistant, raw_arguments: dict[str, str]
+) -> AssistantMessage:
+    """The inverse of `to_inspect_assistant`. `raw_arguments` is the model event's
+    `raw_tool_arguments`: Inspect keeps tool arguments parsed, not as the model wrote them."""
+    content = message.content
+    if isinstance(content, str):
+        text, reasoning = content, None
+    else:
+        text = "".join(c.text for c in content if isinstance(c, ContentText))
+        reasoning = next((c.reasoning for c in content if isinstance(c, ContentReasoning)), None)
+    return AssistantMessage(
+        content=text,
+        reasoning=reasoning,
+        tool_calls=tuple(
+            ToolCall(id=c.id, name=c.function, arguments=raw_arguments[c.id])
+            for c in message.tool_calls or ()
+        ),
+    )
+
+
 def to_inspect_message(message: ChatMessage) -> InspectMessage:
     match message:
         case SystemMessage():
