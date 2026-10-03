@@ -222,17 +222,35 @@ message RestoreFilesRequest {
   // Absolute, clean, and strictly inside a key path. One that does not exist is skipped.
   repeated string remove = 3;
   repeated RestoreDir dirs = 4;
-  repeated SeedFile files = 5;
+  repeated RestoreFile files = 5;
 }
 
+// Whatever is at `path` and is not a directory is removed first.
 message RestoreDir {
   // Absolute, clean, and strictly inside a key path.
   string path = 1;
   // Permission bits; zero means 0755.
   uint32 mode = 2;
+  // Owner to give it, when that differs from the owner sandboxd writes as.
+  uint32 uid = 3;
 }
 
-message RestoreFilesResponse {}
+// Whatever is at `path` and is not a regular file (a directory, a symlink) is removed first, so
+// the write never follows a link.
+message RestoreFile {
+  // Absolute, clean, and strictly inside a key path.
+  string path = 1;
+  bytes content = 2;
+  // Permission bits; zero means 0644.
+  uint32 mode = 3;
+  uint32 uid = 4;
+}
+
+message RestoreFilesResponse {
+  // Paths whose owner sandboxd could not set, because it does not run as root. The content and
+  // mode are restored.
+  repeated string unowned = 1;
+}
 
 message ReadFileRequest {
   string run_id = 1;

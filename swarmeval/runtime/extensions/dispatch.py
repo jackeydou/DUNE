@@ -143,6 +143,9 @@ class HookDispatcher:
 
         self.timed_delays = False
         """Whether `Delay(seconds=...)` is honored: under the `async` turn policy."""
+        self.turn_delays = True
+        """Whether `Delay(turns=...)` is honored: not under `async`, where a waiting agent takes
+        no turns, so a message held for its turns would never come due."""
         self.quiesce = True
         """Whether a barrier waits for the observers to go quiet, events they cause included
         (sequential policies), or only for the events committed when it was entered (`async`,
@@ -486,6 +489,13 @@ class HookDispatcher:
                 case Deliver(content=content):
                     changed = envelope.model_copy(update={"content": content})
                 case Delay(turns=turns, seconds=seconds):
+                    if turns is not None and not self.turn_delays:
+                        raise ExtensionError(
+                            instance.id,
+                            "before_deliver",
+                            "returned Delay(turns=...), which the `async` turn policy does not "
+                            "honor: a waiting agent takes no turns. Delay by `seconds` instead.",
+                        )
                     if seconds is not None and not self.timed_delays:
                         raise ExtensionError(
                             instance.id,

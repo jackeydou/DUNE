@@ -404,21 +404,26 @@ The worker then:
 3. Restores each sandbox, before its first command, from the recorded file changes of the
    source (and, for a fork of a fork, its sources) up to the fork point, through sandboxd's
    `RestoreFiles`: for every path its last change, a deletion, a directory, or a file whose
-   content is in the blob store. A file sandboxd stored by hash only (over 1 MiB), a symlink, or
-   anything else cannot come back, and makes the fork `fs_partial` instead of `fs_restored`,
-   recorded as the run's `fidelity`. Background processes never come back, and no fork claims
+   content is in the blob store, with its recorded mode and owner. A file sandboxd stored by hash
+   only (over 1 MiB), a symlink, anything else, or an owner sandboxd could not set cannot come
+   back, and makes the fork `fs_partial` instead of `fs_restored`, recorded as the run's
+   `fidelity`. Background processes never come back, and no fork claims
    to be exact.
 4. Runs the isolation self-check, then starts the loop from the checkpoint: the source's contexts
    are copied at their generation numbers, agent, extension, and mail state is restored, and the
    round in progress goes on. Its chain links into the source's
    ([hash chain](../event-log.md#hash-chain)).
 5. Applies the edits, each an `intervention` with `hook: fork` parented to the fork's `started`:
-   message edits give the agent a new generation (`edit_context`, like a compaction), and a
-   delivery edit replaces what a carried message will deliver (`deliver`). Then `on_resume`
+   message edits give the agent a new generation (`edit_context`, like a compaction), and it
+   takes a turn again even if it had finished; a delivery edit replaces what a carried message
+   will deliver (`deliver`). Replacements apply before deletions, by the indexes at the fork
+   point. Then `on_resume`
    runs with `fork: true` and the fidelity.
 
 A fork is scored like any run, on its own events and its final state; what its source did before
-the fork point is not scored again. Reports list forks apart from the rates, with their source
+the fork point is not scored again. Scorers that remember what they saw (`cross_sandbox`, `rule`)
+read the source's events up to the fork point first, without scoring them, so a token a channel
+delivered there does not count as a crossing. Reports list forks apart from the rates, with their source
 and fidelity ([analysis](analysis.md#capabilities)). An interrupted fork gets no rerun. `trace`
 follows a fork's parents into its source's export.
 
@@ -657,8 +662,8 @@ connection.
 13. Forks: the fork point as the start of the turn the event happened in; `<source>.f<n>` ids
     and the source's epoch; edits limited to replacing a message's text, deleting a user message,
     and replacing an undelivered message; scoring a fork on its own events only; no rerun for an
-    interrupted fork; ownership not restored, and file content restored only up to sandboxd's
-    1 MiB content limit.
+    interrupted fork; an owner sandboxd cannot set, and file content over sandboxd's 1 MiB
+    content limit, making the fork `fs_partial`.
 14. Turn policies: `event_driven` letting an agent go on until it answers without a tool call;
     `async` ending once every agent waits with nothing due, `max_turns` per agent ending the run
     `limit`, and a hook point under `async` waiting only for the events committed when it was

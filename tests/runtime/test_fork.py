@@ -217,3 +217,57 @@ async def test_a_checkpoint_counts_background_work_still_running() -> None:
     await h.loop.run()
 
     assert [c.spawned for _, c in h.store.checkpoints] == [1, 1]
+
+
+@extension(id="t.mark", api_version=1)
+def mark(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("after_turn")
+    async def _(ctx: HookContext[NoState]) -> None:
+        ctx.emit("turn_done", ctx.agent.id if ctx.agent else None)
+
+
+@extension(id="t.stopper", api_version=1)
+def stopper(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("on_event")
+    async def _(ctx: HookContext[NoState], event: CommittedEvent) -> None:
+        if isinstance(event.record, ExtensionEmitRecord) and event.record.name == "turn_done":
+            ctx.actions.stop("saw a turn end")
+
+
+async def test_a_stop_an_observer_asked_for_before_a_checkpoint_is_not_lost() -> None:
+    def pair(store: FakeStore | None = None, **kwargs: Any) -> Any:
+        return harness(
+            (agent("a", tools=()), agent("b", tools=())),
+            {"a": [reply("a1"), reply("a2")], "b": [reply("b1"), reply("b2")]},
+            extensions=[mark, stopper],
+            store=store,
+            **kwargs,
+        )
+
+    source = pair()
+    outcome = await source.loop.run()
+
+    assert outcome.status == "stopped"
+    # The stop took effect before the next turn's checkpoint, so none was taken after it.
+    assert [c.turn for _, c in source.store.checkpoints] == [0]
+
+
+async def test_an_edit_wakes_an_agent_that_had_finished() -> None:
+    source = run()
+    await source.loop.run()
+    seq, checkpoint = next((s, c) for s, c in source.store.checkpoints if c.agents["b"].finished)
+    start = fork_from(source.store, checkpoint.turn)
+    edit = ReplaceMessage(agent_id="b", index=1, content="Do the task again.")
+    left = remaining(source.store, seq)
+
+    fork = run(
+        FakeStore(),
+        scripts={"a": left["a"], "b": [reply("again")]},
+        fork=replace(start, edits=(edit,)),
+    )
+    await fork.loop.run()
+
+    b_calls = [
+        e for e in fork.store.events if isinstance(e.record, ModelCallRecord) and e.agent_id == "b"
+    ]
+    assert b_calls

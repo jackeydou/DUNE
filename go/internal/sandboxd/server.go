@@ -112,13 +112,13 @@ func (s *Server) Exec(req *sandboxv1.ExecRequest, stream grpc.ServerStreamingSer
 func (s *Server) RestoreFiles(ctx context.Context, req *sandboxv1.RestoreFilesRequest) (*sandboxv1.RestoreFilesResponse, error) {
 	dirs := make([]RestoreDir, len(req.GetDirs()))
 	for i, d := range req.GetDirs() {
-		dirs[i] = RestoreDir{Path: d.GetPath(), Mode: fs.FileMode(d.GetMode()).Perm()}
+		dirs[i] = RestoreDir{Path: d.GetPath(), Mode: fs.FileMode(d.GetMode()).Perm(), UID: d.GetUid()}
 	}
-	files := make([]SeedFile, len(req.GetFiles()))
+	files := make([]RestoreFile, len(req.GetFiles()))
 	for i, f := range req.GetFiles() {
-		files[i] = SeedFile{Path: f.GetPath(), Content: f.GetContent(), Mode: fs.FileMode(f.GetMode()).Perm()}
+		files[i] = RestoreFile{Path: f.GetPath(), Content: f.GetContent(), Mode: fs.FileMode(f.GetMode()).Perm(), UID: f.GetUid()}
 	}
-	err := s.svc.RestoreFiles(ctx, RestoreRequest{
+	unowned, err := s.svc.RestoreFiles(ctx, RestoreRequest{
 		RunID:     req.GetRunId(),
 		SandboxID: req.GetSandboxId(),
 		Remove:    req.GetRemove(),
@@ -128,7 +128,7 @@ func (s *Server) RestoreFiles(ctx context.Context, req *sandboxv1.RestoreFilesRe
 	if err != nil {
 		return nil, s.status("RestoreFiles", err)
 	}
-	return &sandboxv1.RestoreFilesResponse{}, nil
+	return &sandboxv1.RestoreFilesResponse{Unowned: unowned}, nil
 }
 
 func (s *Server) ReadFile(ctx context.Context, req *sandboxv1.ReadFileRequest) (*sandboxv1.ReadFileResponse, error) {

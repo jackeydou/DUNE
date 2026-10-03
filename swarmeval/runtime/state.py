@@ -115,6 +115,8 @@ def fork_start(
         draft = edit_intervention(agent_id, before, messages, started.event_id)
         txn.events.append(draft)
         agent.gen, agent.length, agent.last_input = agent.gen + 1, len(messages), draft.event_id
+        # An edited agent takes its turn again, even one that had finished: it reads the edit.
+        agent.finished = False
         txn.new_generations[agent_id] = messages
         txn.agent_states.append(agent.row("ready", tokens))
     mail = list(checkpoint.mail)

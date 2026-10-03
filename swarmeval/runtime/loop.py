@@ -97,6 +97,11 @@ class RunLoop:
         """Cleared while the run is paused: every agent's next hook point waits on it."""
         self._resumed.set()
         self._paused_s = 0.0
+        self._open_pauses = 0
+        """Pauses not yet resumed; under `async` one agent can pause while another is."""
+        self._pause_began = 0.0
+        self._limit_claim: asyncio.Future[tuple[RunOutcome, str]] | None = None
+        """The run-wide limit being recorded, which every agent that sees it awaits."""
         self._clock_start = 0.0
         self._driver: AsyncDriver | None = None
         self._poke: asyncio.Task[None] | None = None
@@ -173,6 +178,7 @@ class RunLoop:
             default_timeout_s=self._hook_timeout_s,
         )
         dispatcher.timed_delays = self._spec.turn_policy == "async"
+        dispatcher.turn_delays = self._spec.turn_policy != "async"
         dispatcher.quiesce = self._spec.turn_policy != "async"
         dispatcher.start()
         self._clock_start = asyncio.get_running_loop().time()
@@ -191,6 +197,7 @@ class RunLoop:
                 )
                 await dispatcher.resume(info, self._started_id)
                 outcome = await self._drive(dispatcher, self._fork.checkpoint.round)
+            dispatcher.quiesce = True
             await dispatcher.observe("on_run_end", None, self._started_id)
             await dispatcher.settle()
             record = LifecycleRecord(status=outcome.status, reason=outcome.reason)
@@ -307,8 +314,11 @@ class RunLoop:
             raise Stopped(reason, self._stop_cause(dispatcher))
 
     async def _mark_turn(self, d: HookDispatcher, rest: Sequence[AgentRun]) -> None:
-        """Commits the checkpoint a fork can start from, once the observers have caught up."""
+        """Commits the checkpoint a fork can start from, once the observers have caught up and
+        whatever they asked for meanwhile (a pause, a stop) has taken effect, so a fork from
+        it does what the source did next."""
         await d.barrier()
+        await self._hook_point(d)
         checkpoint = checkpoint_of(
             turns=self._turns,
             rest=rest,
@@ -349,8 +359,10 @@ class RunLoop:
         """Waits for the observers first, so the pause's intervention, which an observer may
         still be committing, precedes the `paused` event it parents."""
         self._resumed.clear()
+        self._open_pauses += 1
         clock = asyncio.get_running_loop()
-        began = clock.time()
+        if self._open_pauses == 1:
+            self._pause_began = clock.time()
         await d.barrier()
         paused = EventDraft(
             record=LifecycleRecord(status="paused", reason=request.reason),
@@ -360,11 +372,15 @@ class RunLoop:
         ended = await self._pauser.wait(request.reason)
         if ended is not None:
             self.stop(ended)
-            return
-        resumed = EventDraft(record=LifecycleRecord(status="resumed"), parent_id=paused.event_id)
-        await self._writer.commit(Transaction(events=[resumed]))
-        self._paused_s += clock.time() - began
-        self._resumed.set()
+        else:
+            resumed = EventDraft(
+                record=LifecycleRecord(status="resumed"), parent_id=paused.event_id
+            )
+            await self._writer.commit(Transaction(events=[resumed]))
+        self._open_pauses -= 1
+        if self._open_pauses == 0:
+            self._paused_s += clock.time() - self._pause_began
+            self._resumed.set()
 
     def _stop_cause(self, dispatcher: HookDispatcher) -> str | None:
         """An extension's stop intervention; `None` for a stop from outside (a cancel)."""
@@ -383,14 +399,27 @@ class RunLoop:
         return self._outcome("limit", f"{limit} reached ({value})")
 
     async def _run_limit(self) -> tuple[RunOutcome, str] | None:
-        """`max_tokens` or `wall_clock`, recorded, with the `limit` event."""
+        """`max_tokens` or `wall_clock`, recorded once, with the `limit` event. Under `async`
+        the agent that sees the limit first records it; the others get the same answer."""
+        if self._limit_claim is not None:
+            return await self._limit_claim
+        limits = self._spec.limits
+        reached = (limits.max_tokens is not None and self._tokens_used >= limits.max_tokens) or (
+            limits.wall_clock_s is not None and self._elapsed() >= limits.wall_clock_s
+        )
+        if not reached:
+            return None
+        self._limit_claim = asyncio.ensure_future(self._record_run_limit())
+        return await self._limit_claim
+
+    async def _record_run_limit(self) -> tuple[RunOutcome, str]:
+        """Called right after `_run_limit` saw a limit reached, before anything else ran."""
         limits = self._spec.limits
         if limits.max_tokens is not None and self._tokens_used >= limits.max_tokens:
             outcome = await self._limit("max_tokens", limits.max_tokens)
-        elif limits.wall_clock_s is not None and self._elapsed() >= limits.wall_clock_s:
-            outcome = await self._limit("wall_clock", round(limits.wall_clock_s))
         else:
-            return None
+            assert limits.wall_clock_s is not None, "one of the two was reached"
+            outcome = await self._limit("wall_clock", round(limits.wall_clock_s))
         assert self._end_cause is not None, "set by _limit"
         return outcome, self._end_cause
 
@@ -497,6 +526,7 @@ class RunLoop:
     ) -> None:
         gate = await d.before_tool_call(agent.info, call, model_event_id)
         txn = gate.txn
+        await self._resumed.wait()
         pause = d.take_pause()
         if pause is not None:
             await self._writer.commit(txn)
@@ -618,6 +648,10 @@ class _LoopTurns:
 
     def stop_requested(self, d: HookDispatcher) -> bool:
         return self._loop._stop_requested(d) is not None  # pyright: ignore[reportPrivateUsage]
+
+    def time_left(self) -> float | None:
+        limit = self._loop._spec.limits.wall_clock_s  # pyright: ignore[reportPrivateUsage]
+        return None if limit is None else limit - self._loop._elapsed()  # pyright: ignore[reportPrivateUsage]
 
     async def run_limit(self) -> tuple[RunOutcome, str] | None:
         return await self._loop._run_limit()  # pyright: ignore[reportPrivateUsage]

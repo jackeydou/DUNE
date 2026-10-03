@@ -21,6 +21,7 @@ from swarmeval.control.bundles import bundle_key, unpack
 from swarmeval.control.queue import Queue, RunRow, RunStatus
 from swarmeval.core import CaseError, Variant, load_case, run_spec
 from swarmeval.core.models import AxisValue
+from swarmeval.detect.view import EventView
 from swarmeval.events import ObjectStore, PostgresRunStore, RunHeader, export_events, export_run
 from swarmeval.events.fork import Ancestor, ForkPointError, chain_head, load_tokens, save_tokens
 from swarmeval.events.seal import ChainHead
@@ -48,7 +49,7 @@ from swarmeval.runtime.writer import RunWriter
 from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError, SeedFile
 from swarmeval.scorers import FinalStateScoring, ScoringError, last_lifecycle
 from swarmeval.web import HttpWebClient
-from swarmeval.worker.fork import last_changes, load_fork, restore
+from swarmeval.worker.fork import last_changes, lineage_views, load_fork, restore
 from swarmeval.worker.pause import CANCELLED, QueuePauser
 from swarmeval.worker.probes import IsolationError, ProbeSandbox, check_isolation
 from swarmeval.worker.transcript import check_transcript
@@ -143,6 +144,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
         return Outcome("failed", f"the case no longer loads: {err}")
     fork: ForkStart | None = None
     ancestors: list[Ancestor] = []
+    prior: list[EventView] = []
     start: ChainHead | None = None
     tip: str | None = None
     if run.forked_from is None:
@@ -186,7 +188,8 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
             stack.push_async_callback(sandboxes.destroy)
             await _create_sandboxes(run, variant, canaries, sandbox_canaries, sandboxes, deps.queue)
             if fork is not None:
-                changes = await last_changes(deps.engine, ancestors)
+                prior = await lineage_views(deps.engine, ancestors)
+                changes = last_changes(prior)
                 fidelity, lost = await restore(sandboxes, blobs, changes, list(variant.sandboxes))
                 if lost:
                     log.warning("run %s: fork restored partially: %s", run.run_id, "; ".join(lost))
@@ -232,6 +235,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     agent_sandboxes={a.id: variant.sandbox_of(a.id).id for a in spec.agents},
                     sandboxes=sandboxes,
                     writer=writer,
+                    prior=prior,
                 ).run(committed)
             await _check_transcript(deps.engine, spec, loop, writer, last_lifecycle(committed))
     except (ExtensionError, RunConfigError, ScoringError) as err:
