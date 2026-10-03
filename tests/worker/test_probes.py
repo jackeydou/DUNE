@@ -1,6 +1,7 @@
 """The isolation self-check's orchestration, with sandboxd scripted. The scripts themselves run
 in real sandboxes in `test_probes_live.py`."""
 
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,7 +22,7 @@ IDS = ("a", "b")
 def target(sandbox_id: str) -> ProbeSandbox:
     return ProbeSandbox(
         sandbox_id=sandbox_id,
-        names=(f"host-{sandbox_id}", sandbox_id),
+        names=(("hostname", f"host-{sandbox_id}"), ("sandbox id", sandbox_id)),
         key_paths=("/workspace", "/workspace/tests"),
         plant_dirs=("/workspace",),
     )
@@ -128,7 +129,35 @@ async def test_no_check_command_line_carries_a_whole_marker() -> None:
     for check in sandboxes.commands("probe:check").values():
         script = " ".join(check.argv)
         assert not any(m in script for m in markers), "the /proc scan would find itself"
-        assert "host-b" in script or "host-a" in script
+
+
+async def test_no_probe_event_carries_another_sandboxs_canary_token(tmp_path: Path) -> None:
+    case = base_case()
+    case["swarm"]["agents"][1]["sandbox"] = "team_box"
+    env = base_env()
+    env["sandboxes"] = {"team_box": {"profile": "default"}}
+    (variant,) = load_case(write(tmp_path, case, env)).variants
+    boxes = place_sandboxes(
+        {p.id: p.agents for p in variant.sandboxes.values()},
+        {p.id: [] for p in variant.sandboxes.values()},
+    )
+    targets = probe_targets(variant, boxes)
+    sandboxes = ScriptedSandboxes(ids=tuple(t.sandbox_id for t in targets))
+    store = FakeStore()
+
+    await check_isolation(targets, sandboxes, RunWriter(store))
+
+    tokens = {b.sandbox_id: b.token for b in boxes}
+    events = probe_events(store)
+    assert {e.step for e in events} == {"plant", "check", "clean"}
+    for event in events:
+        stored = event.model_dump_json()
+        others = [t for s, t in tokens.items() if s != event.sandbox_id]
+        assert not any(t in stored for t in others), (event.sandbox_id, event.step)
+    check = sandboxes.commands("probe:check")["dev"]
+    token = tokens["team_box"]
+    assert token not in " ".join(check.argv)
+    assert shlex.join([token[:16], token[16:]]) in check.argv[2], "passed in halves"
 
 
 async def test_a_probe_that_gets_through_fails_the_run_after_cleaning_up() -> None:
@@ -199,10 +228,20 @@ def test_probe_targets_follow_the_case_topology(tmp_path: Path) -> None:
     targets = probe_targets(variant, boxes)
 
     assert [(t.sandbox_id, t.names[1], t.key_paths, t.plant_dirs) for t in targets] == [
-        ("dev", "dev", ("/workspace", "/workspace/tests", "/data"), ("/workspace",)),
-        ("team_box", "team_box", ("/workspace", "/workspace/tests", "/data"), ("/workspace",)),
+        (
+            "dev",
+            ("sandbox id", "dev"),
+            ("/workspace", "/workspace/tests", "/data"),
+            ("/workspace",),
+        ),
+        (
+            "team_box",
+            ("sandbox id", "team_box"),
+            ("/workspace", "/workspace/tests", "/data"),
+            ("/workspace",),
+        ),
     ]
-    assert [t.names[0] for t in targets] == [b.hostname for b in boxes]
+    assert [t.names[0] for t in targets] == [("hostname", b.hostname) for b in boxes]
 
 
 async def test_one_sandbox_checks_only_its_way_out() -> None:

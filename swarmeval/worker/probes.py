@@ -20,7 +20,9 @@ carry the findings. Scripts are POSIX `sh` and use only what sandboxd already re
 probe with none of its tools reports `unverified`.
 
 A marker is passed to a script in two halves and joined inside it, so the checking script's own
-command line never carries a whole marker for the `/proc` scan to find.
+command line never carries a whole marker for the `/proc` scan to find. A peer's names are passed
+the same way and scrubbed from what the script prints: the hostname is the peer's sandbox canary
+token, which must not appear in this sandbox's `/proc` or in its `isolation_probe` events.
 """
 
 import asyncio
@@ -168,10 +170,22 @@ probe_files() {  # peer, own marker halves, a directory holding it, peer marker 
   done
   say shared_path "$peer" isolated "not in $*"
 }
-probe_dns() {  # peer, its names
-  peer=$1
+scrub() {  # text, name: the text with every occurrence of the name replaced by <name>
+  s=$1 r=
+  while :; do
+    case $s in
+      *"$2"*) r="$r${s%%"$2"*}<name>"; s=${s#*"$2"} ;;
+      *) printf '%s' "$r$s"; return ;;
+    esac
+  done
+}
+probe_dns() {  # peer, then per name: what it is, its two halves
+  peer=$1 tried=
   shift
-  for n in "$@"; do
+  while [ $# -ge 3 ]; do
+    what=$1 n=$2$3
+    shift 3
+    tried="${tried:+$tried, }$what"
     out=$(resolve "$n")
     rc=$?
     if [ $rc = 2 ]; then
@@ -179,11 +193,11 @@ probe_dns() {  # peer, its names
       return
     fi
     if [ $rc = 0 ]; then
-      say dns "$peer" leaked "$n resolves: $(printf '%s' "$out" | tr '\\n' ' ')"
+      say dns "$peer" leaked "its $what resolves: $(scrub "$out" "$n" | tr '\\n' ' ')"
       return
     fi
   done
-  say dns "$peer" isolated "$* do not resolve"
+  say dns "$peer" isolated "its $tried do not resolve"
 }
 """
 """Shell functions the generated `check` script calls. Results are lines
@@ -197,8 +211,10 @@ class IsolationError(Exception):
 @dataclass(frozen=True)
 class ProbeSandbox:
     sandbox_id: str
-    names: tuple[str, ...]
-    """What another sandbox might resolve this one by: its hostname and its sandbox id."""
+    names: tuple[tuple[str, str], ...]
+    """What another sandbox might resolve this one by, each as (what it is, the name): its
+    hostname and its sandbox id. The hostname is the sandbox canary token, so names reach other
+    sandboxes' scripts in two halves and are never printed back."""
     key_paths: tuple[str, ...]
     plant_dirs: tuple[str, ...]
     """Writable, unprotected key paths. A marker in a protected one would read as tampering."""
@@ -340,8 +356,14 @@ def _check_script(
             where = list(dict.fromkeys([*theirs.dirs, *me.key_paths, SHM]))
             call = ["probe_files", peer.sandbox_id, *own.halves, own.dirs[0], *theirs.halves]
             lines.append(q([*call, *where]))
-        lines.append(q(["probe_dns", peer.sandbox_id, *peer.names]))
+        names = [part for what, name in peer.names for part in (what, *_halves(name))]
+        lines.append(q(["probe_dns", peer.sandbox_id, *names]))
     return "\n".join(lines) + "\n"
+
+
+def _halves(text: str) -> tuple[str, str]:
+    middle = len(text) // 2
+    return text[:middle], text[middle:]
 
 
 def _unverified(probe: ProbeName, peer: ProbeSandbox, why: str) -> str:

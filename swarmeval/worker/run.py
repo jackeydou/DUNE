@@ -269,7 +269,7 @@ def probe_targets(
         targets.append(
             ProbeSandbox(
                 sandbox_id=plan.id,
-                names=(hostnames[plan.id], plan.id),
+                names=(("hostname", hostnames[plan.id]), ("sandbox id", plan.id)),
                 key_paths=tuple(m.path for m in mounts),
                 plant_dirs=tuple(m.path for m in mounts if m.mode == "rw" and not m.protected),
             )

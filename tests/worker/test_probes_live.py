@@ -36,7 +36,7 @@ def profile(image: str) -> SandboxProfile:
 def target(sandbox_id: str, hostname: str) -> ProbeSandbox:
     return ProbeSandbox(
         sandbox_id=sandbox_id,
-        names=(hostname, sandbox_id),
+        names=(("hostname", hostname), ("sandbox id", sandbox_id)),
         key_paths=("/workspace", "/workspace/tests"),
         plant_dirs=("/workspace",),
     )
@@ -90,6 +90,10 @@ async def test_two_live_sandboxes_are_isolated_and_the_probe_leaves_nothing(
         if isinstance(e.record, IsolationProbeRecord)
     ]
     assert steps == [(s, step) for step in ("plant", "check", "clean") for s in ("a", "b")]
+    for e in store.events:
+        if isinstance(e.record, IsolationProbeRecord):
+            peer = hostnames["b" if e.record.sandbox_id == "a" else "a"]
+            assert peer not in e.record.model_dump_json(), "a peer's canary token was stored"
     # The first agent call sees no probe file and no probe process: its own write is its own.
     after = await client.exec(
         "a", None, Exec(argv=("sh", "-c", "echo x > /workspace/x"), timeout_s=10), call_id="c1"
@@ -129,5 +133,8 @@ async def test_two_sandboxes_that_share_a_container_fail_the_check(client: RunSa
     assert "sandbox `a` and sandbox `twin`: proc got through" in message
     assert "sandbox `twin` and sandbox `a`: shared_path got through" in message
     assert "/workspace/.isolation-probe-" in message
+    probes = [e.record for e in store.events if isinstance(e.record, IsolationProbeRecord)]
+    assert probes
+    assert not any(hostnames["a"] in p.model_dump_json() for p in probes), "names are scrubbed"
     (failed,) = [e.record for e in store.events if isinstance(e.record, LifecycleRecord)]
     assert failed.status == "failed"

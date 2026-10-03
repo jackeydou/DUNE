@@ -64,8 +64,9 @@ from swarmeval.runtime.records import (
 SCHEMA_VERSION = 4
 """Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
 
-4: `isolation_probe` events, a `SandboxEvent` with `probe` (`step` and `findings`) beside `exec`.
-Version 3 and older runs have none and read as before.
+4: `isolation_probe` events, a `SandboxEvent` with `probe` (`step` and `findings`) beside `exec`,
+and `transcript_check` events, an `InfoEvent(source="swarmeval.transcript_check")`. Version 3 and
+older runs have neither and read as before.
 
 3: tool events from `web_request` gained `web` (`WebExchange` without its inline `body`, which
 the event's `result` already carries). Version 2 events have no `web` and read as before.
