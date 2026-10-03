@@ -56,11 +56,13 @@ Under `async`:
 - `max_turns` is each agent's own; one that reaches it stops with a `limit` event naming it,
   and the run ends `limit` once the others are done. `max_tokens` and `wall_clock` end the run
   for all.
-- `before_deliver` may hold a message for `Delay(seconds=…)` as well as for turns
-  (`swarmeval.bus.delay` with `seconds`); a waiting recipient is woken when it comes due.
+- `before_deliver` holds a message for `Delay(seconds=…)` (`swarmeval.bus.delay` with
+  `seconds`), not for turns: a waiting agent takes none, so a turn delay would never end, and
+  `Delay(turns=…)` fails the run. A waiting recipient is woken when the message comes due.
 - A hook point waits for the observers to have processed the events committed when the agent
   reached it, not for them to go quiet, since other agents keep committing.
-- A pause, by any agent's hook, holds every agent at its next hook point until the run resumes.
+- A pause, by any agent's hook, holds every agent at its next hook point, tool calls included,
+  until the run resumes. A waiting agent also wakes when the wall clock runs out.
 - Agents that share a sandbox have their commands run one at a time by sandboxd.
 - No checkpoints are committed, so an `async` run cannot be forked, and the order of events is
   recorded but not reproducible: the `.eval` says `deterministic: false`.

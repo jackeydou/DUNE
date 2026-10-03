@@ -123,7 +123,7 @@ flowchart LR
 |---|---|---|
 | Postgres `tenant` schema | Users, tenants, workspaces | `edge` |
 | Postgres `control` schema | Run queue, run status, leases (`owner_id`, `lease_until`, `owner_epoch`) | `orchestrator` |
-| Postgres `runs` schema | `events`, `messages`, `agent_state`, `extension_state`, `deliveries`, `sandboxes` for every run, keyed by `run_id` ([event-log.md](event-log.md#tables)) | `orchestrator` |
+| Postgres `runs` schema | `events`, `messages`, `agent_state`, `extension_state`, `deliveries`, `checkpoints`, `canaries`, `sandboxes` for every run, keyed by `run_id` ([event-log.md](event-log.md#tables)) | `orchestrator` |
 | Postgres `analysis` schema | Derived results: judge verdicts today; rule matches and offline scores later | `analysis` |
 | Object storage | Exported `.eval` and Parquet (with hash chain fields); large blobs such as file snapshots and `web_request` bodies, content-addressed | written by `orchestrator`, read by `analysis` |
 
@@ -134,8 +134,9 @@ place with DuckDB's `httpfs` extension.
 
 - The rows in `runs` are the evidence original; exports are derived from them. Derived results
   such as later rule matches or judge verdicts go to separate tables and never rewrite `events`.
-- An agent's context at step *k* is read straight from `agent_state` and `messages`. Recovery
-  and fork use the same query; nothing is rebuilt by replaying events.
+- An agent's context is read straight from `agent_state` and `messages`. A fork starts from the
+  checkpoint the loop committed at a turn start, which locates each context in `messages`;
+  nothing is rebuilt by replaying events.
 - `control` and `runs` must share one Postgres instance: each write transaction checks
   `owner_epoch` in `control.runs`, so a stale worker cannot write after a takeover.
 
@@ -152,6 +153,10 @@ place with DuckDB's `httpfs` extension.
   [services/orchestrator.md](services/orchestrator.md#web_request).
 - The agent loop runs outside the sandbox. Containers only execute tool calls, so model keys,
   logs, and recovery state are out of the agent's reach.
+- Extensions run in the worker, with its privileges. A case's own extensions (`case:` files) are
+  case author code, not agent code, and run only where the deployment allows it
+  (`--allow-case-code`, off by default). Sandbox isolation does not cover them.
+  Detail: [services/orchestrator.md](services/orchestrator.md#case-code).
 - Sandboxes run on gVisor (`runsc`) by default and fall back to runc where gVisor is missing.
   Each run records the isolation level it actually got.
 - Before any agent turn of every run, the worker's isolation self-check probes that each sandbox

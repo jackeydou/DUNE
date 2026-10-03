@@ -19,11 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.control.queue import RunRow
 from swarmeval.db import events
-from swarmeval.detect.view import view_of_row
+from swarmeval.detect.view import EventView, view_of_row
 from swarmeval.events.fork import Ancestor, lineage, point_at, tip_event_id
 from swarmeval.runtime.fork import EDITS, ForkStart, cross_run, from_source
 from swarmeval.runtime.records import FsChange
-from swarmeval.sandbox import RunSandboxes, SeedFile
+from swarmeval.sandbox import RestoreEntry, RunSandboxes
 from swarmeval.sandbox.blobs import S3BlobStore
 
 Fidelity = Literal["fs_restored", "fs_partial"]
@@ -32,42 +32,45 @@ Fidelity = Literal["fs_restored", "fs_partial"]
 @dataclass
 class RestorePlan:
     remove: list[str] = field(default_factory=list[str])
-    dirs: list[tuple[str, int]] = field(default_factory=list[tuple[str, int]])
+    dirs: list[RestoreEntry] = field(default_factory=list[RestoreEntry])
     files: list[tuple[str, FsChange]] = field(default_factory=list[tuple[str, FsChange]])
     lost: list[str] = field(default_factory=list[str])
     """Paths whose state at the fork point cannot be restored, and why."""
 
 
-async def last_changes(
-    engine: AsyncEngine, ancestors: Sequence[Ancestor]
-) -> dict[tuple[str, str], FsChange]:
-    """Each (sandbox, path)'s last recorded change in the ancestors' events up to their fork
-    points, in order."""
-    latest: dict[tuple[str, str], FsChange] = {}
+async def lineage_views(engine: AsyncEngine, ancestors: Sequence[Ancestor]) -> list[EventView]:
+    """The ancestors' events up to their fork points, in order, as detectors see them: what
+    the fork's sandboxes are restored from, and what its scorers read before its own events."""
+    views: list[EventView] = []
     async with engine.connect() as conn:
         for ancestor in ancestors:
             query = (
                 select(
                     events.c.event_id,
                     events.c.seq,
+                    events.c.ts,
                     events.c.type,
                     events.c.agent_id,
                     events.c.sandbox_id,
                     events.c.payload,
                 )
-                .where(
-                    events.c.run_id == ancestor.run_id,
-                    events.c.type.in_(("tool", "sandbox")),
-                )
+                .where(events.c.run_id == ancestor.run_id)
                 .order_by(events.c.seq)
             )
             if ancestor.up_to is not None:
                 query = query.where(events.c.seq <= ancestor.up_to)
             for row in (await conn.execute(query)).mappings():
-                view = view_of_row({**row, "payload": json.dumps(row["payload"])})
-                for change in view.changes:
-                    assert change.sandbox_id is not None, "stored tool events name their sandbox"
-                    latest[(change.sandbox_id, change.change.path)] = change.change
+                views.append(view_of_row({**row, "payload": json.dumps(row["payload"])}))
+    return views
+
+
+def last_changes(views: Sequence[EventView]) -> dict[tuple[str, str], FsChange]:
+    """Each (sandbox, path)'s last recorded change."""
+    latest: dict[tuple[str, str], FsChange] = {}
+    for view in views:
+        for change in view.changes:
+            assert change.sandbox_id is not None, "stored tool events name their sandbox"
+            latest[(change.sandbox_id, change.change.path)] = change.change
     return latest
 
 
@@ -80,7 +83,7 @@ def plan(changes: dict[tuple[str, str], FsChange], sandbox_id: str) -> RestorePl
             case FsChange(op="delete"):
                 result.remove.append(path)
             case FsChange(kind="dir"):
-                result.dirs.append((path, change.mode & 0o777))
+                result.dirs.append(RestoreEntry(path, change.mode & 0o777, change.uid))
             case FsChange(kind="file", content_stored=True, after_sha256=str()):
                 result.files.append((path, change))
             case FsChange(kind="file"):
@@ -101,13 +104,14 @@ async def restore(
     lost: list[str] = []
     for sandbox_id in sandbox_ids:
         p = plan(changes, sandbox_id)
-        files: list[SeedFile] = []
+        files: list[RestoreEntry] = []
         for path, change in p.files:
             assert change.after_sha256 is not None, "matched with a stored hash"
             content = await blobs.get(change.after_sha256)
-            files.append(SeedFile(path=path, content=content, mode=change.mode & 0o777 or 0o644))
-        await sandboxes.restore(sandbox_id, remove=p.remove, dirs=p.dirs, files=files)
+            files.append(RestoreEntry(path, change.mode & 0o777 or 0o644, change.uid, content))
+        unowned = await sandboxes.restore(sandbox_id, remove=p.remove, dirs=p.dirs, files=files)
         lost.extend(f"{sandbox_id}:{item}" for item in p.lost)
+        lost.extend(f"{sandbox_id}:{path}: owner not restored" for path in unowned)
     return ("fs_partial" if lost else "fs_restored"), lost
 
 

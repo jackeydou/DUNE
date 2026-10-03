@@ -35,6 +35,10 @@ class Turns(Protocol):
         ...
 
     def stop_requested(self, d: HookDispatcher) -> bool: ...
+    def time_left(self) -> float | None:
+        """Seconds of `wall_clock` left, paused time left out; `None` without the limit."""
+        ...
+
     async def run_limit(self) -> tuple[RunOutcome, str] | None:
         """A run-wide limit reached, recorded, with its `limit` event; `None` when none is."""
         ...
@@ -90,48 +94,64 @@ class AsyncDriver:
                 if limit is not None:
                     await self._finish(*limit)
                     return
+                if agent.finished:
+                    match await self._mail(agent):
+                        case "end":
+                            return
+                        case "look":
+                            continue
+                        case "mail":
+                            agent.finished = False
                 if max_turns is not None and agent.turn >= max_turns:
                     await self._t.agent_limit(agent)
-                    self._capped.add(agent.spec.id)
-                    await self.poke()
+                    async with self._wake:
+                        self._capped.add(agent.spec.id)
+                        self._end_if_quiet()
+                        self._wake.notify_all()
                     return
-                if agent.finished:
-                    if not await self._mail(agent):
-                        return
-                    agent.finished = False
                 await self._t.step(self._d, agent)
                 await self.poke()
         except Stopped as stop:
             await self._finish(self._t.outcome("stopped", stop.reason), stop.cause)
 
-    async def _mail(self, agent: AgentRun) -> bool:
-        """Waits until a message is due for `agent` (`True`), or a stop is asked for, which
-        its next hook point raises (`True`), or the run is over (`False`)."""
+    async def _mail(self, agent: AgentRun) -> Literal["mail", "look", "end"]:
+        """Waits until a message is due for `agent` (`mail`); until a stop is asked for or the
+        wall clock runs out, which the next hook point or limit check acts on (`look`); or until
+        the run is over (`end`)."""
         agent_id = agent.spec.id
         async with self._wake:
             self._waiting.add(agent_id)
             try:
                 while True:
                     if self._end is not None:
-                        return False
+                        return "end"
                     if self._t.stop_requested(self._d):
-                        return True
+                        return "look"
                     if self._t.bus.has_mail(agent_id, agent.turn + 1):
-                        return True
-                    if self._quiet():
-                        status = "limit" if self._capped else "finished"
-                        reason = (
-                            f"max_turns reached by {', '.join(sorted(self._capped))}"
-                            if self._capped
-                            else None
-                        )
-                        self._end = self._t.outcome(status, reason)
+                        return "mail"
+                    if self._end_if_quiet():
                         self._wake.notify_all()
-                        return False
+                        return "end"
+                    left = self._t.time_left()
+                    if left is not None and left <= 0:
+                        return "look"
+                    timeouts = [
+                        t for t in (self._t.bus.next_due_in(agent_id), left) if t is not None
+                    ]
                     with contextlib.suppress(TimeoutError):
-                        await asyncio.wait_for(self._wake.wait(), self._t.bus.next_due_in(agent_id))
+                        await asyncio.wait_for(
+                            self._wake.wait(), min(timeouts) if timeouts else None
+                        )
             finally:
                 self._waiting.discard(agent_id)
+
+    def _end_if_quiet(self) -> bool:
+        """Ends the run when it is quiet; called with `_wake` held."""
+        if self._end is not None or not self._quiet():
+            return self._end is not None
+        reason = f"max_turns reached by {', '.join(sorted(self._capped))}" if self._capped else None
+        self._end = self._t.outcome("limit" if self._capped else "finished", reason)
+        return True
 
     def _quiet(self) -> bool:
         """No agent is stepping, and none has mail that is due or will come due by time."""

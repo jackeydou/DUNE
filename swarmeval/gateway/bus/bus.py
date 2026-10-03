@@ -169,7 +169,11 @@ class MessageBus:
         """Seconds until the next message held by time for `agent_id` comes due; `None` when
         none is."""
         now = self._clock()
-        held = [m.due_at - now for m in self._mail.get(agent_id, ()) if m.due_at is not None]
+        held = [
+            m.due_at - now
+            for m in self._mail.get(agent_id, ())
+            if m.due_at is not None and m.due_turn is None
+        ]
         return max(0.0, min(held)) if held else None
 
     def take(self, agent_id: str, turn: int) -> list[Delivery]:

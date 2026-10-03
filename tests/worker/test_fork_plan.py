@@ -30,7 +30,7 @@ def test_each_paths_last_change_decides_how_it_comes_back() -> None:
     p = plan(changes, "box")
 
     assert p.remove == ["/w/gone.txt"]
-    assert p.dirs == [("/w/dir", 0o700)]
+    assert [(d.path, d.mode) for d in p.dirs] == [("/w/dir", 0o700)]
     assert [path for path, _ in p.files] == ["/w/note.txt"]
     assert p.lost == [
         "/w/big.bin: content stored by hash only (5242880 bytes)",

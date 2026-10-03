@@ -153,7 +153,7 @@ twice on one channel is refused, as two instances with one name.
 Whether written as shorthand or under `extensions:`, a built-in intervention's config is checked
 when the case loads, naming the field: its values, and that every channel it names is declared.
 `channels` and `channel` cannot be set in the shorthand. `delay` with `seconds` is refused under
-any turn policy but `async`.
+any turn policy but `async`, and `delay` with `turns` under `async`.
 
 To compare a variant with and without an intervention, give the intervention's `channels` from a
 list-valued axis; an empty list switches it off and delivers verbatim:
