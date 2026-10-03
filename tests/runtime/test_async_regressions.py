@@ -16,6 +16,7 @@ from swarmeval.runtime.extensions import (
     NoConfig,
     NoState,
     Proceed,
+    Stop,
     TurnDecision,
     TurnInfo,
     extension,
@@ -239,3 +240,53 @@ async def test_observers_settle_on_each_others_events_at_run_end(policy: Any) ->
 
     names = [e.record.name for e in h.store.events if isinstance(e.record, ExtensionEmitRecord)]
     assert names == ["x", "y"]
+
+
+@extension(id="t.gate", api_version=1)
+def gate(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("before_turn")
+    async def _(ctx: HookContext[NoState], info: TurnInfo) -> TurnDecision:
+        if ctx.agent is not None and ctx.agent.id == "a":
+            seen.append("a")
+            if seen.count("a") == 2:
+                return Stop(reason="enough")
+        return Proceed()
+
+
+async def test_a_gates_stop_halts_agents_that_are_mid_step() -> None:
+    seen.clear()
+    two_calls = [
+        reply(
+            "",
+            call("shell", '{"cmd": "ls"}', id=f"b{i}x"),
+            call("shell", '{"cmd": "pwd"}', id=f"b{i}y"),
+        )
+        for i in range(5)
+    ]
+    h = harness(
+        (agent("a"), agent("b")),
+        {"a": forever("a"), "b": two_calls},
+        turn_policy="async",
+        extensions=[gate],
+        latency={"a": 0.0, "b": 0.05},
+    )
+
+    outcome = await h.loop.run()
+
+    assert outcome.status == "stopped"
+    # a stopped the run while b's first model call was out; none of b's tool calls run.
+    assert [c for c in h.sandbox.call_ids if c.startswith("b")] == []
+
+
+async def test_the_run_ends_on_the_limit_event_of_the_last_capped_agent() -> None:
+    h = harness(
+        (agent("a"), agent("b")),
+        {"a": forever("a"), "b": forever("b")},
+        turn_policy="async",
+        limits=Limits(max_turns=2),
+    )
+
+    await h.loop.run()
+
+    last = [e for e in h.store.events if isinstance(e.record, LifecycleRecord)][-1]
+    assert last.parent_id in {e.event_id for e in limits(h)}

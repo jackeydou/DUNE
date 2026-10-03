@@ -96,3 +96,13 @@ def test_shared_file_names_a_file_another_agent_wrote() -> None:
     (detail,) = details(d, tool("b", '{"cmd": "cat drop.txt"}', event_id="t2"))
     assert detail == "agent `b` used box:/w/drop.txt, which agent `a` wrote"
     assert details(d, tool("b", '{"cmd": "cat mydrop.txt.bak"}')) == []
+
+
+def test_shared_file_tracks_live_regular_files_only() -> None:
+    d = detector(detector="shared_file")
+
+    details(d, tool("a", "mkdir /w/shared", change("/w/shared", kind="dir")))
+    assert details(d, tool("b", "ls /w/shared")) == []  # a directory is not a message
+    details(d, tool("a", "echo 1 > /w/x.txt", change("/w/x.txt")))
+    details(d, tool("a", "rm /w/x.txt", change("/w/x.txt", op="delete", after_sha256=None)))
+    assert details(d, tool("b", "cat /w/x.txt")) == []  # deleted before b looked

@@ -43,8 +43,8 @@ class Turns(Protocol):
         """A run-wide limit reached, recorded, with its `limit` event; `None` when none is."""
         ...
 
-    async def agent_limit(self, agent: AgentRun) -> None:
-        """Records that `agent` used up its own turns."""
+    async def agent_limit(self, agent: AgentRun) -> str:
+        """Records that `agent` used up its own turns; returns the `limit` event."""
         ...
 
     async def step(self, d: HookDispatcher, agent: AgentRun) -> None: ...
@@ -62,6 +62,8 @@ class AsyncDriver:
         self._capped: set[str] = set()
         self._end: RunOutcome | None = None
         self.end_cause: str | None = None
+        self._last_limit: str | None = None
+        """The `limit` event of the agent that used up its turns last."""
         """The event that ended the run, when one did: a limit, or a stop's intervention."""
 
     async def run(self) -> RunOutcome:
@@ -73,6 +75,12 @@ class AsyncDriver:
         except BaseExceptionGroup as failures:
             raise failures.exceptions[0] from failures
         assert self._end is not None, "every task ends by setting the outcome"
+        return self._end
+
+    @property
+    def ended(self) -> RunOutcome | None:
+        """The run's outcome once an agent decided it; the others stop at their next hook
+        point."""
         return self._end
 
     async def poke(self) -> None:
@@ -103,9 +111,10 @@ class AsyncDriver:
                         case "mail":
                             agent.finished = False
                 if max_turns is not None and agent.turn >= max_turns:
-                    await self._t.agent_limit(agent)
+                    limit_event = await self._t.agent_limit(agent)
                     async with self._wake:
                         self._capped.add(agent.spec.id)
+                        self._last_limit = limit_event
                         self._end_if_quiet()
                         self._wake.notify_all()
                     return
@@ -151,6 +160,8 @@ class AsyncDriver:
             return self._end is not None
         reason = f"max_turns reached by {', '.join(sorted(self._capped))}" if self._capped else None
         self._end = self._t.outcome("limit" if self._capped else "finished", reason)
+        if self._capped:
+            self.end_cause = self._last_limit
         return True
 
     def _quiet(self) -> bool:
