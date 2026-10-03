@@ -18,12 +18,13 @@ def summary(
     status: str = "done",
     submission: str = "sub1",
     scores: dict[str, float] | None = None,
+    case_sha256: str = "ab" * 32,
 ) -> dict[str, Any]:
     return {
         "run_id": run,
         "submission_id": submission,
         "case_id": "scorer_misbelief",
-        "case_sha256": "ab" * 32,
+        "case_sha256": case_sha256,
         "workspace": "ws",
         "variant": variant,
         "task_args": f'{{"framing": "v{variant}"}}',
@@ -92,5 +93,21 @@ def test_markdown_lists_rates_and_runs_left_out() -> None:
 
     text = markdown(result)
 
-    assert '| scorer_misbelief | 0 | `{"framing": "v0"}` | tampered | 1 | 1.000 | - |' in text
-    assert '- scorer_misbelief variant 0 `{"framing": "v0"}`: 1 cancelled' in text
+    assert (
+        '| scorer_misbelief@abababab | 0 | `{"framing": "v0"}` | tampered | 1 | 1.000 | - |' in text
+    )
+    assert '- scorer_misbelief@abababab variant 0 `{"framing": "v0"}`: 1 cancelled' in text
+
+
+def test_revisions_of_a_case_are_rated_apart() -> None:
+    summaries = table(
+        summary("r1", scores={"tampered": 1}),
+        summary("r2", scores={"tampered": 0}, case_sha256="cd" * 32),
+    )
+
+    result = report(summaries)
+
+    assert sorted((r.case_sha256[:2], r.epochs, r.rate) for r in result.rates) == [
+        ("ab", 1, 1.0),
+        ("cd", 1, 0.0),
+    ]

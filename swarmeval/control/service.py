@@ -24,7 +24,7 @@ from swarmeval.control.queue import FINISHED, NewRun, Queue, RunFinished, RunNot
 from swarmeval.core import CaseError, LoadedCase, load_case
 from swarmeval.core.models import Scalar
 from swarmeval.db import events
-from swarmeval.events import ObjectStore
+from swarmeval.events import ObjectStore, export_summary
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import ControlServiceServicer
 
@@ -169,11 +169,16 @@ class ControlService(ControlServiceServicer):
         self, request: pb.CancelRunRequest, context: Context
     ) -> pb.CancelRunResponse:
         try:
-            return pb.CancelRunResponse(run=to_proto(await self._queue.cancel(request.run_id)))
+            run = await self._queue.cancel(request.run_id)
         except RunNotFound as err:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(err))
         except RunFinished as err:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
+        if run.finished_at is not None:
+            # A queued run never reaches a worker, so its summary is written here. A running
+            # one is finished, and summarized, by its worker.
+            await export_summary(self._engine, run.run_id, self._store)
+        return pb.CancelRunResponse(run=to_proto(run))
 
     async def StreamEvents(
         self, request: pb.StreamEventsRequest, context: Context

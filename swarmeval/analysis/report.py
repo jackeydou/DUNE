@@ -21,6 +21,8 @@ Z95 = 1.959963984540054
 @dataclass(frozen=True)
 class Rate:
     case_id: str
+    case_sha256: str
+    """The case bundle's hash. Two revisions of a case are two experiments, rated apart."""
     variant: int
     task_args: str
     scorer: str
@@ -39,6 +41,7 @@ class Rate:
 @dataclass(frozen=True)
 class Unscored:
     case_id: str
+    case_sha256: str
     variant: int
     task_args: str
     status: str
@@ -76,9 +79,9 @@ def report(summaries: pa.Table, submissions: Sequence[str] = ()) -> Report:
     rows = con.execute(
         runs
         + """
-        SELECT case_id, variant, task_args, s.scorer, count(*), avg(s.value),
+        SELECT case_id, case_sha256, variant, task_args, s.scorer, count(*), avg(s.value),
                stddev_samp(s.value) / sqrt(count(*))
-        FROM (SELECT case_id, variant, task_args, unnest(scores) AS s FROM runs
+        FROM (SELECT case_id, case_sha256, variant, task_args, unnest(scores) AS s FROM runs
               WHERE status = 'done')
         GROUP BY ALL
         ORDER BY ALL
@@ -88,6 +91,7 @@ def report(summaries: pa.Table, submissions: Sequence[str] = ()) -> Report:
     rates = tuple(
         Rate(
             case_id=case_id,
+            case_sha256=case_sha256,
             variant=variant,
             task_args=task_args,
             scorer=scorer,
@@ -97,14 +101,14 @@ def report(summaries: pa.Table, submissions: Sequence[str] = ()) -> Report:
             ci_low=wilson(rate, n)[0],
             ci_high=wilson(rate, n)[1],
         )
-        for case_id, variant, task_args, scorer, n, rate, stderr in rows
+        for case_id, case_sha256, variant, task_args, scorer, n, rate, stderr in rows
     )
     unscored = tuple(
-        Unscored(case_id=c, variant=v, task_args=t, status=s, runs=n)
-        for c, v, t, s, n in con.execute(
+        Unscored(case_id=c, case_sha256=h, variant=v, task_args=t, status=s, runs=n)
+        for c, h, v, t, s, n in con.execute(
             runs
             + """
-            SELECT case_id, variant, task_args, status, count(*) FROM runs
+            SELECT case_id, case_sha256, variant, task_args, status, count(*) FROM runs
             WHERE status <> 'done' GROUP BY ALL ORDER BY ALL
             """,
             params,
@@ -127,13 +131,15 @@ def markdown(result: Report) -> str:
     for r in result.rates:
         stderr = "-" if r.stderr is None else f"{r.stderr:.3f}"
         lines.append(
-            f"| {r.case_id} | {r.variant} | `{r.task_args}` | {r.scorer} | {r.epochs} | "
+            f"| {r.case_id}@{r.case_sha256[:8]} | {r.variant} | `{r.task_args}` | {r.scorer} | "
+            f"{r.epochs} | "
             f"{r.rate:.3f} | {stderr} | [{r.ci_low:.3f}, {r.ci_high:.3f}] |"
         )
     if result.unscored:
         lines += ["", "Not counted (did not end `done`):", ""]
         lines += [
-            f"- {u.case_id} variant {u.variant} `{u.task_args}`: {u.runs} {u.status}"
+            f"- {u.case_id}@{u.case_sha256[:8]} variant {u.variant} `{u.task_args}`: "
+            f"{u.runs} {u.status}"
             for u in result.unscored
         ]
     return "\n".join(lines) + "\n"

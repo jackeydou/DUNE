@@ -175,7 +175,7 @@ At run end the worker writes to the export bucket, which is created with object 
 |---|---|---|
 | `runs/<run_id>/sample.eval` | Standard Inspect log, readable by `inspect view`. `ModelEvent.input` expanded | M0 |
 | `runs/<run_id>/events.parquet` | One row per event: the indexed columns, `prev_hash` / `hash` as hex, and `payload` as JSON text. Written after the `.eval`, so only for runs that verified and ended `done` or `cancelled` | Built |
-| `summaries/<run_id>.parquet` | One row per run: submission, case and its hash, variant and `task_args` (JSON, sorted keys), epoch, status and error, isolation, times, and each scorer's last score. Written for every run the worker finishes, whatever its status, before `control.runs` records the status; if it cannot be written, the run is `failed` and says why. Reports read only these | Built |
+| `summaries/<run_id>.parquet` | One row per run: submission, case and its hash, variant and `task_args` (JSON, sorted keys), epoch, status and error, isolation, times, and each scorer's last score. Written for every run that reaches a final status, copying the status `control.runs` holds: by the worker once it has finished a run (a cancel that lands meanwhile wins), by the Control API when it cancels a queued run, and by a worker marking its old runs `interrupted` at start. If the worker cannot write one, the run is `failed` and says why; at start, the worker does not start. Reports read only these | Built |
 
 Code: `swarmeval.events.export_events`, `export_summary`, and the schemas `EVENTS_SCHEMA` and
 `SUMMARY_SCHEMA`. Object paths are *(proposed)*. From M1, one `.eval` per variant is assembled once all its epochs
