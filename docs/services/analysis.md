@@ -6,12 +6,14 @@ of the Control API behind [edge](edge.md), not part of it. Its place among the s
 [architecture.md](../architecture.md).
 
 **Status:** built as batch jobs (`swarmeval.analysis`): `report`, trigger rates per case,
-variant, and scorer from run summaries; `judge`, an LLM judge whose verdicts cite events; and
-`eval-set`, one Inspect `.eval` per variant; and `timeline`, one run's events laned by agent.
-Rule scans and event-rule scorers are not built yet; M1 runs them as batch jobs too. Analysis is built here rather than on Docent or inspect-scout
+variant, and scorer from run summaries; `judge`, an LLM judge whose verdicts cite events;
+`eval-set`, one Inspect `.eval` per variant; `timeline`, one run's events laned by agent; and
+`scan`, rule sets over decoded payloads. Event-rule scorers are not built yet. Analysis is built
+here rather than on Docent or inspect-scout
 ([trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 9); `.eval`
-stays the format for exchanging runs with those tools. M4 turns analysis into a gRPC service behind edge. Items marked *(proposed)* go beyond what the specs
-decided; they are listed under [Not settled](#not-settled).
+stays the format for exchanging runs with those tools. M4 turns analysis into a gRPC service
+behind edge. Items marked *(proposed)* go beyond what the specs decided; they are listed under
+[Not settled](#not-settled).
 
 ## Inputs
 
@@ -23,8 +25,9 @@ never reads the `runs` schema and never writes object storage.
 ## Outputs
 
 Derived results go to their own `analysis` schema in the shared Postgres, which analysis owns:
-judge verdicts today (`analysis.judge_verdicts`, migration 0004), rule matches and offline scores
-later, each keyed by `run_id` and `event_id`. They have no foreign key into `control` or `runs`.
+judge verdicts (`analysis.judge_verdicts`, migration 0004) and rule scans
+(`analysis.rule_scans`, `analysis.rule_matches`, migration 0005) today, offline scores later,
+each keyed by `run_id` and `event_id`. They have no foreign key into `control` or `runs`.
 Events and exports are never rewritten, and replay and audit always read the originals.
 
 Files a person reads, such as per-variant `.eval` logs, go to a local directory the job is given.
@@ -34,7 +37,7 @@ Files a person reads, such as per-variant `.eval` logs, go to a local directory 
 | Capability | How |
 |---|---|
 | Queries | SQL over Parquet views (`events`, `runs`). `swarm query` passes arbitrary SQL. The console offers filters on tool, agent, run, time range, and tags instead |
-| Rule scans | User-defined keywords, regexes, and rule sets, run over payloads after the fact. Payloads are first decoded where they look like base64, gzip, XOR, or combinations of them, and then matched. Matches become tags in the `analysis` schema |
+| Rule scans | A [rule set](#rule-sets) of keywords and regexes over each run's `events.parquet`. Every string in an event's payload is searched on its own, as is and through the decoded views canary detection uses (`swarmeval.honeypot.decode.views`: base64, hex, gzip, zlib, chained up to three layers); keywords are also found under a single-byte XOR, byte for byte. A view's bytes are read as UTF-8, invalid bytes replaced, before a regex runs. Each rule keeps one match per event, the one with the fewest decodings, then the first field: its payload path (`field`), `via` (decodings, outermost first), and an excerpt of up to 40 characters each side, on one line. Stored per rule set hash (sha256 of the rules in RFC 8785 JSON, so file formatting does not count) and run: `analysis.rule_scans` holds one row per pair, with the rules and the match count, even when nothing matched; `analysis.rule_matches` one row per match. Scanning a run again with the same rules replaces both in one transaction. Built as the `scan` job |
 | Event-rule scorers | The case's rule scorers, sharing their detector interface with the online Monitor. Output is an Inspect `Score` with `1 = triggered` |
 | LLM judge | Asks a question about a run, or a `seq` range of it, through [model-gateway](model-gateway.md) with the analysis key. The judge reads the run's `events.parquet` rendered one line per event, `[event_id] #seq agent …`, with line breaks inside an event escaped so run content cannot pose as another event, each cut at 2,000 characters; score events are left out so scorers do not lead it, and a transcript over 400,000 characters is refused rather than cut. It answers through a `verdict` tool: `yes`, `no`, or `unclear`, an explanation, and the event ids it rests on. The verdict is rejected when it cites an event it was not shown, when a `yes` cites nothing, or when the model does not call `verdict` exactly once. Every call is stored, accepted or rejected, with its request and response; NUL in the response is replaced with U+FFFD first, since `jsonb` refuses it. Built as the `judge` job |
 | Reports | Trigger rate per case revision (`case_sha256`, shown as `case@hash`), variant, and scorer over `done` runs: epochs, mean, stderr, and a 95% Wilson interval, which, unlike mean ± 1.96·stderr, does not collapse to a point when no epoch or every epoch triggered. Runs that ended otherwise are listed per status and left out (runtime spec Q6). Built as the `report` job. Grouping by risk category, isolation level, fidelity, and `reasoning_visibility` is not built |
@@ -79,6 +82,31 @@ uv run python -m swarmeval.analysis timeline --run RUN_ID --s3-endpoint 127.0.0.
 
 It prints the Markdown table; `--event-chars` (default 400) sets where each event is cut.
 
+```bash
+uv run python -m swarmeval.analysis scan --rules rules.yaml --submission fb47ae64 \
+  --s3-endpoint 127.0.0.1:9000 --s3-scheme http   # or --run RUN_ID (repeatable)
+```
+
+It prints one line per run with its matches per rule. `--submission` scans every exported run
+of it, `done` or `cancelled`.
+
+## Rule sets
+
+A YAML file, validated before any run is read:
+
+```yaml
+schema_version: 1
+rules:
+  - id: aws_key                # unique; letters, digits, `_`, `.`, `-`
+    regex: "AKIA[0-9A-Z]{16}"  # Python `re` syntax
+    description: an AWS access key id
+  - id: mailbox
+    keyword: zzINBOX           # literal; exactly one of `keyword` and `regex`
+    ignore_case: true          # default false; a XOR match is always exact
+```
+
+Unknown keys, a regex that does not compile, and repeated ids are refused, naming the rule.
+
 ## Interface (M4)
 
 gRPC service `swarmeval.analysis.v1.AnalysisService`, reached only through edge *(RPC names
@@ -109,3 +137,12 @@ also uses the following:
 ## Not settled
 
 1. RPC names of `AnalysisService`.
+2. The rule file format (`schema_version: 1`, `keyword` / `regex` / `ignore_case`), keeping one
+   match per rule and event, and the `rule_scans` / `rule_matches` layout. Rule scans were
+   specified only as "keywords, regexes, rule sets, after decoding"; these are this
+   implementation's choices.
+3. Per-variant `.eval` file names (`<submission>_<case>-<hash8>_v<variant>.eval`), `eval.run_id`
+   set to the submission id, and the reducer chosen per job rather than per scorer.
+4. Which runs a `--submission` selects: `done` for the judge and `eval-set` (only they are
+   rated), `done` and `cancelled` for `scan` (every exported run). Interrupted and re-run epochs
+   follow runtime spec Q6 once it is settled.

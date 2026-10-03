@@ -108,6 +108,14 @@
   Markdown table with a lane per agent, narrowed by `--agent` and a `seq` range, and with
   `--html` a self-contained page. Events render as the judge's one-line text, now shared in
   `swarmeval.analysis.render`, which also describes score events.
+- `python -m swarmeval.analysis scan --rules FILE`: keyword and regex rule sets (YAML,
+  `schema_version: 1`) over every string in runs' event payloads, as is and decoded (base64,
+  hex, gzip, zlib, chained; keywords also under single-byte XOR). One match per rule and event,
+  with its field, `via`, and an excerpt, in `analysis.rule_matches`; one row per rule set and
+  run in `analysis.rule_scans` (migration 0005). Scanning again with the same rules replaces
+  them.
+- `swarmeval.honeypot.decode.views`: the decoded views of an input, lazily and breadth first,
+  and `View.xor_find`; `find_tokens` is built on them.
 
 ### Changed
 - Missing exports raise `swarmeval.analysis.exports.ExportError` (was `JudgeError`), and the

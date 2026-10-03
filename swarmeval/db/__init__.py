@@ -21,6 +21,8 @@ from swarmeval.db.tables import (
     judge_verdicts,
     messages,
     metadata,
+    rule_matches,
+    rule_scans,
     run_specs,
 )
 
@@ -39,6 +41,8 @@ __all__ = [
     "messages",
     "metadata",
     "migrate",
+    "rule_matches",
+    "rule_scans",
     "run_specs",
     "sync_engine",
 ]

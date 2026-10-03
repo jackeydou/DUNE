@@ -8,11 +8,14 @@
   variant in DIR, every `done` epoch a sample; one line per variant on stdout.
 - `timeline --run ID [--agent A ...] [--from-seq N] [--to-seq N] [--html FILE]`: one run's
   events, a lane per agent, as Markdown on stdout and optionally an HTML page.
+- `scan --rules FILE (--run ID ... | --submission ID ...)`: a rule set over each run's decoded
+  event payloads, stored in `analysis.rule_matches`; one line per run on stdout.
 """
 
 import argparse
 import asyncio
 import os
+from collections import Counter
 from pathlib import Path
 
 import httpx2
@@ -23,6 +26,8 @@ from swarmeval.analysis.evalset import describe, variant_runs, write_eval_set
 from swarmeval.analysis.exports import ExportError, load_events, load_events_table, runs_of
 from swarmeval.analysis.judge import Gateway, judge
 from swarmeval.analysis.report import load_summaries, markdown, report
+from swarmeval.analysis.rules import RuleSetError, load_rules
+from swarmeval.analysis.scan import scan_events, store_scan
 from swarmeval.db import async_engine
 from swarmeval.events import DEFAULT_REDUCERS
 
@@ -89,6 +94,19 @@ def main() -> None:
     lanes.add_argument("--html", type=Path, help="also write a self-contained HTML page here")
     config.add_object_store(lanes)
 
+    scan = jobs.add_parser("scan", help="match a rule set against runs' decoded payloads")
+    scan.add_argument("--rules", type=Path, required=True, help="the rule set, a YAML file")
+    runs = scan.add_mutually_exclusive_group(required=True)
+    runs.add_argument("--run", action="append", default=[], help="a run id; repeatable")
+    runs.add_argument(
+        "--submission",
+        action="append",
+        default=[],
+        help="every exported (`done` or `cancelled`) run of a submission; repeatable",
+    )
+    config.add_object_store(scan)
+    config.add_database(scan)
+
     args = parser.parse_args()
     try:
         match args.job:
@@ -99,10 +117,35 @@ def main() -> None:
                 asyncio.run(_judge(args))
             case "eval-set":
                 asyncio.run(_eval_set(args))
-            case _:
+            case "timeline":
                 asyncio.run(_timeline(args))
-    except ExportError as err:
+            case _:
+                asyncio.run(_scan(args))
+    except (ExportError, RuleSetError) as err:
         raise SystemExit(str(err)) from err
+
+
+async def _scan(args: argparse.Namespace) -> None:
+    rules = load_rules(args.rules)
+    store = config.object_store(args)
+    run_ids: list[str] = list(args.run)
+    if args.submission:
+        summaries = await asyncio.to_thread(load_summaries, store)
+        run_ids = runs_of(summaries, args.submission, ["done", "cancelled"])
+    engine = async_engine(config.database_url(args))
+    total = 0
+    try:
+        for run_id in run_ids:
+            rows = await load_events(store, run_id)
+            matches = await asyncio.to_thread(scan_events, run_id, rows, rules)
+            await store_scan(engine, run_id, rules, matches)
+            total += len(matches)
+            counts = Counter(m.rule_id for m in matches)
+            detail = ", ".join(f"{rule}: {n}" for rule, n in sorted(counts.items()))
+            print(f"{run_id}\t{len(matches)} matches" + (f": {detail}" if detail else ""))
+    finally:
+        await engine.dispose()
+    print(f"rule set {rules.sha256()[:12]}: {total} matches in {len(run_ids)} runs")
 
 
 async def _timeline(args: argparse.Namespace) -> None:

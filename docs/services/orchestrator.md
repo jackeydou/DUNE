@@ -275,6 +275,8 @@ layer. Each sighting records the chain that revealed it, outermost first (`via`,
 searched text is capped at 16 times its size (at least 4 MiB) and one decompression at 1 MiB,
 searched breadth first, so the first layer is always searched in full. Not recovered: a repeating
 multi-byte XOR key, XOR applied before another encoding, and encodings outside this list.
+The decoded views themselves (`swarmeval.honeypot.decode.views`) are also what analysis rule
+scans match against.
 Per-sandbox canaries arrive in M1.
 
 ## Leases, fencing, and takeover
