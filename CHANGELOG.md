@@ -94,6 +94,11 @@
   with single-byte XOR innermost (`swarmeval.honeypot.find_tokens`). `canary_hit` events carry
   `via`, the decodings that revealed the token, and the canary scorer names them in its
   explanation and reads written files as bytes.
+- `python -m swarmeval.analysis eval-set`: one Inspect `.eval` per submission, case revision,
+  and variant in a local directory, every `done` epoch a sample, with `results` and `reductions`
+  computed by Inspect from the header's reducers (`--reducer`, default `mean`) and metrics:
+  `mean` per reducer, and `epoch_stderr` / `epoch_ci_wilson` over epochs. Runs that ended
+  otherwise are listed in `eval.metadata.swarmeval.left_out` (`swarmeval.events.variant_log`).
 
 ### Changed
 - A run whose summary cannot be written ends `failed`, with the reason in its error. Cancelled
