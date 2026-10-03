@@ -16,8 +16,10 @@ from pydantic import (
     ByteSize,
     ConfigDict,
     Field,
+    JsonValue,
     PositiveFloat,
     PositiveInt,
+    field_validator,
     model_validator,
 )
 
@@ -32,6 +34,14 @@ container names, labels, and event fields, so they are kept to one safe alphabet
 Workspace = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9_-]*$", max_length=63)]
 UnixUser = Annotated[str, Field(pattern=r"^[a-z_][a-z0-9_-]*$", max_length=32)]
 Scalar = str | int | float | bool
+AxisValue = Scalar | tuple[Scalar, ...]
+"""A variant axis value: a scalar, or a list of scalars, such as the channels an intervention
+applies to (`[]` for none)."""
+
+
+def axis_json(value: AxisValue) -> JsonValue:
+    """The value as stored in `task_args` and overrides: a list as a JSON array."""
+    return list(value) if isinstance(value, tuple) else value
 
 
 def _relative(path: str) -> str:
@@ -117,9 +127,33 @@ class AgentDef(Strict):
         return self
 
 
+INTERVENTIONS = ("log", "drop", "delay", "paraphrase", "inject")
+InterventionItem = str | dict[str, dict[str, JsonValue]]
+"""A name, or a one-key mapping of a name to its config without the channel."""
+
+
 class ChannelDef(Strict):
     id: Name
     members: Annotated[tuple[Name, ...], Field(min_length=2)]
+    interventions: tuple[InterventionItem, ...] = ()
+    """Shorthand for the built-in `swarmeval.bus.*` extensions on this channel; the loader
+    expands it (`swarmeval.core.interventions`)."""
+
+    @field_validator("interventions")
+    @classmethod
+    def _known(cls, items: tuple[InterventionItem, ...]) -> tuple[InterventionItem, ...]:
+        for item in items:
+            if isinstance(item, dict) and len(item) != 1:
+                raise ValueError(
+                    f"intervention {item} names {len(item)} interventions. Write one per entry, "
+                    "like `- delay: {turns: 2}`."
+                )
+            name = item if isinstance(item, str) else next(iter(item))
+            if name not in INTERVENTIONS:
+                raise ValueError(
+                    f"unknown intervention `{name}`. Known: {', '.join(INTERVENTIONS)}."
+                )
+        return items
 
 
 class Limits(Strict):
@@ -208,8 +242,8 @@ class CaseFile(Strict):
     workspace: Workspace
     category: str | None = None
     description: str | None = None
-    variants: dict[Name, Annotated[tuple[Scalar, ...], Field(min_length=1)]] = Field(
-        default_factory=dict[str, tuple[Scalar, ...]]
+    variants: dict[Name, Annotated[tuple[AxisValue, ...], Field(min_length=1)]] = Field(
+        default_factory=dict[str, tuple[AxisValue, ...]]
     )
     epochs: PositiveInt = 1
     swarm: SwarmDef

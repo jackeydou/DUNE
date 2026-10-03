@@ -31,7 +31,7 @@ from swarmeval.control.queue import (
     run_id_of,
 )
 from swarmeval.core import CaseError, LoadedCase, load_case
-from swarmeval.core.models import Scalar
+from swarmeval.core.models import AxisValue, Scalar, axis_json
 from swarmeval.db import events
 from swarmeval.events import ObjectStore, export_summary
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
@@ -82,22 +82,33 @@ def to_proto(run: RunRow) -> pb.Run:
     )
 
 
-def overrides_of(struct: Struct) -> dict[str, list[Scalar]]:
-    """Struct numbers are doubles; a whole number comes back as an int, so `3` stays `3`."""
+def overrides_of(struct: Struct) -> dict[str, list[AxisValue]]:
+    """Struct numbers are doubles; a whole number comes back as an int, so `3` stays `3`. A
+    value may be a list of scalars, as a case's axis values may."""
     raw: dict[str, object] = MessageToDict(struct)
-    found: dict[str, list[Scalar]] = {}
+    found: dict[str, list[AxisValue]] = {}
     for axis, values in raw.items():
         if not isinstance(values, list):
             raise CaseError(f"override `{axis}` must be a list of values, got {values!r}.")
-        found[axis] = []
         items: list[object] = values  # pyright: ignore[reportUnknownVariableType]
+        found[axis] = []
         for value in items:
-            if isinstance(value, float) and value.is_integer():
-                value = int(value)
-            if not isinstance(value, str | int | float | bool):
-                raise CaseError(f"override `{axis}` holds {value!r}; values must be scalars.")
-            found[axis].append(value)
+            if isinstance(value, list):
+                inner: list[object] = value  # pyright: ignore[reportUnknownVariableType]
+                found[axis].append(tuple(_scalar(axis, v) for v in inner))
+            else:
+                found[axis].append(_scalar(axis, value))
     return found
+
+
+def _scalar(axis: str, value: object) -> Scalar:
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if not isinstance(value, str | int | float | bool):
+        raise CaseError(
+            f"override `{axis}` holds {value!r}; values must be scalars or lists of scalars."
+        )
+    return value
 
 
 def plan_runs(
@@ -105,7 +116,7 @@ def plan_runs(
     *,
     submission_id: str,
     case_sha256: str,
-    overrides: Mapping[str, Sequence[Scalar]],
+    overrides: Mapping[str, Sequence[AxisValue]],
     epochs: int,
     suite: str | None = None,
 ) -> list[NewRun]:
@@ -116,9 +127,9 @@ def plan_runs(
             case_id=loaded.id,
             workspace=loaded.workspace,
             case_sha256=case_sha256,
-            overrides={k: list(v) for k, v in overrides.items()},
+            overrides={k: [axis_json(x) for x in v] for k, v in overrides.items()},
             variant=variant.index,
-            task_args=dict(variant.values),
+            task_args={k: axis_json(v) for k, v in variant.values.items()},
             epoch=epoch,
             epochs=epochs,
             suite=suite,
@@ -128,7 +139,7 @@ def plan_runs(
     ]
 
 
-def _load(bundle: bytes, overrides: Mapping[str, Sequence[Scalar]]) -> LoadedCase:
+def _load(bundle: bytes, overrides: Mapping[str, Sequence[AxisValue]]) -> LoadedCase:
     with tempfile.TemporaryDirectory(prefix="swarmeval-case-") as scratch:
         return load_case(unpack(bundle, Path(scratch)), overrides)
 

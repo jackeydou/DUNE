@@ -169,6 +169,17 @@
   `send_message` call or an extension's post, and every `msg.deliver` carries what was sent or
   what a `before_deliver` rewrite made of it, never after a drop. `transcript_check` counts
   `deliveries`.
+- Built-in channel interventions, registered under `swarmeval.extensions`:
+  `swarmeval.bus.drop` (`channels`, `p`), `swarmeval.bus.delay` (`channels`, `turns` or
+  `[min, max]`), `swarmeval.bus.paraphrase` (`channels`, `model`, `prompt` with a default that
+  keeps meaning and changes wording and form; calls model-gateway under its own instance's key),
+  and `swarmeval.bus.inject` (`channel`, `at_turn`, `sender`, `content`).
+- `case.yaml` channel `interventions:` shorthand, expanded at load into those extensions after
+  `extensions:` (`Variant.extensions`); `log` loads with a warning (`LoadedCase.warnings`).
+  Built-in intervention configs are checked at load against the case's channels and turn
+  policy. Additive to schema version 1.
+- Variant axis values may be lists of scalars (`paraphrased: [[], [dm_ab]]`), so a variant can
+  switch an intervention's `channels` off; overrides and suites accept them too. Additive.
 
 ### Changed
 - A message is routed through `before_deliver` when its send commits, and a finished agent wakes
