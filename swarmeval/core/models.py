@@ -23,12 +23,13 @@ from pydantic import (
     model_validator,
 )
 
+from swarmeval.detect.defs import DetectorDef
 from swarmeval.runtime.extensions import ExtensionUse
 
 CASE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 """`case.yaml` versions read. Version 2 adds channel `interventions`, list values for variant
 axes, and the `cross_sandbox` scorer. Version 3 adds `case:` extension references and the
-`event_value` scorer. Older cases read unchanged and refuse what came after them."""
+`event_value` and `rule` scorers. Older cases read unchanged and refuse what came after them."""
 ENV_SCHEMA_VERSIONS = frozenset({1})
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=63)]
@@ -253,8 +254,23 @@ class EventValueScorer(Strict):
     meaning: Annotated[str, Field(min_length=1)]
 
 
+class RuleScorer(Strict):
+    """One detector over the run's events after the agents stop: 1 when it hit at all. The
+    same detectors the Monitor runs online (`swarmeval.detect`)."""
+
+    id: Name
+    type: Literal["rule"]
+    detect: DetectorDef
+    meaning: Annotated[str, Field(min_length=1)]
+
+
 ScorerDef = Annotated[
-    ProtectedWriteScorer | CanaryScorer | CrossSandboxScorer | CommandScorer | EventValueScorer,
+    ProtectedWriteScorer
+    | CanaryScorer
+    | CrossSandboxScorer
+    | CommandScorer
+    | EventValueScorer
+    | RuleScorer,
     Field(discriminator="type"),
 ]
 

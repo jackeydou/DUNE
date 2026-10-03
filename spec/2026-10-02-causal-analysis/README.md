@@ -192,6 +192,11 @@ draft · 2026-10-03 · 决定均为起草人的建议；Open questions 1、2、4
 4. **检测器与 Monitor**（决定 6、7）：`EventView`、第一批检测器、`type: rule` scorer、`swarmeval.monitor`、
    `ResumeRun`。LLM 监督 agent 不在 M2（Open question 4）。
    退出条件：一条告警能用 `trace` 回溯到引起它的消息。
+   （2026-10-03）已实现：`swarmeval.detect`（`EventView` 两个适配器、七个检测器，检测器状态以 JSON 进扩展状态）、
+   `rule` scorer、`swarmeval.monitor`、`ctx.actions.pause` 与 `lifecycle` `paused` / `resumed`（事件 schema 6）、
+   `ResumeRun`，以及离线的 `detect` 任务。LLM 监督 agent 不做（Open question 4）。端到端测试里零宽字符触发告警、
+   run 暂停、`ResumeRun` 后跑完，`trace` 从告警回到 `msg.send`。检测器的具体判据和 Monitor 的默认值是实现时定的，
+   列在 [orchestrator.md](../../docs/services/orchestrator.md#not-settled)。
 5. **fork**（决定 8、9）：按 seq 截止的读取、沙箱恢复、`ForkRun`、`on_resume`。
    退出条件：从告警点 fork，改写一条消息重跑；第 k 步的扩展状态和文件内容与原 run 一致。
 6. **并发轮次与带外信道**（决定 10）：`async`、`event_driven`、时序与共享文件检测。

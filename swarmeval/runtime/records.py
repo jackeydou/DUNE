@@ -306,7 +306,9 @@ class LimitRecord(Frozen):
 
 class LifecycleRecord(Frozen):
     kind: Literal["lifecycle"] = "lifecycle"
-    status: Literal["started", "finished", "stopped", "limit", "failed"]
+    status: Literal["started", "paused", "resumed", "finished", "stopped", "limit", "failed"]
+    """`paused` and `resumed` mark a pause in the middle of the run; the last lifecycle event
+    is its outcome."""
     reason: str | None = None
     hook: HookName | Literal["tool", "spawn"] | None = None
     error: str | None = None

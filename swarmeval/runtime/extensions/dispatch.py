@@ -8,7 +8,6 @@ to commit with the step it belongs to; observer effects are committed here.
 
 import asyncio
 import hashlib
-import random
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
@@ -32,12 +31,12 @@ from swarmeval.runtime.extensions.api import (
     Rewrite,
     RunInfo,
     Skip,
-    StateCell,
     Stop,
     ToolDecision,
     TurnDecision,
     TurnInfo,
 )
+from swarmeval.runtime.extensions.instances import Draws, Instance
 from swarmeval.runtime.extensions.registry import LoadedExtension
 from swarmeval.runtime.messages import (
     AssistantMessage,
@@ -96,6 +95,13 @@ class Post:
     """The post's intervention event."""
 
 
+@dataclass(frozen=True)
+class PauseRequest:
+    reason: str
+    event_id: str
+    """The pause's intervention event."""
+
+
 @dataclass
 class TransformOutcome[T]:
     value: T
@@ -103,63 +109,6 @@ class TransformOutcome[T]:
     intervention_id: str | None = None
     """The event recording the last change, when a hook changed the value: what the agent is
     then shown comes from it."""
-
-
-class _Draws(random.Random):
-    """`ctx.rng` for one hook call. It takes its seed on the first draw, from the run seed, the
-    instance id, and the instance's count of calls that drew so far, then counts itself. A
-    resumed or forked run that restores the count gets the same streams from there on."""
-
-    def __init__(self, instance: "_Instance") -> None:
-        super().__init__(0)
-        self._instance = instance
-        self._seeded = False
-
-    def _seed_once(self) -> None:
-        if not self._seeded:
-            self._seeded = True
-            super().seed(self._instance.claim_stream())
-
-    def random(self) -> float:
-        self._seed_once()
-        return super().random()
-
-    def getrandbits(self, k: int, /) -> int:
-        self._seed_once()
-        return super().getrandbits(k)
-
-
-class _Instance:
-    def __init__(
-        self, loaded: LoadedExtension, saved: ExtensionSnapshot | None, seed: int, timeout_s: float
-    ):
-        self.loaded = loaded
-        self.id = loaded.instance_id
-        if saved is None:
-            state, self.rng_uses = loaded.initial_state(), 0
-        else:
-            state = loaded.extension.state.model_validate(saved.state)
-            self.rng_uses = saved.rng_uses
-        self.state = StateCell(state)
-        self.committed = ExtensionSnapshot(state.model_dump(mode="json"), self.rng_uses)
-        self.seed = seed
-        self.timeout_s = loaded.extension.hook_timeout_s or timeout_s
-
-    def handlers(self, hook: HookName) -> list[AnyHandler]:
-        return self.loaded.registrations.handlers.get(hook, [])
-
-    def claim_stream(self) -> int:
-        digest = hashlib.sha256(f"{self.seed}:{self.id}:{self.rng_uses}".encode()).digest()
-        self.rng_uses += 1
-        return int.from_bytes(digest[:8], "big")
-
-    def snapshot(self) -> ExtensionSnapshot | None:
-        """The state to commit, when it differs from the last committed."""
-        current = ExtensionSnapshot(self.state.value.model_dump(mode="json"), self.rng_uses)
-        if current == self.committed:
-            return None
-        self.committed = current
-        return current
 
 
 def sha256_json(value: JsonValue) -> str:
@@ -191,17 +140,18 @@ class HookDispatcher:
         self._model_client = model_client
         self._sandbox_executor = sandbox_executor
         self._writer = writer
-        self._instances: list[_Instance] = []
+        self._instances: list[Instance] = []
         for loaded in extensions:
             saved = states.get(loaded.instance_id)
-            self._instances.append(_Instance(loaded, saved, seed, default_timeout_s))
+            self._instances.append(Instance(loaded, saved, seed, default_timeout_s))
 
         self.stop_reason: str | None = None
         self.stop_cause: str | None = None
         """The intervention event of the stop that `stop_reason` describes."""
+        self._pauses: list[PauseRequest] = []
         self._injections: dict[str, list[tuple[UserMessage, str]]] = {}
         self._posts: list[Post] = []
-        self._spawned: dict[asyncio.Task[None], _Instance] = {}
+        self._spawned: dict[asyncio.Task[None], Instance] = {}
         self._failure: ExtensionError | None = None
         self._queue: asyncio.Queue[CommittedEvent] = asyncio.Queue()
         self._published = 0
@@ -238,6 +188,9 @@ class HookDispatcher:
         if self.stop_reason is None:
             self.stop_reason = f"{instance_id}: {reason}"
             self.stop_cause = event_id
+
+    def request_pause(self, instance_id: str, reason: str, event_id: str) -> None:
+        self._pauses.append(PauseRequest(f"{instance_id}: {reason}", event_id))
 
     def queue_inject(
         self, instance_id: str, agent_id: str, message: UserMessage, event_id: str
@@ -320,6 +273,11 @@ class HookDispatcher:
     def take_injections(self, agent_id: str) -> list[tuple[UserMessage, str]]:
         """Queued injections for `agent_id`, each with its intervention event."""
         return self._injections.pop(agent_id, [])
+
+    def take_pause(self) -> PauseRequest | None:
+        """The first pause requested since the last call; pauses requested together are one."""
+        pauses, self._pauses = self._pauses, []
+        return pauses[0] if pauses else None
 
     def take_posts(self) -> list[Post]:
         """Messages extensions posted on channels since the last call, in order."""
@@ -497,14 +455,14 @@ class HookDispatcher:
 
     # Internals
 
-    def _instance(self, instance_id: str) -> _Instance:
+    def _instance(self, instance_id: str) -> Instance:
         return next(i for i in self._instances if i.id == instance_id)
 
-    def _handlers(self, hook: HookName) -> list[tuple[_Instance, AnyHandler]]:
+    def _handlers(self, hook: HookName) -> list[tuple[Instance, AnyHandler]]:
         return [(i, h) for i in self._instances for h in i.handlers(hook)]
 
     def _context(
-        self, instance: _Instance, site: CallSite, agent: AgentInfo | None, trigger_id: str | None
+        self, instance: Instance, site: CallSite, agent: AgentInfo | None, trigger_id: str | None
     ) -> HookContext[Any]:
         return HookContext(
             host=self,
@@ -513,13 +471,13 @@ class HookDispatcher:
             run=self._run,
             agent=agent,
             state=instance.state,
-            rng=_Draws(instance),
+            rng=Draws(instance),
             trigger_id=trigger_id,
         )
 
     async def _call(
         self,
-        instance: _Instance,
+        instance: Instance,
         site: CallSite,
         agent: AgentInfo | None,
         trigger_id: str | None,
@@ -540,7 +498,7 @@ class HookDispatcher:
             raise ExtensionError(instance.id, site, f"{type(err).__name__}: {err}") from err
         return result, self._drain(instance, ctx)
 
-    def _drain(self, instance: _Instance, ctx: HookContext[Any]) -> Transaction:
+    def _drain(self, instance: Instance, ctx: HookContext[Any]) -> Transaction:
         txn, ctx.pending = ctx.pending, Transaction()
         snapshot = instance.snapshot()
         if snapshot is not None:
@@ -611,7 +569,7 @@ class HookDispatcher:
 
     def _intervention(
         self,
-        instance: _Instance,
+        instance: Instance,
         hook: HookName,
         action: str,
         target_event_id: str | None,
@@ -630,7 +588,7 @@ class HookDispatcher:
         return EventDraft(record=record, extension=instance.id, parent_id=trigger_id)
 
     def _delivery_intervention(
-        self, instance: _Instance, envelope: Envelope, decision: BaseModel
+        self, instance: Instance, envelope: Envelope, decision: BaseModel
     ) -> EventDraft:
         record = InterventionRecord(
             hook="before_deliver",

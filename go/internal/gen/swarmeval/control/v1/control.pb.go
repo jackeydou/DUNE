@@ -632,6 +632,94 @@ func (x *CancelRunResponse) GetRun() *Run {
 	return nil
 }
 
+type ResumeRunRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResumeRunRequest) Reset() {
+	*x = ResumeRunRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResumeRunRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResumeRunRequest) ProtoMessage() {}
+
+func (x *ResumeRunRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResumeRunRequest.ProtoReflect.Descriptor instead.
+func (*ResumeRunRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ResumeRunRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+type ResumeRunResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Run           *Run                   `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResumeRunResponse) Reset() {
+	*x = ResumeRunResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResumeRunResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResumeRunResponse) ProtoMessage() {}
+
+func (x *ResumeRunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResumeRunResponse.ProtoReflect.Descriptor instead.
+func (*ResumeRunResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ResumeRunResponse) GetRun() *Run {
+	if x != nil {
+		return x.Run
+	}
+	return nil
+}
+
 type StreamEventsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -642,7 +730,7 @@ type StreamEventsRequest struct {
 
 func (x *StreamEventsRequest) Reset() {
 	*x = StreamEventsRequest{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[9]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -654,7 +742,7 @@ func (x *StreamEventsRequest) String() string {
 func (*StreamEventsRequest) ProtoMessage() {}
 
 func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[9]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -667,7 +755,7 @@ func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEventsRequest.ProtoReflect.Descriptor instead.
 func (*StreamEventsRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{9}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *StreamEventsRequest) GetRunId() string {
@@ -699,7 +787,7 @@ type StreamEventsResponse struct {
 
 func (x *StreamEventsResponse) Reset() {
 	*x = StreamEventsResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[10]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -711,7 +799,7 @@ func (x *StreamEventsResponse) String() string {
 func (*StreamEventsResponse) ProtoMessage() {}
 
 func (x *StreamEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[10]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -724,7 +812,7 @@ func (x *StreamEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEventsResponse.ProtoReflect.Descriptor instead.
 func (*StreamEventsResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{10}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *StreamEventsResponse) GetSeq() int64 {
@@ -815,6 +903,10 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\x10CancelRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"@\n" +
 	"\x11CancelRunResponse\x12+\n" +
+	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\")\n" +
+	"\x10ResumeRunRequest\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\"@\n" +
+	"\x11ResumeRunResponse\x12+\n" +
 	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\"I\n" +
 	"\x13StreamEventsRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
@@ -824,13 +916,14 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\bevent_id\x18\x02 \x01(\tR\aeventId\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12\x19\n" +
 	"\bagent_id\x18\x04 \x01(\tR\aagentId\x12!\n" +
-	"\fpayload_json\x18\x05 \x01(\tR\vpayloadJson2\xe8\x03\n" +
+	"\fpayload_json\x18\x05 \x01(\tR\vpayloadJson2\xc6\x04\n" +
 	"\x0eControlService\x12_\n" +
 	"\n" +
 	"SubmitRuns\x12'.swarmeval.control.v1.SubmitRunsRequest\x1a(.swarmeval.control.v1.SubmitRunsResponse\x12S\n" +
 	"\x06GetRun\x12#.swarmeval.control.v1.GetRunRequest\x1a$.swarmeval.control.v1.GetRunResponse\x12Y\n" +
 	"\bListRuns\x12%.swarmeval.control.v1.ListRunsRequest\x1a&.swarmeval.control.v1.ListRunsResponse\x12\\\n" +
-	"\tCancelRun\x12&.swarmeval.control.v1.CancelRunRequest\x1a'.swarmeval.control.v1.CancelRunResponse\x12g\n" +
+	"\tCancelRun\x12&.swarmeval.control.v1.CancelRunRequest\x1a'.swarmeval.control.v1.CancelRunResponse\x12\\\n" +
+	"\tResumeRun\x12&.swarmeval.control.v1.ResumeRunRequest\x1a'.swarmeval.control.v1.ResumeRunResponse\x12g\n" +
 	"\fStreamEvents\x12).swarmeval.control.v1.StreamEventsRequest\x1a*.swarmeval.control.v1.StreamEventsResponse0\x01BJZHgithub.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1;controlv1b\x06proto3"
 
 var (
@@ -845,7 +938,7 @@ func file_swarmeval_control_v1_control_proto_rawDescGZIP() []byte {
 	return file_swarmeval_control_v1_control_proto_rawDescData
 }
 
-var file_swarmeval_control_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_swarmeval_control_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_swarmeval_control_v1_control_proto_goTypes = []any{
 	(*SubmitRunsRequest)(nil),     // 0: swarmeval.control.v1.SubmitRunsRequest
 	(*SubmitRunsResponse)(nil),    // 1: swarmeval.control.v1.SubmitRunsResponse
@@ -856,35 +949,40 @@ var file_swarmeval_control_v1_control_proto_goTypes = []any{
 	(*ListRunsResponse)(nil),      // 6: swarmeval.control.v1.ListRunsResponse
 	(*CancelRunRequest)(nil),      // 7: swarmeval.control.v1.CancelRunRequest
 	(*CancelRunResponse)(nil),     // 8: swarmeval.control.v1.CancelRunResponse
-	(*StreamEventsRequest)(nil),   // 9: swarmeval.control.v1.StreamEventsRequest
-	(*StreamEventsResponse)(nil),  // 10: swarmeval.control.v1.StreamEventsResponse
-	(*structpb.Struct)(nil),       // 11: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil), // 12: google.protobuf.Timestamp
+	(*ResumeRunRequest)(nil),      // 9: swarmeval.control.v1.ResumeRunRequest
+	(*ResumeRunResponse)(nil),     // 10: swarmeval.control.v1.ResumeRunResponse
+	(*StreamEventsRequest)(nil),   // 11: swarmeval.control.v1.StreamEventsRequest
+	(*StreamEventsResponse)(nil),  // 12: swarmeval.control.v1.StreamEventsResponse
+	(*structpb.Struct)(nil),       // 13: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
 }
 var file_swarmeval_control_v1_control_proto_depIdxs = []int32{
-	11, // 0: swarmeval.control.v1.SubmitRunsRequest.overrides:type_name -> google.protobuf.Struct
-	11, // 1: swarmeval.control.v1.Run.task_args:type_name -> google.protobuf.Struct
-	12, // 2: swarmeval.control.v1.Run.created_at:type_name -> google.protobuf.Timestamp
-	12, // 3: swarmeval.control.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	12, // 4: swarmeval.control.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
+	13, // 0: swarmeval.control.v1.SubmitRunsRequest.overrides:type_name -> google.protobuf.Struct
+	13, // 1: swarmeval.control.v1.Run.task_args:type_name -> google.protobuf.Struct
+	14, // 2: swarmeval.control.v1.Run.created_at:type_name -> google.protobuf.Timestamp
+	14, // 3: swarmeval.control.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	14, // 4: swarmeval.control.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
 	2,  // 5: swarmeval.control.v1.GetRunResponse.run:type_name -> swarmeval.control.v1.Run
 	2,  // 6: swarmeval.control.v1.ListRunsResponse.runs:type_name -> swarmeval.control.v1.Run
 	2,  // 7: swarmeval.control.v1.CancelRunResponse.run:type_name -> swarmeval.control.v1.Run
-	0,  // 8: swarmeval.control.v1.ControlService.SubmitRuns:input_type -> swarmeval.control.v1.SubmitRunsRequest
-	3,  // 9: swarmeval.control.v1.ControlService.GetRun:input_type -> swarmeval.control.v1.GetRunRequest
-	5,  // 10: swarmeval.control.v1.ControlService.ListRuns:input_type -> swarmeval.control.v1.ListRunsRequest
-	7,  // 11: swarmeval.control.v1.ControlService.CancelRun:input_type -> swarmeval.control.v1.CancelRunRequest
-	9,  // 12: swarmeval.control.v1.ControlService.StreamEvents:input_type -> swarmeval.control.v1.StreamEventsRequest
-	1,  // 13: swarmeval.control.v1.ControlService.SubmitRuns:output_type -> swarmeval.control.v1.SubmitRunsResponse
-	4,  // 14: swarmeval.control.v1.ControlService.GetRun:output_type -> swarmeval.control.v1.GetRunResponse
-	6,  // 15: swarmeval.control.v1.ControlService.ListRuns:output_type -> swarmeval.control.v1.ListRunsResponse
-	8,  // 16: swarmeval.control.v1.ControlService.CancelRun:output_type -> swarmeval.control.v1.CancelRunResponse
-	10, // 17: swarmeval.control.v1.ControlService.StreamEvents:output_type -> swarmeval.control.v1.StreamEventsResponse
-	13, // [13:18] is the sub-list for method output_type
-	8,  // [8:13] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	2,  // 8: swarmeval.control.v1.ResumeRunResponse.run:type_name -> swarmeval.control.v1.Run
+	0,  // 9: swarmeval.control.v1.ControlService.SubmitRuns:input_type -> swarmeval.control.v1.SubmitRunsRequest
+	3,  // 10: swarmeval.control.v1.ControlService.GetRun:input_type -> swarmeval.control.v1.GetRunRequest
+	5,  // 11: swarmeval.control.v1.ControlService.ListRuns:input_type -> swarmeval.control.v1.ListRunsRequest
+	7,  // 12: swarmeval.control.v1.ControlService.CancelRun:input_type -> swarmeval.control.v1.CancelRunRequest
+	9,  // 13: swarmeval.control.v1.ControlService.ResumeRun:input_type -> swarmeval.control.v1.ResumeRunRequest
+	11, // 14: swarmeval.control.v1.ControlService.StreamEvents:input_type -> swarmeval.control.v1.StreamEventsRequest
+	1,  // 15: swarmeval.control.v1.ControlService.SubmitRuns:output_type -> swarmeval.control.v1.SubmitRunsResponse
+	4,  // 16: swarmeval.control.v1.ControlService.GetRun:output_type -> swarmeval.control.v1.GetRunResponse
+	6,  // 17: swarmeval.control.v1.ControlService.ListRuns:output_type -> swarmeval.control.v1.ListRunsResponse
+	8,  // 18: swarmeval.control.v1.ControlService.CancelRun:output_type -> swarmeval.control.v1.CancelRunResponse
+	10, // 19: swarmeval.control.v1.ControlService.ResumeRun:output_type -> swarmeval.control.v1.ResumeRunResponse
+	12, // 20: swarmeval.control.v1.ControlService.StreamEvents:output_type -> swarmeval.control.v1.StreamEventsResponse
+	15, // [15:21] is the sub-list for method output_type
+	9,  // [9:15] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_swarmeval_control_v1_control_proto_init() }
@@ -898,7 +996,7 @@ func file_swarmeval_control_v1_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_swarmeval_control_v1_control_proto_rawDesc), len(file_swarmeval_control_v1_control_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

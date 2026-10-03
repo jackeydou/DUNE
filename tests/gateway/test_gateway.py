@@ -38,7 +38,7 @@ from swarmeval.runtime.records import ModelCallRecord
 from swarmeval.runtime.tools import BUILTIN_TOOLS
 from swarmeval.runtime.writer import RunWriter
 from tests.gateway.mock_backend import MockBackend, completion, tool_call
-from tests.runtime.fakes import FakeSandbox, FakeStore, agent
+from tests.runtime.fakes import FakePauser, FakeSandbox, FakeStore, agent
 
 CONFIG = GatewayConfig.model_validate(
     {
@@ -334,6 +334,7 @@ async def test_a_run_loop_drives_an_agent_through_the_gateway(rig: Rig) -> None:
             writer=rig.writer,
             model_client=session,
             sandbox_executor=sandbox,
+            pauser=FakePauser(),
             tools=BUILTIN_TOOLS,
         )
         outcome = await loop.run()

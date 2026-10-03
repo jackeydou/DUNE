@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `swarmeval.control.v1` stubs: `ResumeRun`, with `ResumeRunRequest` and `ResumeRunResponse`.
 - `swarmeval.control.v1` stubs: `Run.replaces`, the interrupted run a rerun stands in for;
   `suite` on `SubmitRunsRequest`, `Run`, and `ListRunsRequest`.
 - `CreateSandbox` takes the sandbox's identity: `env` (every process's environment, exec'd

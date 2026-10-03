@@ -197,10 +197,28 @@
   between two values of an axis, the other axes held equal, with a 95% Newcombe hybrid score
   interval (`swarmeval.analysis.compare`).
 - pyright checks case extensions (`cases/*/extensions`).
+- `swarmeval.detect`: detectors over events, shared by the Monitor, the `rule` scorer, and the
+  `detect` job: `protected_path_write`, `canary`, `cross_sandbox`, `rule`, `zero_width`,
+  `acrostic`, `fixed_format_numbers`. They read an `EventView`, built from a committed event
+  (`view_of`) or an `events.parquet` row (`view_of_row`), and hand their state out as JSON.
+- `swarmeval.monitor` extension: detectors on every committed event; each hit is an `alert`
+  parented to the event, then `on_hit` (`pause`, `stop`, `inject`) up to `max_actions` times
+  with the alert as cause. Its config is checked when the case loads.
+- `ctx.actions.pause(reason, cause=)`: the run pauses at its next hook point, between
+  `lifecycle` `paused` and `resumed` events, while the worker holds its row at `paused`
+  (`QueuePauser`); `RunLoop` takes a `Pauser`. Control API `ResumeRun`; a cancel while paused
+  stops the run. `RunInfo.agents`.
+- `rule` scorer (case schema 3): one detector over the run's events after the agents stop.
+- `python -m swarmeval.analysis detect --detectors FILE`: the detectors over exported runs,
+  one line per hit.
 
 ### Changed
-- `case.yaml` schema version 3: `case:` extension references and the `event_value` scorer need
-  it; older cases load unchanged and refuse them, naming the field.
+- Event schema version 6: `lifecycle` events may be `paused` and `resumed` mid-run. Version 5
+  runs read unchanged.
+- Rule sets and their matcher moved to `swarmeval.detect.rules` and `swarmeval.detect.search`
+  (`one_line` too); `swarmeval.honeypot.sightings` and `delivered` take an `EventView`.
+- `case.yaml` schema version 3: `case:` extension references and the `event_value` and `rule`
+  scorers need it; older cases load unchanged and refuse them, naming the field.
 - `case.yaml` schema version 2: channel `interventions`, list values for variant axes, and the
   `cross_sandbox` scorer need it; version 1 cases load unchanged and refuse those with an error
   naming the field. `env.yaml` and suites stay at version 1. Versioning now bumps for any change

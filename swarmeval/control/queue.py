@@ -33,6 +33,10 @@ class RunFinished(Exception):
     """The run has already finished, so the request no longer applies."""
 
 
+class RunNotPaused(Exception):
+    """Only a paused run can be resumed."""
+
+
 def run_id_of(case_id: str, submission_id: str, variant: int, epoch: int) -> str:
     return f"{case_id}.{submission_id}.v{variant}.e{epoch}"
 
@@ -199,6 +203,45 @@ class Queue:
             raise RunFinished(
                 f"run `{run_id}` is already `{current.status}`; only queued, running, or paused "
                 "runs can be cancelled."
+            )
+        return await self.get(run_id)
+
+    async def pause(self, run_id: str, owner_epoch: int) -> RunStatus:
+        """A running run becomes `paused`, until `resume`. Returns the status after: `paused`,
+        or whatever it already was (`cancelled` by a cancel that came first)."""
+        runs = control_runs.c
+        async with self._engine.begin() as conn:
+            paused = (
+                await conn.execute(
+                    update(control_runs)
+                    .where(
+                        runs.run_id == run_id,
+                        runs.owner_epoch == owner_epoch,
+                        runs.status == "running",
+                    )
+                    .values(status="paused")
+                    .returning(runs.status)
+                )
+            ).scalar_one_or_none()
+        return paused or await self.status(run_id)
+
+    async def resume(self, run_id: str) -> RunRow:
+        """A paused run is `running` again; its worker sees it and goes on."""
+        runs = control_runs.c
+        async with self._engine.begin() as conn:
+            resumed = (
+                await conn.execute(
+                    update(control_runs)
+                    .where(runs.run_id == run_id, runs.status == "paused")
+                    .values(status="running")
+                    .returning(runs.run_id)
+                )
+            ).scalar_one_or_none()
+        if resumed is None:
+            current = await self.get(run_id)
+            raise RunNotPaused(
+                f"run `{run_id}` is `{current.status}`, not paused; only a paused run can be "
+                "resumed."
             )
         return await self.get(run_id)
 

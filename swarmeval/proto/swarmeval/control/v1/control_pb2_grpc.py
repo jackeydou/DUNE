@@ -56,6 +56,11 @@ class ControlServiceStub:
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunRequest.SerializeToString,
                 response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunResponse.FromString,
                 _registered_method=True)
+        self.ResumeRun = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/ResumeRun',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunResponse.FromString,
+                _registered_method=True)
         self.StreamEvents = channel.unary_stream(
                 '/swarmeval.control.v1.ControlService/StreamEvents',
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.StreamEventsRequest.SerializeToString,
@@ -97,6 +102,14 @@ class ControlServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ResumeRun(self, request, context):
+        """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+        not paused is FAILED_PRECONDITION.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StreamEvents(self, request, context):
         """A run's events with seq greater than `after_seq`, live while the run is going. The stream
         ends once the run has finished and every event was sent.
@@ -127,6 +140,11 @@ def add_ControlServiceServicer_to_server(servicer, server):
                     servicer.CancelRun,
                     request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunRequest.FromString,
                     response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunResponse.SerializeToString,
+            ),
+            'ResumeRun': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResumeRun,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunResponse.SerializeToString,
             ),
             'StreamEvents': grpc.unary_stream_rpc_method_handler(
                     servicer.StreamEvents,
@@ -244,6 +262,33 @@ class ControlService:
             '/swarmeval.control.v1.ControlService/CancelRun',
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunRequest.SerializeToString,
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResumeRun(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/ResumeRun',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunResponse.FromString,
             options,
             channel_credentials,
             insecure,

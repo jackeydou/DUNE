@@ -45,6 +45,7 @@ from swarmeval.runtime.writer import RunWriter
 from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError, SeedFile
 from swarmeval.scorers import FinalStateScoring, ScoringError, last_lifecycle
 from swarmeval.web import HttpWebClient
+from swarmeval.worker.pause import QueuePauser
 from swarmeval.worker.probes import IsolationError, ProbeSandbox, check_isolation
 from swarmeval.worker.transcript import check_transcript
 
@@ -183,6 +184,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                 writer=writer,
                 model_client=gateway,
                 sandbox_executor=sandboxes,
+                pauser=QueuePauser(deps.queue, run.run_id, run.owner_epoch, deps.cancel_poll_s),
                 extensions=extensions,
                 tools=BUILTIN_TOOLS,
                 web_client=web,

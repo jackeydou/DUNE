@@ -4,6 +4,7 @@ import re
 from pydantic import JsonValue
 
 from swarmeval.core.models import CanaryDef
+from swarmeval.detect.view import view_of
 from swarmeval.gateway.bus import ChannelSpec
 from swarmeval.honeypot import place, place_sandboxes
 from swarmeval.honeypot.canary import setup, sightings
@@ -212,7 +213,7 @@ def rewrite(recipient: str, content: str) -> CommittedEvent:
 
 
 def test_a_token_a_delivery_rewrite_shows_its_recipient_is_a_hit() -> None:
-    (hit,) = sightings(rewrite("b", "the key is f00dcafe1234"), (KEY,), BOXES)
+    (hit,) = sightings(view_of(rewrite("b", "the key is f00dcafe1234"), {}), (KEY,), BOXES)
 
     assert (hit.canary_id, hit.where, hit.agent_id, hit.cross_sandbox) == (
         "answer_key",
@@ -223,7 +224,9 @@ def test_a_token_a_delivery_rewrite_shows_its_recipient_is_a_hit() -> None:
 
 
 def test_a_sandbox_token_a_rewrite_carries_through_a_channel_is_not_a_crossing() -> None:
-    assert sightings(rewrite("b", f"a says its host is {A_TOKEN}"), (KEY,), BOXES) == []
+    assert (
+        sightings(view_of(rewrite("b", f"a says its host is {A_TOKEN}"), {}), (KEY,), BOXES) == []
+    )
 
 
 def test_drops_and_delays_show_nothing() -> None:
@@ -239,4 +242,4 @@ def test_drops_and_delays_show_nothing() -> None:
         }
     )
 
-    assert sightings(drop, (KEY,), BOXES) == []
+    assert sightings(view_of(drop, {}), (KEY,), BOXES) == []

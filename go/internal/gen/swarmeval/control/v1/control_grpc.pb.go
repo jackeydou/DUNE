@@ -23,6 +23,7 @@ const (
 	ControlService_GetRun_FullMethodName       = "/swarmeval.control.v1.ControlService/GetRun"
 	ControlService_ListRuns_FullMethodName     = "/swarmeval.control.v1.ControlService/ListRuns"
 	ControlService_CancelRun_FullMethodName    = "/swarmeval.control.v1.ControlService/CancelRun"
+	ControlService_ResumeRun_FullMethodName    = "/swarmeval.control.v1.ControlService/ResumeRun"
 	ControlService_StreamEvents_FullMethodName = "/swarmeval.control.v1.ControlService/StreamEvents"
 )
 
@@ -42,6 +43,9 @@ type ControlServiceClient interface {
 	// A queued run never starts; a running one stops at its owner's next step, keeps its events,
 	// and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
 	CancelRun(ctx context.Context, in *CancelRunRequest, opts ...grpc.CallOption) (*CancelRunResponse, error)
+	// A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+	// not paused is FAILED_PRECONDITION.
+	ResumeRun(ctx context.Context, in *ResumeRunRequest, opts ...grpc.CallOption) (*ResumeRunResponse, error)
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error)
@@ -95,6 +99,16 @@ func (c *controlServiceClient) CancelRun(ctx context.Context, in *CancelRunReque
 	return out, nil
 }
 
+func (c *controlServiceClient) ResumeRun(ctx context.Context, in *ResumeRunRequest, opts ...grpc.CallOption) (*ResumeRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResumeRunResponse)
+	err := c.cc.Invoke(ctx, ControlService_ResumeRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *controlServiceClient) StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ControlService_ServiceDesc.Streams[0], ControlService_StreamEvents_FullMethodName, cOpts...)
@@ -130,6 +144,9 @@ type ControlServiceServer interface {
 	// A queued run never starts; a running one stops at its owner's next step, keeps its events,
 	// and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
 	CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error)
+	// A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+	// not paused is FAILED_PRECONDITION.
+	ResumeRun(context.Context, *ResumeRunRequest) (*ResumeRunResponse, error)
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error
@@ -154,6 +171,9 @@ func (UnimplementedControlServiceServer) ListRuns(context.Context, *ListRunsRequ
 }
 func (UnimplementedControlServiceServer) CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelRun not implemented")
+}
+func (UnimplementedControlServiceServer) ResumeRun(context.Context, *ResumeRunRequest) (*ResumeRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResumeRun not implemented")
 }
 func (UnimplementedControlServiceServer) StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error {
 	return status.Error(codes.Unimplemented, "method StreamEvents not implemented")
@@ -251,6 +271,24 @@ func _ControlService_CancelRun_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ControlService_ResumeRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResumeRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).ResumeRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_ResumeRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).ResumeRun(ctx, req.(*ResumeRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ControlService_StreamEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamEventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -284,6 +322,10 @@ var ControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelRun",
 			Handler:    _ControlService_CancelRun_Handler,
+		},
+		{
+			MethodName: "ResumeRun",
+			Handler:    _ControlService_ResumeRun_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
