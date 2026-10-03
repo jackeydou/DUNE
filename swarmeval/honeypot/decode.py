@@ -3,6 +3,9 @@ without padding or line breaks), hex, gzip and zlib, chained up to `MAX_DEPTH` l
 optional single-byte XOR as the innermost layer. A repeating multi-byte XOR key, or XOR applied
 before another encoding, is not recovered.
 
+`views` yields the decoded views themselves, for any matcher; `find_tokens` matches canary tokens
+on them, and analysis rule scans match keywords and regexes.
+
 Work per input is bounded by a byte budget on decoded output, `BUDGET_FACTOR` times the input
 and at least `MIN_BUDGET`. Layers are searched breadth first, and one layer of decoding yields at
 most about four times its input, so the whole first layer is always searched; padding an input
@@ -14,8 +17,9 @@ import zlib
 from base64 import b64decode, urlsafe_b64decode
 from binascii import Error as BinasciiError
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 
 MAX_DEPTH = 3
 """Decoding layers below the input, e.g. base64 → gzip → hex."""
@@ -41,21 +45,53 @@ class Found:
     reads `xor:0x2a`."""
 
 
-def find_tokens(data: str | bytes, tokens: Sequence[str]) -> list[Found]:
-    """Each token found in `data`, once, by the shortest chain of decodings that reveals it.
-    Tokens are ASCII; the plain and decoded matches ignore case, the XOR match does not."""
+@dataclass(frozen=True)
+class View:
+    """The input, or one decoding of it."""
+
+    data: bytes
+    via: tuple[str, ...]
+    """Decodings applied to the input to get `data`, outermost first; empty for the input."""
+
+    @cached_property
+    def _diffs(self) -> bytes:
+        return _neighbor_xor(self.data)
+
+    def xor_find(self, needle: bytes) -> tuple[int, int] | None:
+        """`(key, offset)` of the first window of `data` that XOR with one non-zero byte `key`
+        turns into `needle`. XOR with one key keeps the XOR of neighboring bytes, so one search
+        over those differences finds every key."""
+        if len(needle) < 2 or len(self.data) < len(needle):
+            return None
+        pattern = _neighbor_xor(needle)
+        start = self._diffs.find(pattern)
+        while start != -1:
+            key = self.data[start] ^ needle[0]
+            if key:
+                return key, start
+            start = self._diffs.find(pattern, start + 1)
+        return None
+
+
+def xor_layer(key: int) -> str:
+    """How a single-byte XOR appears in `via`."""
+    return f"xor:0x{key:02x}"
+
+
+def views(data: str | bytes) -> Iterator[View]:
+    """The input, then its decodings, breadth first, each distinct output once. Decoding is
+    lazy: stop iterating and the rest is never decoded. A single-byte XOR is not a view of its
+    own, since trying all 255 keys costs too much; match a known needle with `View.xor_find`."""
     raw = data.encode() if isinstance(data, str) else data
-    wanted = {t: t.encode().lower() for t in dict.fromkeys(tokens)}
-    found: dict[str, tuple[str, ...]] = {}
     budget = max(MIN_BUDGET, BUDGET_FACTOR * len(raw))
-    queue: deque[tuple[bytes, tuple[str, ...]]] = deque([(raw, ())])
+    queue: deque[View] = deque([View(raw, ())])
     seen = {raw}
-    while queue and len(found) < len(wanted):
-        view, via = queue.popleft()
-        _match(view, via, wanted, found)
-        if len(via) == MAX_DEPTH or budget == 0:
+    while queue:
+        view = queue.popleft()
+        yield view
+        if len(view.via) == MAX_DEPTH or budget == 0:
             continue
-        for layer, decoded in _decodings(view, inflate_limit=min(MAX_INFLATED, budget)):
+        for layer, decoded in _decodings(view.data, inflate_limit=min(MAX_INFLATED, budget)):
             if decoded in seen:
                 continue
             if len(decoded) > budget:
@@ -63,22 +99,28 @@ def find_tokens(data: str | bytes, tokens: Sequence[str]) -> list[Found]:
                 break
             budget -= len(decoded)
             seen.add(decoded)
-            queue.append((decoded, (*via, layer)))
+            queue.append(View(decoded, (*view.via, layer)))
+
+
+def find_tokens(data: str | bytes, tokens: Sequence[str]) -> list[Found]:
+    """Each token found in `data`, once, by the shortest chain of decodings that reveals it.
+    Tokens are ASCII; the plain and decoded matches ignore case, the XOR match does not."""
+    wanted = {t: t.encode().lower() for t in dict.fromkeys(tokens)}
+    found: dict[str, tuple[str, ...]] = {}
+    if not wanted:
+        return []
+    for view in views(data):
+        lowered = view.data.lower()
+        for token, needle in wanted.items():
+            if token in found:
+                continue
+            if needle in lowered:
+                found[token] = view.via
+            elif (hit := view.xor_find(needle)) is not None:
+                found[token] = (*view.via, xor_layer(hit[0]))
+        if len(found) == len(wanted):
+            break
     return [Found(t, found[t]) for t in wanted if t in found]
-
-
-def _match(
-    view: bytes, via: tuple[str, ...], wanted: dict[str, bytes], found: dict[str, tuple[str, ...]]
-) -> None:
-    lowered = view.lower()
-    diffs = _neighbor_xor(view)
-    for token, needle in wanted.items():
-        if token in found:
-            continue
-        if needle in lowered:
-            found[token] = via
-        elif (key := _xor_key(view, diffs, needle)) is not None:
-            found[token] = (*via, f"xor:0x{key:02x}")
 
 
 def _neighbor_xor(data: bytes) -> bytes:
@@ -87,21 +129,6 @@ def _neighbor_xor(data: bytes) -> bytes:
         return b""
     n = len(data) - 1
     return (int.from_bytes(data[:-1]) ^ int.from_bytes(data[1:])).to_bytes(n)
-
-
-def _xor_key(view: bytes, diffs: bytes, needle: bytes) -> int | None:
-    """The non-zero byte that XORs some window of `view` into `needle`. XOR with one key keeps
-    the XOR of neighboring bytes, so one search over those differences finds every key."""
-    if len(needle) < 2 or len(view) < len(needle):
-        return None
-    pattern = _neighbor_xor(needle)
-    start = diffs.find(pattern)
-    while start != -1:
-        key = view[start] ^ needle[0]
-        if key:
-            return key
-        start = diffs.find(pattern, start + 1)
-    return None
 
 
 def _decodings(view: bytes, *, inflate_limit: int) -> list[tuple[str, bytes]]:

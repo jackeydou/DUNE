@@ -23,7 +23,7 @@ models, the `inspect_ai` mapping, and case hooks exist only in Python.
 | [`model-gateway`](services/model-gateway.md) | Python | Provider adapters, OpenAI-compatible API, recording every model call, per-key rate limits | M0 |
 | [`sandboxd`](services/sandboxd.md) | Go | Sandbox lifecycle through the docker or k8s API; runs tool calls inside sandboxes and reports the file diff and surviving processes after each one | M0 |
 | [`net-gateway`](services/net-gateway.md) | Go | One instance per run: TLS interception, DNS, network policy, pcap | Later: the network capability, outside M0–M5 |
-| [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, offline scorers over exported runs | M1 as batch jobs (the trigger-rate report is built); service in M4 |
+| [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, timelines, per-variant `.eval`, offline scorers over exported runs | M1 as batch jobs (all but offline scorers are built); service in M4 |
 | [`edge`](services/edge.md) | Go | The only public entry: authentication, tenants, workspace authorization, console backend | M4 |
 | [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4 |
 | [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | M4 |

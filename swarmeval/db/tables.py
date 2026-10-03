@@ -177,3 +177,37 @@ judge_verdicts = Table(
 )
 """Owned by analysis: one row per judge call, accepted or not. No foreign key to `control.runs`:
 analysis reads exports, not the orchestrator's tables, and its rows outlive a run's cleanup."""
+
+rule_scans = Table(
+    "rule_scans",
+    metadata,
+    Column("rule_set_sha256", Text, primary_key=True),
+    Column("run_id", Text, primary_key=True),
+    Column("rules", JSONB, nullable=False),
+    Column("matches", Integer, nullable=False),
+    Column("scanned_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index(None, "run_id"),
+    schema="analysis",
+)
+"""Owned by analysis: one row per rule set and run scanned, matches or not, with the rule set
+itself. Scanning again replaces the row and its matches."""
+
+rule_matches = Table(
+    "rule_matches",
+    metadata,
+    Column("rule_set_sha256", Text, primary_key=True),
+    Column("run_id", Text, primary_key=True),
+    Column("event_id", Text, primary_key=True),
+    Column("rule_id", Text, primary_key=True),
+    Column("seq", BigInteger, nullable=False),
+    Column("field", Text, nullable=False),
+    Column("via", JSONB, nullable=False),
+    Column("excerpt", Text, nullable=False),
+    ForeignKeyConstraint(
+        ["rule_set_sha256", "run_id"], [rule_scans.c.rule_set_sha256, rule_scans.c.run_id]
+    ),
+    Index(None, "run_id", "event_id"),
+    schema="analysis",
+)
+"""Owned by analysis: a rule's best match in one event, the one with the fewest decodings:
+the payload field it was in, the decodings (`via`, outermost first), and an excerpt around it."""

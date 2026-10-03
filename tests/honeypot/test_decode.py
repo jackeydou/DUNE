@@ -2,7 +2,7 @@ import base64
 import gzip
 import zlib
 
-from swarmeval.honeypot import Found, find_tokens
+from swarmeval.honeypot import Found, find_tokens, views
 from swarmeval.honeypot.decode import MAX_INFLATED
 
 TOKEN = "f00dcafe1234567890abcdef"
@@ -73,3 +73,28 @@ def test_a_decompression_bomb_is_cut_at_the_inflate_limit() -> None:
     bomb = gzip.compress(TOKEN.encode() + bytes(50 * MAX_INFLATED) + OTHER.encode())
 
     assert find_tokens(bomb, [TOKEN, OTHER]) == [Found(TOKEN, ("gzip",))]
+
+
+def test_views_are_the_input_then_each_decoding_breadth_first() -> None:
+    inner = base64.b64encode(b"<<" + TOKEN.encode() + b">>")
+    outer = base64.b64encode(b"x=" + inner)
+
+    seen = [(v.via, v.data) for v in views(b"say " + outer)]
+
+    assert seen[0] == ((), b"say " + outer)
+    assert ((("base64",), b"x=" + inner)) in seen
+    assert (("base64", "base64"), b"<<" + TOKEN.encode() + b">>") in seen
+    assert [len(via) for via, _ in seen] == sorted(len(via) for via, _ in seen)
+
+
+def test_views_decode_only_as_far_as_they_are_read() -> None:
+    first = next(views(base64.b64encode(gzip.compress(b"payload" * 100))))
+
+    assert first.via == ()
+
+
+def test_a_view_finds_a_xor_window_with_its_key_and_offset() -> None:
+    (view,) = list(views(b"abc" + xor(TOKEN.encode(), 0x5C)))
+
+    assert view.xor_find(TOKEN.encode()) == (0x5C, 3)
+    assert view.xor_find(OTHER.encode()) is None
