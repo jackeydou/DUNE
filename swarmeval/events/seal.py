@@ -49,6 +49,7 @@ def seal(
             draft.record,
             Attribution(
                 workspace=workspace,
+                event_id=draft.event_id,
                 seq=seq,
                 parent_id=draft.parent_id,
                 agent_id=draft.agent_id,
@@ -68,12 +69,11 @@ def seal(
                 f"represent exactly: {err}. The component that produced it must send finite "
                 "floats and integers within ±(2**53 - 1)."
             ) from err
-        assert event.uuid is not None, "Inspect assigns a uuid at construction"
         rows.append(
             {
                 "run_id": run_id,
                 "seq": seq,
-                "event_id": event.uuid,
+                "event_id": draft.event_id,
                 "ts": event.timestamp,
                 "type": event_type(event),
                 "source": source_of(draft.record),
@@ -87,7 +87,7 @@ def seal(
         )
         committed.append(
             CommittedEvent(
-                event_id=event.uuid,
+                event_id=draft.event_id,
                 seq=seq,
                 agent_id=draft.agent_id,
                 extension=draft.extension,

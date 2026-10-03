@@ -124,7 +124,7 @@ async def test_a_call_is_committed_before_its_response_returns(rig: Rig) -> None
     )
 
     async with rig.session() as session:
-        recorded = await session.generate(DEV, request())
+        recorded = await session.generate(DEV, request(), parent_id=None)
 
     message = recorded.response.message
     assert message.reasoning == "let me look"
@@ -169,6 +169,7 @@ async def test_only_the_current_turns_reasoning_goes_back_upstream(rig: Rig) -> 
                 current,
                 ToolMessage(tool_call_id="c1", content="out"),
             ),
+            parent_id=None,
         )
 
     sent = rig.backend.requests[0]["messages"]
@@ -181,7 +182,7 @@ async def test_reasoning_under_the_newer_field_name_is_read(rig: Rig) -> None:
     rig.backend.reply(completion("ok", reasoning="hmm", reasoning_field="reasoning"))
 
     async with rig.session() as session:
-        recorded = await session.generate(DEV, request())
+        recorded = await session.generate(DEV, request(), parent_id=None)
 
     assert recorded.response.message.reasoning == "hmm"
 
@@ -190,7 +191,7 @@ async def test_nul_in_model_output_is_replaced_before_it_is_stored(rig: Rig) -> 
     rig.backend.reply(completion("a\x00b", tool_calls=[tool_call("shell", '{"cmd":"\x00"}')]))
 
     async with rig.session() as session:
-        recorded = await session.generate(DEV, request())
+        recorded = await session.generate(DEV, request(), parent_id=None)
 
     assert recorded.response.message.content == "a�b"
     assert recorded.response.message.tool_calls[0].arguments == '{"cmd":"�"}'
@@ -200,10 +201,11 @@ async def test_extension_calls_are_attributed_to_the_instance(rig: Rig) -> None:
     rig.backend.reply(completion("verdict"))
 
     async with rig.session() as session:
-        await session.generate(ExtensionCaller("acme.judge"), request())
+        await session.generate(ExtensionCaller("acme.judge"), request(), parent_id="evt_trigger")
 
     (event,) = rig.store.events
     assert (event.agent_id, event.extension) == (None, "acme.judge")
+    assert event.parent_id == "evt_trigger"
 
 
 async def test_retries_are_counted_and_only_the_final_response_is_recorded(rig: Rig) -> None:
@@ -211,7 +213,7 @@ async def test_retries_are_counted_and_only_the_final_response_is_recorded(rig: 
     rig.backend.reply(completion("second try"))
 
     async with rig.session() as session:
-        recorded = await session.generate(DEV, request())
+        recorded = await session.generate(DEV, request(), parent_id=None)
 
     assert recorded.response.message.content == "second try"
     (event,) = rig.store.events
@@ -224,7 +226,7 @@ async def test_a_backend_error_fails_the_call_without_a_record(rig: Rig) -> None
 
     async with rig.session() as session:
         with pytest.raises(ModelGatewayError, match="answered 502") as info:
-            await session.generate(DEV, request())
+            await session.generate(DEV, request(), parent_id=None)
 
     assert info.value.status == 502
     assert "context too long" in str(info.value)
@@ -234,7 +236,9 @@ async def test_a_backend_error_fails_the_call_without_a_record(rig: Rig) -> None
 async def test_an_unknown_model_is_404(rig: Rig) -> None:
     async with rig.session() as session:
         with pytest.raises(ModelGatewayError, match="model_not_found"):
-            await session.generate(DEV, request().model_copy(update={"model": "gpt-nope"}))
+            await session.generate(
+                DEV, request().model_copy(update={"model": "gpt-nope"}), parent_id=None
+            )
 
     assert rig.backend.requests == []
 
@@ -245,7 +249,7 @@ async def test_without_an_attached_stream_the_backend_is_never_called(rig: Rig) 
         pass
 
     with pytest.raises(ModelGatewayError) as info:
-        await session.generate(DEV, request())
+        await session.generate(DEV, request(), parent_id=None)
 
     assert info.value.status == 503
     assert "run_not_attached" in str(info.value)
@@ -261,10 +265,10 @@ async def test_a_record_the_worker_cannot_commit_fails_the_call(rig: Rig) -> Non
     rig.store.commit = broken  # type: ignore[method-assign]
     async with rig.session() as session:
         with pytest.raises(ModelGatewayError, match="not committed: database is gone") as info:
-            await session.generate(DEV, request())
+            await session.generate(DEV, request(), parent_id=None)
         assert isinstance(info.value.__cause__, RuntimeError)
         with pytest.raises(ModelGatewayError, match="failed earlier"):
-            await session.generate(DEV, request())
+            await session.generate(DEV, request(), parent_id=None)
 
 
 @pytest.mark.parametrize(
@@ -282,10 +286,10 @@ async def test_a_second_stream_for_a_run_needs_a_higher_epoch(
             return
         async with rig.session(owner_epoch=epoch) as second:
             rig.backend.reply(completion("from the new owner"))
-            recorded = await second.generate(DEV, request())
+            recorded = await second.generate(DEV, request(), parent_id=None)
             assert recorded.response.message.content == "from the new owner"
             with pytest.raises(ModelGatewayError, match="failed earlier") as info:
-                await first.generate(DEV, request())
+                await first.generate(DEV, request(), parent_id=None)
             assert "replaced by owner_epoch 2" in str(info.value.__cause__)
 
 

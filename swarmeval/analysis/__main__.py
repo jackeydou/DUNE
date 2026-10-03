@@ -10,6 +10,8 @@
   events, a lane per agent, as Markdown on stdout and optionally an HTML page.
 - `scan --rules FILE (--run ID ... | --submission ID ...)`: a rule set over each run's decoded
   event payloads, stored in `analysis.rule_matches`; one line per run on stdout.
+- `trace --run ID --event EVENT_ID`: the event's causal chain along `parent_id`, the run's root
+  first, one line per event on stdout.
 """
 
 import argparse
@@ -21,7 +23,7 @@ from pathlib import Path
 import httpx2
 
 from swarmeval import config
-from swarmeval.analysis import timeline
+from swarmeval.analysis import timeline, trace
 from swarmeval.analysis.evalset import describe, variant_runs, write_eval_set
 from swarmeval.analysis.exports import ExportError, load_events, load_events_table, runs_of
 from swarmeval.analysis.judge import Gateway, judge
@@ -114,6 +116,12 @@ def main() -> None:
     config.add_object_store(scan)
     config.add_database(scan)
 
+    chain = jobs.add_parser("trace", help="an event's causal chain, from the run's root to it")
+    chain.add_argument("--run", required=True, help="the run id")
+    chain.add_argument("--event", required=True, help="the event id to trace")
+    chain.add_argument("--event-chars", type=int, default=400, help="characters per event")
+    config.add_object_store(chain)
+
     args = parser.parse_args()
     try:
         match args.job:
@@ -126,9 +134,11 @@ def main() -> None:
                 asyncio.run(_eval_set(args))
             case "timeline":
                 asyncio.run(_timeline(args))
+            case "trace":
+                asyncio.run(_trace(args))
             case _:
                 asyncio.run(_scan(args))
-    except (ExportError, RuleSetError) as err:
+    except (ExportError, RuleSetError, trace.TraceError) as err:
         raise SystemExit(str(err)) from err
 
 
@@ -153,6 +163,11 @@ async def _scan(args: argparse.Namespace) -> None:
     finally:
         await engine.dispose()
     print(f"rule set {rules.sha256()[:12]}: {total} matches in {len(run_ids)} runs")
+
+
+async def _trace(args: argparse.Namespace) -> None:
+    table = await load_events_table(config.object_store(args), args.run)
+    print(trace.text(trace.trace(table, args.event, event_chars=args.event_chars)), end="")
 
 
 async def _timeline(args: argparse.Namespace) -> None:

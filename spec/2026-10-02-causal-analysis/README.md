@@ -167,6 +167,9 @@ draft · 2026-10-02 · 决定均为起草人的建议，待提出人确认；Ope
 
 1. **因果链**（决定 1）：补齐 `parent_id`，analysis `trace` 任务。
    退出条件：测试 run 里任一事件都能沿 `parent_id` 走到 run 的根。
+   （2026-10-02）已实现：事件 id 在提交前确定，除 run 的第一个事件外每个事件都有 `parent_id`（事件 schema 版本 5），
+   表外事件（自检探针、生命周期、limit、评分、transcript check）的规则见
+   [docs/event-log.md](../../docs/event-log.md#causal-parents)；`trace --run --event`；端到端测试里每个事件都走到根。
 2. **信道干预**（决定 2、3）：`before_deliver`、投递状态迁移、四个内置干预扩展、`ctx.rng` 进扩展状态。
    退出条件：drop、delay、paraphrase 各有端到端测试；paraphrase 的模型调用用扩展 key 记录。
 3. **对照实验**（决定 4、5）：case 代码加载、离线 `collusion_pricing`、`event_value` scorer、`report --compare`。

@@ -87,6 +87,7 @@ class _Pending:
     caller: Caller
     request: ModelRequest
     body_sha256: str
+    parent_id: str | None
     done: asyncio.Future[tuple[ModelResponse, CommittedEvent, bytes]] = field(
         default_factory=lambda: asyncio.get_running_loop().create_future()
     )
@@ -156,7 +157,9 @@ class GatewaySession:
             self._reader.cancel()
             await asyncio.gather(self._reader, return_exceptions=True)
 
-    async def generate(self, caller: Caller, request: ModelRequest) -> RecordedResponse:
+    async def generate(
+        self, caller: Caller, request: ModelRequest, *, parent_id: str | None
+    ) -> RecordedResponse:
         if self._broken is not None:
             raise ModelGatewayError(
                 f"run `{self._run_id}`: the model-gateway stream failed earlier."
@@ -165,7 +168,7 @@ class GatewaySession:
         self._calls += 1
         call_id = f"call_{self._calls}"
         body = to_wire(request).model_dump_json(exclude_none=True).encode()
-        pending = _Pending(caller, request, hashlib.sha256(body).hexdigest())
+        pending = _Pending(caller, request, hashlib.sha256(body).hexdigest(), parent_id)
         self._pending[call_id] = pending
         headers = {
             "Authorization": f"Bearer {self._keys[name]}",
@@ -245,6 +248,7 @@ class GatewaySession:
                     if isinstance(pending.caller, ExtensionCaller)
                     else None
                 ),
+                parent_id=pending.parent_id,
             )
             (event,) = await self._writer.commit(Transaction(events=[draft]))
         except BaseException as err:

@@ -61,8 +61,13 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
 )
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 """Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
+
+5: every event but the run's first names its causal parent in `parent_id`
+(docs/event-log.md#causal-parents), and event ids are UUIDs the worker fixes before commit. In
+version 4 and older runs only tool events, deliveries, and some interventions have a parent;
+they read as before.
 
 4: `isolation_probe` events, a `SandboxEvent` with `probe` (`step` and `findings`) beside `exec`,
 and `transcript_check` events, an `InfoEvent(source="swarmeval.transcript_check")`. Version 3 and
@@ -86,6 +91,8 @@ class Attribution:
     """Where an event sits in the run. Everything here lands in `metadata.swarmeval`."""
 
     workspace: str
+    event_id: str
+    """Becomes the Inspect event's `uuid`."""
     seq: int
     parent_id: str | None
     agent_id: str | None
@@ -143,6 +150,7 @@ def to_event(record: Record, where: Attribution) -> Event:
                 data=record.model_dump(mode="json", exclude={"kind"}),
             )
             extra = {}
+    event.uuid = where.event_id
     event.metadata = {
         "swarmeval": {
             "schema_version": SCHEMA_VERSION,

@@ -20,10 +20,17 @@ class RunWriter:
         self._store = store
         self._lock = asyncio.Lock()
         self._subscribers: list[Subscriber] = []
+        self._last_event_id: str | None = None
 
     @property
     def store(self) -> RunStore:
         return self._store
+
+    @property
+    def last_event_id(self) -> str | None:
+        """The last event committed through this writer, `None` before the first. Run-level
+        events that follow a phase of the run (the self-check, the loop) take it as parent."""
+        return self._last_event_id
 
     def subscribe(self, subscriber: Subscriber) -> None:
         self._subscribers.append(subscriber)
@@ -37,6 +44,7 @@ class RunWriter:
         async with self._lock:
             events = await self._store.commit(txn)
             if events:
+                self._last_event_id = events[-1].event_id
                 for subscriber in self._subscribers:
                     subscriber(events)
             return events

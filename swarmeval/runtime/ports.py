@@ -63,9 +63,12 @@ class RunStore(Protocol):
 
 
 class ModelClient(Protocol):
-    async def generate(self, caller: Caller, request: ModelRequest) -> RecordedResponse:
+    async def generate(
+        self, caller: Caller, request: ModelRequest, *, parent_id: str | None
+    ) -> RecordedResponse:
         """Returns only after the gateway's record of this call has been committed through the
-        run's writer, so the returned event is already evidence."""
+        run's writer, so the returned event is already evidence. `parent_id` is the recorded
+        event's causal parent (docs/event-log.md#causal-parents)."""
         ...
 
 

@@ -7,7 +7,7 @@ See docs/agent-runtime.md.
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from swarmeval.gateway.bus import ChannelSpec, MessageBus
@@ -122,6 +122,9 @@ class _AgentRun:
         self.length = 0
         self.turn = 0
         self.finished = False
+        self.last_input = ""
+        """The last event whose content was admitted into this agent's context: the parent of
+        its next model call (docs/event-log.md#causal-parents). Set when generation 0 commits."""
 
 
 @dataclass(frozen=True)
@@ -136,8 +139,10 @@ class _Execution:
 
 
 class _Stopped(Exception):
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, cause: str | None) -> None:
         self.reason = reason
+        self.cause = cause
+        """The event that stopped the run, if an event did."""
 
 
 class RunLoop:
@@ -176,6 +181,11 @@ class RunLoop:
         self._extensions = extensions
         self._hook_timeout_s = hook_timeout_s
         self._stop_reason: str | None = None
+        self._started_id = ""
+        """The `started` lifecycle event: what run-level hooks and the run's last lifecycle
+        event descend from. Set by `_start`."""
+        self._end_cause: str | None = None
+        """The event that ended the run (a limit, a stop), when one did."""
 
     def _check_tools(self) -> None:
         for agent in self._spec.agents:
@@ -219,12 +229,13 @@ class RunLoop:
         dispatcher.start()
         try:
             await self._start()
-            await dispatcher.observe("on_run_start", None)
+            await dispatcher.observe("on_run_start", None, self._started_id)
             outcome = await self._drive(dispatcher)
-            await dispatcher.observe("on_run_end", None)
+            await dispatcher.observe("on_run_end", None, self._started_id)
             await dispatcher.settle()
             record = LifecycleRecord(status=outcome.status, reason=outcome.reason)
-            await self._writer.commit(Transaction(events=[EventDraft(record=record)]))
+            draft = EventDraft(record=record, parent_id=self._end_cause or self._started_id)
+            await self._writer.commit(Transaction(events=[draft]))
             await dispatcher.settle()
             return outcome
         except ExtensionError as err:
@@ -232,14 +243,21 @@ class RunLoop:
             record = LifecycleRecord(
                 status="failed", hook=err.hook, error=f"{err} (cause: {err.__cause__!r})"
             )
-            draft = EventDraft(record=record, extension=err.instance_id)
+            draft = EventDraft(
+                record=record,
+                extension=err.instance_id,
+                parent_id=self._started_id or self._writer.last_event_id,
+            )
             await self._writer.commit(Transaction(events=[draft]))
             raise
         finally:
             await dispatcher.close()
 
     async def _start(self) -> None:
-        txn = Transaction(events=[EventDraft(record=LifecycleRecord(status="started"))])
+        started = EventDraft(
+            record=LifecycleRecord(status="started"), parent_id=self._writer.last_event_id
+        )
+        txn = Transaction(events=[started])
         for agent in self._agents.values():
             if await self._store.context(agent.spec.id) is not None:
                 raise RunConfigError(
@@ -249,8 +267,10 @@ class RunLoop:
             initial = initial_context(agent.spec)
             txn.new_generations[agent.spec.id] = initial
             agent.length = len(initial)
+            agent.last_input = started.event_id
             txn.agent_states.append(self._state_row(agent, "ready"))
         await self._writer.commit(txn)
+        self._started_id = started.event_id
 
     async def _drive(self, dispatcher: HookDispatcher) -> RunOutcome:
         limits = self._spec.limits
@@ -272,6 +292,7 @@ class RunLoop:
                     self._turns += 1
                     await self._step(dispatcher, agent)
         except _Stopped as stop:
+            self._end_cause = stop.cause
             return self._outcome("stopped", stop.reason)
 
     def tool_schemas(self) -> dict[str, ToolSchema]:
@@ -290,11 +311,16 @@ class RunLoop:
     def _check_stop(self, dispatcher: HookDispatcher) -> None:
         reason = self._stop_requested(dispatcher)
         if reason is not None:
-            raise _Stopped(reason)
+            raise _Stopped(reason, self._stop_cause(dispatcher))
+
+    def _stop_cause(self, dispatcher: HookDispatcher) -> str | None:
+        """An extension's stop intervention; `None` for a stop from outside (a cancel)."""
+        return None if self._stop_reason is not None else dispatcher.stop_cause
 
     async def _limit(self, limit: Literal["max_turns", "max_tokens"], value: int) -> RunOutcome:
-        record = LimitRecord(limit=limit, value=value)
-        await self._writer.commit(Transaction(events=[EventDraft(record=record)]))
+        draft = EventDraft(record=LimitRecord(limit=limit, value=value), parent_id=self._started_id)
+        await self._writer.commit(Transaction(events=[draft]))
+        self._end_cause = draft.event_id
         return self._outcome("limit", f"{limit} reached ({value})")
 
     def _outcome(
@@ -306,19 +332,20 @@ class RunLoop:
 
     async def _step(self, d: HookDispatcher, agent: _AgentRun) -> None:
         agent.turn += 1
-        gate = await d.before_turn(agent.info, self._turns)
+        gate = await d.before_turn(agent.info, self._turns, agent.last_input)
         txn = gate.txn
         deliveries = self._bus.take(agent.spec.id)
         txn.events.extend(delivery.draft for delivery in deliveries)
-        admitted: list[ChatMessage] = [delivery.message for delivery in deliveries]
+        admitted = [(delivery.message, delivery.draft.event_id) for delivery in deliveries]
         admitted.extend(d.take_injections(agent.spec.id))
         if isinstance(gate.decision, Inject):
-            admitted.extend(gate.decision.messages)
+            assert gate.intervention_id is not None, "a decision other than Proceed is recorded"
+            admitted.extend((m, gate.intervention_id) for m in gate.decision.messages)
         self._admit(txn, agent, admitted)
         await self._writer.commit(txn)
         match gate.decision:
             case Stop(reason=reason):
-                raise _Stopped(f"{gate.decided_by}: {reason}")
+                raise _Stopped(f"{gate.decided_by}: {reason}", gate.intervention_id)
             case Skip():
                 return
             case _:
@@ -328,12 +355,14 @@ class RunLoop:
         context = await self._store.context(agent.spec.id)
         assert context is not None, "every agent gets generation 0 in _start"
         messages = context.messages
-        compacted = await d.compact_context(agent.info, messages)
+        compacted = await d.compact_context(agent.info, messages, agent.last_input)
         txn = compacted.txn
         if compacted.value is not None:
+            assert compacted.intervention_id is not None, "a compaction is recorded"
             messages = compacted.value
             agent.gen += 1
             agent.length = len(messages)
+            agent.last_input = compacted.intervention_id
             txn.new_generations[agent.spec.id] = messages
             txn.agent_states.append(self._state_row(agent, "ready"))
         await self._writer.commit(txn)
@@ -347,7 +376,7 @@ class RunLoop:
             max_output_tokens=spec.max_output_tokens,
             seed=spec.seed,
         )
-        requested = await d.before_model_request(agent.info, options)
+        requested = await d.before_model_request(agent.info, options, agent.last_input)
         await self._writer.commit(requested.txn)
         self._check_stop(d)
         request = ModelRequest(
@@ -357,7 +386,9 @@ class RunLoop:
             tools=tuple(tool_schema(self._tools[name]) for name in requested.value.tools),
             options=requested.value,
         )
-        recorded = await self._model.generate(AgentCaller(spec.id), request)
+        recorded = await self._model.generate(
+            AgentCaller(spec.id), request, parent_id=agent.last_input
+        )
         self._tokens_used += recorded.response.usage.total
         model_event_id = recorded.event.event_id
 
@@ -365,7 +396,7 @@ class RunLoop:
             agent.info, recorded.response.message, model_event_id
         )
         txn = response.txn
-        self._admit(txn, agent, [response.value])
+        self._admit(txn, agent, [(response.value, response.intervention_id or model_event_id)])
         await self._writer.commit(txn)
 
         for call in response.value.tool_calls:
@@ -374,7 +405,7 @@ class RunLoop:
             agent.finished = True
             txn = Transaction(agent_states=[self._state_row(agent, "finished")])
             await self._writer.commit(txn)
-        await d.observe("after_turn", agent.info)
+        await d.observe("after_turn", agent.info, agent.last_input)
 
     async def _tool_step(
         self,
@@ -389,7 +420,7 @@ class RunLoop:
         reason = self._stop_requested(d)
         if reason is not None:
             await self._writer.commit(txn)
-            raise _Stopped(reason)
+            raise _Stopped(reason, self._stop_cause(d))
         blocked_by: str | None = None
         match gate.decision:
             case Block(result=content, is_error=is_error):
@@ -404,7 +435,7 @@ class RunLoop:
                     else call.arguments
                 )
                 effective = call.model_copy(update={"arguments": arguments})
-                execution = await self._execute(d, agent, effective, txn, offered)
+                execution = await self._execute(d, agent, effective, txn, offered, model_event_id)
 
         result = execution.result
         record = ToolCallRecord(
@@ -425,7 +456,7 @@ class RunLoop:
         message = ToolMessage(
             tool_call_id=call.id, content=admitted.value.content, is_error=admitted.value.is_error
         )
-        self._admit(txn, agent, [message])
+        self._admit(txn, agent, [(message, admitted.intervention_id or tool_event.event_id)])
         await self._writer.commit(txn)
 
     async def _execute(
@@ -435,10 +466,11 @@ class RunLoop:
         call: ToolCall,
         txn: Transaction,
         offered: tuple[str, ...],
+        model_event_id: str,
     ) -> _Execution:
         """`offered` is the tool list of the request that produced the call, after
         `before_model_request` narrowed it. A call outside it is refused even if the agent
-        otherwise has the tool."""
+        otherwise has the tool. Events the tool causes name `model_event_id` as their parent."""
         tool = self._tools.get(call.name) if call.name in offered else None
         if tool is None:
             available = ", ".join(offered) or "none"
@@ -451,13 +483,13 @@ class RunLoop:
             return _Execution(parsed)
         if isinstance(tool, RuntimeTool):
             outcome = tool.run(parsed, agent.spec.id, call.id)
-            txn.events.extend(outcome.events)
+            txn.events.extend(replace(e, parent_id=model_event_id) for e in outcome.events)
             result = ToolResult(
                 call_id=call.id, tool=call.name, content=outcome.content, is_error=outcome.is_error
             )
             return _Execution(result, call.arguments)
         if isinstance(tool, WorkerTool):
-            content, effects = await d.run_worker_tool(tool, agent.info, parsed)
+            content, effects = await d.run_worker_tool(tool, agent.info, parsed, model_event_id)
             txn.extend(effects)
             return _Execution(
                 ToolResult(call_id=call.id, tool=call.name, content=content), call.arguments
@@ -480,11 +512,15 @@ class RunLoop:
         )
         return _Execution(exec_output(call, result), call.arguments, exec_result=result)
 
-    def _admit(self, txn: Transaction, agent: _AgentRun, messages: Sequence[ChatMessage]) -> None:
+    def _admit(
+        self, txn: Transaction, agent: _AgentRun, messages: Sequence[tuple[ChatMessage, str]]
+    ) -> None:
+        """Each message comes with the event its content is from."""
         if not messages:
             return
-        txn.messages.extend((agent.spec.id, m) for m in messages)
+        txn.messages.extend((agent.spec.id, m) for m, _ in messages)
         agent.length += len(messages)
+        agent.last_input = messages[-1][1]
         txn.agent_states.append(self._state_row(agent, "ready"))
 
     def _state_row(

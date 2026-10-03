@@ -147,8 +147,20 @@
   run with a `failed` lifecycle event naming the sandboxes and the probe.
 - `RunSandboxes.create` takes `env`, `hostname`, and `machine_id`, the new `CreateSandbox`
   fields.
+- Causal chain: every event but the run's first names the event that caused it in `parent_id`
+  (an agent's model call the last event admitted into its context, a send the model call that
+  sent it, an alert the last event it cites, an action the alert or event that caused it). Rules:
+  `docs/event-log.md#causal-parents`.
+- `python -m swarmeval.analysis trace --run ID --event EVENT_ID`: an event's causal chain from
+  the run's first event, one line per event.
+- `ctx.trigger_id`, the event that caused a hook call; `ctx.actions.alert` returns the alert's
+  event id, and `ctx.actions.stop` / `inject` take a `cause`.
 
 ### Changed
+- Event schema version 5: `parent_id` is set on every event but the run's first, and event ids
+  are UUIDs fixed before commit (`EventDraft.event_id`). Version 4 events read unchanged.
+- `ModelClient.generate` takes the recorded event's `parent_id`; `RunWriter.last_event_id` is
+  the last event committed.
 - A worker whose run fails the isolation self-check claims no more runs, lets its other runs
   finish, and `serve` raises `WorkerHalted` naming the run and the probes; `swarmeval-worker`
   exits with it. `Outcome.host_fault` marks such a run.

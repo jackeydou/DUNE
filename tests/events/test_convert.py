@@ -34,7 +34,13 @@ from tests.runtime.fakes import GATEWAY
 
 EVENT = TypeAdapter[Event](Event)
 WHERE = Attribution(
-    workspace="ws", seq=4, parent_id="evt_p", agent_id="a", sandbox_id="box_a", extension=None
+    workspace="ws",
+    event_id="evt_x",
+    seq=4,
+    parent_id="evt_p",
+    agent_id="a",
+    sandbox_id="box_a",
+    extension=None,
 )
 
 
@@ -211,7 +217,7 @@ def test_an_isolation_probe_is_a_sandbox_event_with_its_findings() -> None:
     assert event.metadata is not None
     meta = event.metadata["swarmeval"]
     assert (meta["source"], meta["schema_version"]) == ("sandboxd", SCHEMA_VERSION)
-    assert SCHEMA_VERSION == 4
+    assert SCHEMA_VERSION >= 4
     assert meta["probe"] == {
         "step": "check",
         "findings": [{"probe": "proc", "peer": "box_b", "outcome": "isolated", "detail": "none"}],

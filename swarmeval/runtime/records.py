@@ -4,6 +4,7 @@ A record says what happened; the events package turns it into an Inspect `Event`
 written (see docs/event-log.md). The runtime never builds Inspect objects itself.
 """
 
+import uuid
 from dataclasses import dataclass, field
 from typing import Annotated, Literal
 
@@ -373,12 +374,20 @@ class CommittedEvent(Frozen):
     record: Record
 
 
+def new_event_id() -> str:
+    return str(uuid.uuid4())
+
+
 @dataclass(frozen=True)
 class EventDraft:
+    """An event before it commits. Its id is fixed here, so events in one transaction can name
+    each other as parents (docs/event-log.md#causal-parents)."""
+
     record: Record
     agent_id: str | None = None
     extension: str | None = None
     parent_id: str | None = None
+    event_id: str = field(default_factory=new_event_id)
 
 
 @dataclass(frozen=True)

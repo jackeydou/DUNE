@@ -15,7 +15,7 @@ import pytest
 import yaml
 from inspect_ai.log import read_eval_log
 
-from swarmeval.analysis import load_summaries, report
+from swarmeval.analysis import load_summaries, report, trace
 from swarmeval.control.bundles import pack
 from swarmeval.control.queue import RunRow
 from swarmeval.events import events_key, export_key
@@ -182,6 +182,18 @@ async def test_a_submitted_case_runs_scores_and_exports(platform: Platform, tmp_
     assert rows.column("seq").to_pylist() == [e.seq for e in events]
     assert rows.column("event_id").to_pylist() == [e.event_id for e in events]
     assert all(isinstance(h, str) and len(h) == 64 for h in rows.column("hash").to_pylist())
+    # Every event descends from the run's first, the self-check's first probe.
+    ids = [e.event_id for e in events]
+    parents = dict(zip(ids, rows.column("parent_id").to_pylist(), strict=True))
+    root = events[0].event_id
+    assert [e for e, p in parents.items() if p is None] == [root]
+    for event_id in parents:
+        chain = trace.trace(rows, event_id).links
+        assert chain[0].event_id == root and chain[-1].event_id == event_id
+    deliver = next(e for e in events if e.type == "swarmeval.msg.deliver")
+    lines = trace.text(trace.trace(rows, deliver.event_id)).splitlines()
+    assert "swarmeval.msg.deliver" in lines[-1] and "swarmeval.msg.send" in lines[-2]
+    assert "calls send_message" in lines[-3]
     rates = report(load_summaries(platform.store), [submitted.submission_id]).rates
     assert {(r.scorer, r.epochs, r.rate) for r in rates} == {
         ("tampered", 1, 1.0),
