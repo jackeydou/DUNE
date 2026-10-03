@@ -173,7 +173,13 @@ type Run struct {
 	// The interrupted run this one reruns at a new epoch; empty for a run the submission asked for.
 	Replaces string `protobuf:"bytes,17,opt,name=replaces,proto3" json:"replaces,omitempty"`
 	// The suite label of the run's submission; empty for none.
-	Suite         string `protobuf:"bytes,18,opt,name=suite,proto3" json:"suite,omitempty"`
+	Suite string `protobuf:"bytes,18,opt,name=suite,proto3" json:"suite,omitempty"`
+	// For a fork: the run it goes on from, and the last of that run's events it starts after.
+	ForkedFrom string `protobuf:"bytes,19,opt,name=forked_from,json=forkedFrom,proto3" json:"forked_from,omitempty"`
+	ForkSeq    int64  `protobuf:"varint,20,opt,name=fork_seq,json=forkSeq,proto3" json:"fork_seq,omitempty"`
+	// For a fork, once its sandboxes are restored: `fs_restored` when every recorded file change
+	// up to the fork point was restored, `fs_partial` when some could not be.
+	Fidelity      string `protobuf:"bytes,21,opt,name=fidelity,proto3" json:"fidelity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -330,6 +336,27 @@ func (x *Run) GetReplaces() string {
 func (x *Run) GetSuite() string {
 	if x != nil {
 		return x.Suite
+	}
+	return ""
+}
+
+func (x *Run) GetForkedFrom() string {
+	if x != nil {
+		return x.ForkedFrom
+	}
+	return ""
+}
+
+func (x *Run) GetForkSeq() int64 {
+	if x != nil {
+		return x.ForkSeq
+	}
+	return 0
+}
+
+func (x *Run) GetFidelity() string {
+	if x != nil {
+		return x.Fidelity
 	}
 	return ""
 }
@@ -720,6 +747,383 @@ func (x *ResumeRunResponse) GetRun() *Run {
 	return nil
 }
 
+type ForkRunRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	AtEventId     string                 `protobuf:"bytes,2,opt,name=at_event_id,json=atEventId,proto3" json:"at_event_id,omitempty"`
+	Edits         []*ForkEdit            `protobuf:"bytes,3,rep,name=edits,proto3" json:"edits,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForkRunRequest) Reset() {
+	*x = ForkRunRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForkRunRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForkRunRequest) ProtoMessage() {}
+
+func (x *ForkRunRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForkRunRequest.ProtoReflect.Descriptor instead.
+func (*ForkRunRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ForkRunRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *ForkRunRequest) GetAtEventId() string {
+	if x != nil {
+		return x.AtEventId
+	}
+	return ""
+}
+
+func (x *ForkRunRequest) GetEdits() []*ForkEdit {
+	if x != nil {
+		return x.Edits
+	}
+	return nil
+}
+
+type ForkEdit struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Edit:
+	//
+	//	*ForkEdit_ReplaceMessage
+	//	*ForkEdit_DeleteMessage
+	//	*ForkEdit_ReplaceDelivery
+	Edit          isForkEdit_Edit `protobuf_oneof:"edit"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForkEdit) Reset() {
+	*x = ForkEdit{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForkEdit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForkEdit) ProtoMessage() {}
+
+func (x *ForkEdit) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForkEdit.ProtoReflect.Descriptor instead.
+func (*ForkEdit) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ForkEdit) GetEdit() isForkEdit_Edit {
+	if x != nil {
+		return x.Edit
+	}
+	return nil
+}
+
+func (x *ForkEdit) GetReplaceMessage() *ReplaceMessage {
+	if x != nil {
+		if x, ok := x.Edit.(*ForkEdit_ReplaceMessage); ok {
+			return x.ReplaceMessage
+		}
+	}
+	return nil
+}
+
+func (x *ForkEdit) GetDeleteMessage() *DeleteMessage {
+	if x != nil {
+		if x, ok := x.Edit.(*ForkEdit_DeleteMessage); ok {
+			return x.DeleteMessage
+		}
+	}
+	return nil
+}
+
+func (x *ForkEdit) GetReplaceDelivery() *ReplaceDelivery {
+	if x != nil {
+		if x, ok := x.Edit.(*ForkEdit_ReplaceDelivery); ok {
+			return x.ReplaceDelivery
+		}
+	}
+	return nil
+}
+
+type isForkEdit_Edit interface {
+	isForkEdit_Edit()
+}
+
+type ForkEdit_ReplaceMessage struct {
+	ReplaceMessage *ReplaceMessage `protobuf:"bytes,1,opt,name=replace_message,json=replaceMessage,proto3,oneof"`
+}
+
+type ForkEdit_DeleteMessage struct {
+	DeleteMessage *DeleteMessage `protobuf:"bytes,2,opt,name=delete_message,json=deleteMessage,proto3,oneof"`
+}
+
+type ForkEdit_ReplaceDelivery struct {
+	ReplaceDelivery *ReplaceDelivery `protobuf:"bytes,3,opt,name=replace_delivery,json=replaceDelivery,proto3,oneof"`
+}
+
+func (*ForkEdit_ReplaceMessage) isForkEdit_Edit() {}
+
+func (*ForkEdit_DeleteMessage) isForkEdit_Edit() {}
+
+func (*ForkEdit_ReplaceDelivery) isForkEdit_Edit() {}
+
+// The text of message `index` in an agent's context at the fork point.
+type ReplaceMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Index         int32                  `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"`
+	Content       string                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReplaceMessage) Reset() {
+	*x = ReplaceMessage{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReplaceMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReplaceMessage) ProtoMessage() {}
+
+func (x *ReplaceMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReplaceMessage.ProtoReflect.Descriptor instead.
+func (*ReplaceMessage) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ReplaceMessage) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *ReplaceMessage) GetIndex() int32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+func (x *ReplaceMessage) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+// A user message (a delivery or an injection) in an agent's context at the fork point.
+type DeleteMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Index         int32                  `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteMessage) Reset() {
+	*x = DeleteMessage{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteMessage) ProtoMessage() {}
+
+func (x *DeleteMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteMessage.ProtoReflect.Descriptor instead.
+func (*DeleteMessage) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *DeleteMessage) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *DeleteMessage) GetIndex() int32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+// Other content for a message routed to `recipient` but not yet delivered at the fork point.
+type ReplaceDelivery struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SendEventId   string                 `protobuf:"bytes,1,opt,name=send_event_id,json=sendEventId,proto3" json:"send_event_id,omitempty"`
+	Recipient     string                 `protobuf:"bytes,2,opt,name=recipient,proto3" json:"recipient,omitempty"`
+	Content       string                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReplaceDelivery) Reset() {
+	*x = ReplaceDelivery{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReplaceDelivery) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReplaceDelivery) ProtoMessage() {}
+
+func (x *ReplaceDelivery) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReplaceDelivery.ProtoReflect.Descriptor instead.
+func (*ReplaceDelivery) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ReplaceDelivery) GetSendEventId() string {
+	if x != nil {
+		return x.SendEventId
+	}
+	return ""
+}
+
+func (x *ReplaceDelivery) GetRecipient() string {
+	if x != nil {
+		return x.Recipient
+	}
+	return ""
+}
+
+func (x *ReplaceDelivery) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+type ForkRunResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Run           *Run                   `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForkRunResponse) Reset() {
+	*x = ForkRunResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForkRunResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForkRunResponse) ProtoMessage() {}
+
+func (x *ForkRunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForkRunResponse.ProtoReflect.Descriptor instead.
+func (*ForkRunResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ForkRunResponse) GetRun() *Run {
+	if x != nil {
+		return x.Run
+	}
+	return nil
+}
+
 type StreamEventsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -730,7 +1134,7 @@ type StreamEventsRequest struct {
 
 func (x *StreamEventsRequest) Reset() {
 	*x = StreamEventsRequest{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -742,7 +1146,7 @@ func (x *StreamEventsRequest) String() string {
 func (*StreamEventsRequest) ProtoMessage() {}
 
 func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -755,7 +1159,7 @@ func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEventsRequest.ProtoReflect.Descriptor instead.
 func (*StreamEventsRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{11}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *StreamEventsRequest) GetRunId() string {
@@ -787,7 +1191,7 @@ type StreamEventsResponse struct {
 
 func (x *StreamEventsResponse) Reset() {
 	*x = StreamEventsResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -799,7 +1203,7 @@ func (x *StreamEventsResponse) String() string {
 func (*StreamEventsResponse) ProtoMessage() {}
 
 func (x *StreamEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -812,7 +1216,7 @@ func (x *StreamEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEventsResponse.ProtoReflect.Descriptor instead.
 func (*StreamEventsResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{12}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StreamEventsResponse) GetSeq() int64 {
@@ -863,7 +1267,7 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\x05suite\x18\x04 \x01(\tR\x05suite\"R\n" +
 	"\x12SubmitRunsResponse\x12#\n" +
 	"\rsubmission_id\x18\x01 \x01(\tR\fsubmissionId\x12\x17\n" +
-	"\arun_ids\x18\x02 \x03(\tR\x06runIds\"\xe3\x04\n" +
+	"\arun_ids\x18\x02 \x03(\tR\x06runIds\"\xbb\x05\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12#\n" +
 	"\rsubmission_id\x18\x02 \x01(\tR\fsubmissionId\x12\x17\n" +
@@ -887,7 +1291,11 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\vfinished_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"finishedAt\x12\x1a\n" +
 	"\breplaces\x18\x11 \x01(\tR\breplaces\x12\x14\n" +
-	"\x05suite\x18\x12 \x01(\tR\x05suite\"&\n" +
+	"\x05suite\x18\x12 \x01(\tR\x05suite\x12\x1f\n" +
+	"\vforked_from\x18\x13 \x01(\tR\n" +
+	"forkedFrom\x12\x19\n" +
+	"\bfork_seq\x18\x14 \x01(\x03R\aforkSeq\x12\x1a\n" +
+	"\bfidelity\x18\x15 \x01(\tR\bfidelity\"&\n" +
 	"\rGetRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"=\n" +
 	"\x0eGetRunResponse\x12+\n" +
@@ -907,6 +1315,28 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\x10ResumeRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"@\n" +
 	"\x11ResumeRunResponse\x12+\n" +
+	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\"}\n" +
+	"\x0eForkRunRequest\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1e\n" +
+	"\vat_event_id\x18\x02 \x01(\tR\tatEventId\x124\n" +
+	"\x05edits\x18\x03 \x03(\v2\x1e.swarmeval.control.v1.ForkEditR\x05edits\"\x85\x02\n" +
+	"\bForkEdit\x12O\n" +
+	"\x0freplace_message\x18\x01 \x01(\v2$.swarmeval.control.v1.ReplaceMessageH\x00R\x0ereplaceMessage\x12L\n" +
+	"\x0edelete_message\x18\x02 \x01(\v2#.swarmeval.control.v1.DeleteMessageH\x00R\rdeleteMessage\x12R\n" +
+	"\x10replace_delivery\x18\x03 \x01(\v2%.swarmeval.control.v1.ReplaceDeliveryH\x00R\x0freplaceDeliveryB\x06\n" +
+	"\x04edit\"[\n" +
+	"\x0eReplaceMessage\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x14\n" +
+	"\x05index\x18\x02 \x01(\x05R\x05index\x12\x18\n" +
+	"\acontent\x18\x03 \x01(\tR\acontent\"@\n" +
+	"\rDeleteMessage\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x14\n" +
+	"\x05index\x18\x02 \x01(\x05R\x05index\"m\n" +
+	"\x0fReplaceDelivery\x12\"\n" +
+	"\rsend_event_id\x18\x01 \x01(\tR\vsendEventId\x12\x1c\n" +
+	"\trecipient\x18\x02 \x01(\tR\trecipient\x12\x18\n" +
+	"\acontent\x18\x03 \x01(\tR\acontent\">\n" +
+	"\x0fForkRunResponse\x12+\n" +
 	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\"I\n" +
 	"\x13StreamEventsRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
@@ -916,14 +1346,15 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\bevent_id\x18\x02 \x01(\tR\aeventId\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12\x19\n" +
 	"\bagent_id\x18\x04 \x01(\tR\aagentId\x12!\n" +
-	"\fpayload_json\x18\x05 \x01(\tR\vpayloadJson2\xc6\x04\n" +
+	"\fpayload_json\x18\x05 \x01(\tR\vpayloadJson2\x9e\x05\n" +
 	"\x0eControlService\x12_\n" +
 	"\n" +
 	"SubmitRuns\x12'.swarmeval.control.v1.SubmitRunsRequest\x1a(.swarmeval.control.v1.SubmitRunsResponse\x12S\n" +
 	"\x06GetRun\x12#.swarmeval.control.v1.GetRunRequest\x1a$.swarmeval.control.v1.GetRunResponse\x12Y\n" +
 	"\bListRuns\x12%.swarmeval.control.v1.ListRunsRequest\x1a&.swarmeval.control.v1.ListRunsResponse\x12\\\n" +
 	"\tCancelRun\x12&.swarmeval.control.v1.CancelRunRequest\x1a'.swarmeval.control.v1.CancelRunResponse\x12\\\n" +
-	"\tResumeRun\x12&.swarmeval.control.v1.ResumeRunRequest\x1a'.swarmeval.control.v1.ResumeRunResponse\x12g\n" +
+	"\tResumeRun\x12&.swarmeval.control.v1.ResumeRunRequest\x1a'.swarmeval.control.v1.ResumeRunResponse\x12V\n" +
+	"\aForkRun\x12$.swarmeval.control.v1.ForkRunRequest\x1a%.swarmeval.control.v1.ForkRunResponse\x12g\n" +
 	"\fStreamEvents\x12).swarmeval.control.v1.StreamEventsRequest\x1a*.swarmeval.control.v1.StreamEventsResponse0\x01BJZHgithub.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1;controlv1b\x06proto3"
 
 var (
@@ -938,7 +1369,7 @@ func file_swarmeval_control_v1_control_proto_rawDescGZIP() []byte {
 	return file_swarmeval_control_v1_control_proto_rawDescData
 }
 
-var file_swarmeval_control_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_swarmeval_control_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_swarmeval_control_v1_control_proto_goTypes = []any{
 	(*SubmitRunsRequest)(nil),     // 0: swarmeval.control.v1.SubmitRunsRequest
 	(*SubmitRunsResponse)(nil),    // 1: swarmeval.control.v1.SubmitRunsResponse
@@ -951,38 +1382,51 @@ var file_swarmeval_control_v1_control_proto_goTypes = []any{
 	(*CancelRunResponse)(nil),     // 8: swarmeval.control.v1.CancelRunResponse
 	(*ResumeRunRequest)(nil),      // 9: swarmeval.control.v1.ResumeRunRequest
 	(*ResumeRunResponse)(nil),     // 10: swarmeval.control.v1.ResumeRunResponse
-	(*StreamEventsRequest)(nil),   // 11: swarmeval.control.v1.StreamEventsRequest
-	(*StreamEventsResponse)(nil),  // 12: swarmeval.control.v1.StreamEventsResponse
-	(*structpb.Struct)(nil),       // 13: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
+	(*ForkRunRequest)(nil),        // 11: swarmeval.control.v1.ForkRunRequest
+	(*ForkEdit)(nil),              // 12: swarmeval.control.v1.ForkEdit
+	(*ReplaceMessage)(nil),        // 13: swarmeval.control.v1.ReplaceMessage
+	(*DeleteMessage)(nil),         // 14: swarmeval.control.v1.DeleteMessage
+	(*ReplaceDelivery)(nil),       // 15: swarmeval.control.v1.ReplaceDelivery
+	(*ForkRunResponse)(nil),       // 16: swarmeval.control.v1.ForkRunResponse
+	(*StreamEventsRequest)(nil),   // 17: swarmeval.control.v1.StreamEventsRequest
+	(*StreamEventsResponse)(nil),  // 18: swarmeval.control.v1.StreamEventsResponse
+	(*structpb.Struct)(nil),       // 19: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil), // 20: google.protobuf.Timestamp
 }
 var file_swarmeval_control_v1_control_proto_depIdxs = []int32{
-	13, // 0: swarmeval.control.v1.SubmitRunsRequest.overrides:type_name -> google.protobuf.Struct
-	13, // 1: swarmeval.control.v1.Run.task_args:type_name -> google.protobuf.Struct
-	14, // 2: swarmeval.control.v1.Run.created_at:type_name -> google.protobuf.Timestamp
-	14, // 3: swarmeval.control.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	14, // 4: swarmeval.control.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
+	19, // 0: swarmeval.control.v1.SubmitRunsRequest.overrides:type_name -> google.protobuf.Struct
+	19, // 1: swarmeval.control.v1.Run.task_args:type_name -> google.protobuf.Struct
+	20, // 2: swarmeval.control.v1.Run.created_at:type_name -> google.protobuf.Timestamp
+	20, // 3: swarmeval.control.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	20, // 4: swarmeval.control.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
 	2,  // 5: swarmeval.control.v1.GetRunResponse.run:type_name -> swarmeval.control.v1.Run
 	2,  // 6: swarmeval.control.v1.ListRunsResponse.runs:type_name -> swarmeval.control.v1.Run
 	2,  // 7: swarmeval.control.v1.CancelRunResponse.run:type_name -> swarmeval.control.v1.Run
 	2,  // 8: swarmeval.control.v1.ResumeRunResponse.run:type_name -> swarmeval.control.v1.Run
-	0,  // 9: swarmeval.control.v1.ControlService.SubmitRuns:input_type -> swarmeval.control.v1.SubmitRunsRequest
-	3,  // 10: swarmeval.control.v1.ControlService.GetRun:input_type -> swarmeval.control.v1.GetRunRequest
-	5,  // 11: swarmeval.control.v1.ControlService.ListRuns:input_type -> swarmeval.control.v1.ListRunsRequest
-	7,  // 12: swarmeval.control.v1.ControlService.CancelRun:input_type -> swarmeval.control.v1.CancelRunRequest
-	9,  // 13: swarmeval.control.v1.ControlService.ResumeRun:input_type -> swarmeval.control.v1.ResumeRunRequest
-	11, // 14: swarmeval.control.v1.ControlService.StreamEvents:input_type -> swarmeval.control.v1.StreamEventsRequest
-	1,  // 15: swarmeval.control.v1.ControlService.SubmitRuns:output_type -> swarmeval.control.v1.SubmitRunsResponse
-	4,  // 16: swarmeval.control.v1.ControlService.GetRun:output_type -> swarmeval.control.v1.GetRunResponse
-	6,  // 17: swarmeval.control.v1.ControlService.ListRuns:output_type -> swarmeval.control.v1.ListRunsResponse
-	8,  // 18: swarmeval.control.v1.ControlService.CancelRun:output_type -> swarmeval.control.v1.CancelRunResponse
-	10, // 19: swarmeval.control.v1.ControlService.ResumeRun:output_type -> swarmeval.control.v1.ResumeRunResponse
-	12, // 20: swarmeval.control.v1.ControlService.StreamEvents:output_type -> swarmeval.control.v1.StreamEventsResponse
-	15, // [15:21] is the sub-list for method output_type
-	9,  // [9:15] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	12, // 9: swarmeval.control.v1.ForkRunRequest.edits:type_name -> swarmeval.control.v1.ForkEdit
+	13, // 10: swarmeval.control.v1.ForkEdit.replace_message:type_name -> swarmeval.control.v1.ReplaceMessage
+	14, // 11: swarmeval.control.v1.ForkEdit.delete_message:type_name -> swarmeval.control.v1.DeleteMessage
+	15, // 12: swarmeval.control.v1.ForkEdit.replace_delivery:type_name -> swarmeval.control.v1.ReplaceDelivery
+	2,  // 13: swarmeval.control.v1.ForkRunResponse.run:type_name -> swarmeval.control.v1.Run
+	0,  // 14: swarmeval.control.v1.ControlService.SubmitRuns:input_type -> swarmeval.control.v1.SubmitRunsRequest
+	3,  // 15: swarmeval.control.v1.ControlService.GetRun:input_type -> swarmeval.control.v1.GetRunRequest
+	5,  // 16: swarmeval.control.v1.ControlService.ListRuns:input_type -> swarmeval.control.v1.ListRunsRequest
+	7,  // 17: swarmeval.control.v1.ControlService.CancelRun:input_type -> swarmeval.control.v1.CancelRunRequest
+	9,  // 18: swarmeval.control.v1.ControlService.ResumeRun:input_type -> swarmeval.control.v1.ResumeRunRequest
+	11, // 19: swarmeval.control.v1.ControlService.ForkRun:input_type -> swarmeval.control.v1.ForkRunRequest
+	17, // 20: swarmeval.control.v1.ControlService.StreamEvents:input_type -> swarmeval.control.v1.StreamEventsRequest
+	1,  // 21: swarmeval.control.v1.ControlService.SubmitRuns:output_type -> swarmeval.control.v1.SubmitRunsResponse
+	4,  // 22: swarmeval.control.v1.ControlService.GetRun:output_type -> swarmeval.control.v1.GetRunResponse
+	6,  // 23: swarmeval.control.v1.ControlService.ListRuns:output_type -> swarmeval.control.v1.ListRunsResponse
+	8,  // 24: swarmeval.control.v1.ControlService.CancelRun:output_type -> swarmeval.control.v1.CancelRunResponse
+	10, // 25: swarmeval.control.v1.ControlService.ResumeRun:output_type -> swarmeval.control.v1.ResumeRunResponse
+	16, // 26: swarmeval.control.v1.ControlService.ForkRun:output_type -> swarmeval.control.v1.ForkRunResponse
+	18, // 27: swarmeval.control.v1.ControlService.StreamEvents:output_type -> swarmeval.control.v1.StreamEventsResponse
+	21, // [21:28] is the sub-list for method output_type
+	14, // [14:21] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_swarmeval_control_v1_control_proto_init() }
@@ -990,13 +1434,18 @@ func file_swarmeval_control_v1_control_proto_init() {
 	if File_swarmeval_control_v1_control_proto != nil {
 		return
 	}
+	file_swarmeval_control_v1_control_proto_msgTypes[12].OneofWrappers = []any{
+		(*ForkEdit_ReplaceMessage)(nil),
+		(*ForkEdit_DeleteMessage)(nil),
+		(*ForkEdit_ReplaceDelivery)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_swarmeval_control_v1_control_proto_rawDesc), len(file_swarmeval_control_v1_control_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

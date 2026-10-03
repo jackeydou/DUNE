@@ -211,10 +211,25 @@
 - `rule` scorer (case schema 3): one detector over the run's events after the agents stop.
 - `python -m swarmeval.analysis detect --detectors FILE`: the detectors over exported runs,
   one line per hit.
+- Forks: Control API `ForkRun(run_id, at_event_id, edits)` queues `<source>.f<n>`, which goes on
+  from the source's state at the start of the turn the event happened in, with edits
+  (`ReplaceMessage`, `DeleteMessage`, `ReplaceDelivery`), each a `hook: fork` intervention. The
+  loop commits a `Checkpoint` at every turn start (`runs.checkpoints`, migration 0008); a fork
+  copies the source's contexts at their generation numbers, restores agent, extension, and mail
+  state, and its chain links into the source's (`ChainStart`). The worker restores sandboxes from
+  the recorded file changes through sandboxd's `RestoreFiles` and records `fidelity`
+  (`fs_restored` or `fs_partial`). Canary tokens are kept per run (`runs.canaries`) so a fork
+  plants the same. `on_resume` hook (`ResumeInfo`). Parents into the source are
+  `<run>:<event id>`; `trace` follows them, the transcript check reads the source's events up
+  to the fork point, reports list forks apart from the rates, and an interrupted fork gets no
+  rerun.
 
 ### Changed
 - Event schema version 6: `lifecycle` events may be `paused` and `resumed` mid-run. Version 5
   runs read unchanged.
+- `runtime/specs.py` holds `AgentSpec`, `RunSpec`, `Limits`, `RunOutcome`, and
+  `RunConfigError`; tool execution moved to `runtime/execute.py`. `RunWriter` takes the parent of
+  a run's first event; `PostgresRunStore` takes where its chain starts.
 - Rule sets and their matcher moved to `swarmeval.detect.rules` and `swarmeval.detect.search`
   (`one_line` too); `swarmeval.honeypot.sightings` and `delivered` take an `EventView`.
 - `case.yaml` schema version 3: `case:` extension references and the `event_value` and `rule`

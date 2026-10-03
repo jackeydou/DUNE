@@ -54,6 +54,12 @@ class SandboxServiceStub:
     """
     ReadFile: _grpc.UnaryUnaryMultiCallable[_sandbox_pb2.ReadFileRequest, _sandbox_pb2.ReadFileResponse]
     """Reads one file from a sandbox without running anything inside it. For final-state scorers."""
+    RestoreFiles: _grpc.UnaryUnaryMultiCallable[_sandbox_pb2.RestoreFilesRequest, _sandbox_pb2.RestoreFilesResponse]
+    """Puts key paths into a state an earlier run recorded, for a fork: removes paths, then creates
+    directories, then writes files, and takes the manifest again, so none of it is ever reported
+    as a change. Only before the sandbox's first Exec, else FAILED_PRECONDITION. Files hold at
+    most 3 MiB per request; send several to restore more.
+    """
     FinalDiff: _grpc.UnaryStreamMultiCallable[_sandbox_pb2.FinalDiffRequest, _sandbox_pb2.FinalDiffResponse]
     """Diffs every sandbox of a run against its last manifest, catching writes by background
     processes after the last call. Every change is attributed `AMBIGUOUS`.
@@ -87,6 +93,12 @@ class SandboxServiceAsyncStub(SandboxServiceStub):
     """
     ReadFile: _aio.UnaryUnaryMultiCallable[_sandbox_pb2.ReadFileRequest, _sandbox_pb2.ReadFileResponse]  # type: ignore[assignment]
     """Reads one file from a sandbox without running anything inside it. For final-state scorers."""
+    RestoreFiles: _aio.UnaryUnaryMultiCallable[_sandbox_pb2.RestoreFilesRequest, _sandbox_pb2.RestoreFilesResponse]  # type: ignore[assignment]
+    """Puts key paths into a state an earlier run recorded, for a fork: removes paths, then creates
+    directories, then writes files, and takes the manifest again, so none of it is ever reported
+    as a change. Only before the sandbox's first Exec, else FAILED_PRECONDITION. Files hold at
+    most 3 MiB per request; send several to restore more.
+    """
     FinalDiff: _aio.UnaryStreamMultiCallable[_sandbox_pb2.FinalDiffRequest, _sandbox_pb2.FinalDiffResponse]  # type: ignore[assignment]
     """Diffs every sandbox of a run against its last manifest, catching writes by background
     processes after the last call. Every change is attributed `AMBIGUOUS`.
@@ -141,6 +153,18 @@ class SandboxServiceServicer(metaclass=_abc_1.ABCMeta):
         context: _ServicerContext,
     ) -> _typing.Union[_sandbox_pb2.ReadFileResponse, _abc.Awaitable[_sandbox_pb2.ReadFileResponse]]:
         """Reads one file from a sandbox without running anything inside it. For final-state scorers."""
+
+    @_abc_1.abstractmethod
+    def RestoreFiles(
+        self,
+        request: _sandbox_pb2.RestoreFilesRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_sandbox_pb2.RestoreFilesResponse, _abc.Awaitable[_sandbox_pb2.RestoreFilesResponse]]:
+        """Puts key paths into a state an earlier run recorded, for a fork: removes paths, then creates
+        directories, then writes files, and takes the manifest again, so none of it is ever reported
+        as a change. Only before the sandbox's first Exec, else FAILED_PRECONDITION. Files hold at
+        most 3 MiB per request; send several to restore more.
+        """
 
     @_abc_1.abstractmethod
     def FinalDiff(

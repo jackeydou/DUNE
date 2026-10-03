@@ -6,7 +6,6 @@ from typing import Any
 
 from swarmeval.events.transcript import ModelCall, Recorded, RunTranscript, Sent, ToolOutcome
 from swarmeval.gateway.bus import ChannelSpec
-from swarmeval.runtime.loop import initial_context
 from swarmeval.runtime.messages import AssistantMessage, ToolMessage, UserMessage
 from swarmeval.runtime.records import (
     InterventionRecord,
@@ -16,6 +15,7 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
     TranscriptCheckRecord,
 )
+from swarmeval.runtime.specs import initial_context
 from swarmeval.worker.transcript import check_transcript
 from tests.runtime.fakes import FakeStore, Harness, agent, call, harness, reply
 from tests.runtime.test_extensions import compact, nudge, redact, suffix, whisper

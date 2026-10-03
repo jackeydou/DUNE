@@ -40,6 +40,10 @@ class SeedFile:
     mode: int = 0o644
 
 
+RESTORE_BATCH_BYTES = 2 << 20
+"""File content per RestoreFiles request; sandboxd takes up to 3 MiB, under gRPC's 4 MiB."""
+
+
 @dataclass(frozen=True)
 class FileContent:
     content: bytes
@@ -191,6 +195,39 @@ class RunSandboxes:
                 for p in header.processes
             ),
         )
+
+    async def restore(
+        self,
+        sandbox_id: str,
+        *,
+        remove: Sequence[str] = (),
+        dirs: Sequence[tuple[str, int]] = (),
+        files: Sequence[SeedFile] = (),
+    ) -> None:
+        """Puts the sandbox's key paths into a recorded state before its first command, as its
+        baseline: removes `remove`, creates `dirs` (path, mode), writes `files`. Sent in
+        batches of at most `RESTORE_BATCH_BYTES` of content; removals and directories go
+        first."""
+        batches: list[list[SeedFile]] = [[]]
+        size = 0
+        for f in files:
+            if batches[-1] and size + len(f.content) > RESTORE_BATCH_BYTES:
+                batches.append([])
+                size = 0
+            batches[-1].append(f)
+            size += len(f.content)
+        for i, batch in enumerate(batches):
+            request = pb.RestoreFilesRequest(
+                run_id=self._run_id,
+                sandbox_id=sandbox_id,
+                remove=remove if i == 0 else (),
+                dirs=[pb.RestoreDir(path=p, mode=m) for p, m in dirs] if i == 0 else (),
+                files=[pb.SeedFile(path=f.path, content=f.content, mode=f.mode) for f in batch],
+            )
+            try:
+                await self._stub.RestoreFiles(request)
+            except grpc.aio.AioRpcError as err:
+                raise self._error("RestoreFiles", sandbox_id, err) from err
 
     async def read_file(self, sandbox_id: str, path: str, *, max_bytes: int = 0) -> FileContent:
         """Reads a file without running anything in the sandbox. `max_bytes` of 0 means

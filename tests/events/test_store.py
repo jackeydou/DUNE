@@ -16,7 +16,7 @@ from swarmeval.events import (
     RunNotFoundError,
     verify,
 )
-from swarmeval.runtime.loop import RunLoop, RunSpec
+from swarmeval.runtime.loop import RunLoop
 from swarmeval.runtime.messages import SystemMessage, UserMessage
 from swarmeval.runtime.records import (
     AgentStateRow,
@@ -30,6 +30,7 @@ from swarmeval.runtime.records import (
     MessageSendRecord,
     Transaction,
 )
+from swarmeval.runtime.specs import RunSpec
 from swarmeval.runtime.writer import RunWriter
 from tests.runtime.fakes import (
     SHELL,

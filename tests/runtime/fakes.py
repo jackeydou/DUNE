@@ -16,7 +16,8 @@ from swarmeval.runtime.extensions import (
     SandboxCanaryInfo,
     load_extensions,
 )
-from swarmeval.runtime.loop import AgentSpec, Limits, RunLoop, RunSpec
+from swarmeval.runtime.fork import ForkStart
+from swarmeval.runtime.loop import RunLoop
 from swarmeval.runtime.messages import (
     AssistantMessage,
     ChatMessage,
@@ -34,6 +35,7 @@ from swarmeval.runtime.ports import (
 )
 from swarmeval.runtime.records import (
     AgentStateRow,
+    Checkpoint,
     CommittedEvent,
     EventDraft,
     Exec,
@@ -48,6 +50,7 @@ from swarmeval.runtime.records import (
     WebExchange,
     WebRequest,
 )
+from swarmeval.runtime.specs import AgentSpec, Limits, RunSpec
 from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, SHELL, WEB_REQUEST
 from swarmeval.runtime.writer import RunWriter
 from tests.gateway.mock_backend import completion, tool_call
@@ -68,6 +71,8 @@ class FakeStore:
     )
     """(send seq, recipient) → (status, due turn), kept as `runs.deliveries` is."""
     log: list[Transaction] = field(default_factory=list[Transaction])
+    checkpoints: list[tuple[int, Checkpoint]] = field(default_factory=list[tuple[int, Checkpoint]])
+    """(seq of the last event before the turn, the checkpoint), as `runs.checkpoints`."""
 
     async def commit(self, txn: Transaction) -> list[CommittedEvent]:
         self.log.append(txn)
@@ -98,6 +103,17 @@ class FakeStore:
             key = (change.send_seq, change.recipient)
             assert self.deliveries[key][0] == "pending", (key, self.deliveries[key])
             self.deliveries[key] = (change.status, change.due_turn)
+        for m in txn.inherited_mail:
+            self.deliveries[(m.send_seq, m.recipient)] = (
+                "pending" if m.due_turn is None else "delayed",
+                m.due_turn,
+            )
+        if txn.checkpoint is not None:
+            self.checkpoints.append((len(self.events), txn.checkpoint))
+        for (agent_id, gen), copied in txn.inherited.items():
+            gens = self.generations.setdefault(agent_id, [])
+            gens.extend([] for _ in range(gen + 1 - len(gens)))
+            gens[gen] = list(copied)
         for agent_id, messages in txn.new_generations.items():
             self.generations.setdefault(agent_id, []).append(list(messages))
         for agent_id, message in txn.messages:
@@ -303,6 +319,7 @@ def harness(
     sandbox_canaries: tuple[SandboxCanaryInfo, ...] = (),
     web: FakeWeb | None = None,
     pauser: FakePauser | None = None,
+    fork: ForkStart | None = None,
 ) -> Harness:
     store = store or FakeStore()
     pauser = pauser or FakePauser()
@@ -332,5 +349,6 @@ def harness(
         extensions=loaded,
         tools=[SHELL, WEB_REQUEST],
         web_client=web,
+        fork=fork,
     )
     return Harness(loop=loop, store=store, model=model, sandbox=sandbox, web=web, pauser=pauser)

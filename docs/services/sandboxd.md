@@ -41,6 +41,7 @@ authentication, so only the internal network may reach it.
 | `CreateSandbox` | Creates one sandbox from a profile's image, key paths, limits, seed files, users, and identity (environment, hostname, machine id), labels it, and takes the initial manifest | Built |
 | `Exec` | Runs one tool call and streams back its result, file changes, and surviving processes | Built |
 | `ReadFile` | Reads a file for final-state scorers, through the engine's copy API, so nothing runs in the sandbox | Built |
+| `RestoreFiles` | For a [fork](orchestrator.md#forks): removes paths, creates directories (with their mode), and writes files (content and mode) in a sandbox's key paths, then takes the manifest again, so none of it is ever reported as a change. Every path must be strictly inside a key path; a path to remove that does not exist is skipped. Only before the sandbox's first `Exec` (`FAILED_PRECONDITION` after it), and at most 3 MiB of file content per request, so a client sends several. Ownership is not restored: files are written as sandboxd's user | Built |
 | `FinalDiff` | Diffs every sandbox one last time at run end, catching background writes | Built |
 | `DestroyRun` | Removes every container and network labeled with the run, and its state directory | Built |
 | `CreateRun` | Registers the run and its sandboxes before their `CreateSandbox` calls. With `--sandbox-network per-sandbox` it also creates a network per sandbox; with the network capability it will start net-gateway and service containers too | Built |

@@ -15,7 +15,7 @@ import grpc
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.struct_pb2 import Struct
 from google.protobuf.timestamp_pb2 import Timestamp
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -35,8 +35,17 @@ from swarmeval.core import CaseError, LoadedCase, load_case
 from swarmeval.core.models import AxisValue, Scalar, axis_json
 from swarmeval.db import events
 from swarmeval.events import ObjectStore, export_summary
+from swarmeval.events.fork import ForkEventNotFound, ForkPointError, fork_point
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import ControlServiceServicer
+from swarmeval.runtime.fork import (
+    DeleteMessage,
+    Edit,
+    ForkError,
+    ReplaceDelivery,
+    ReplaceMessage,
+    check_edits,
+)
 
 Context = grpc.aio.ServicerContext[Any, Any]
 
@@ -80,6 +89,9 @@ def to_proto(run: RunRow) -> pb.Run:
         finished_at=_timestamp(run.finished_at),
         replaces=run.replaces or "",
         suite=run.suite or "",
+        forked_from=run.forked_from or "",
+        fork_seq=run.fork_seq or 0,
+        fidelity=run.fidelity or "",
     )
 
 
@@ -110,6 +122,24 @@ def _scalar(axis: str, value: object) -> Scalar:
             f"override `{axis}` holds {value!r}; values must be scalars or lists of scalars."
         )
     return value
+
+
+def edit_of(edit: pb.ForkEdit) -> Edit:
+    match edit.WhichOneof("edit"):
+        case "replace_message":
+            m = edit.replace_message
+            return ReplaceMessage(agent_id=m.agent_id, index=m.index, content=m.content)
+        case "delete_message":
+            return DeleteMessage(
+                agent_id=edit.delete_message.agent_id, index=edit.delete_message.index
+            )
+        case "replace_delivery":
+            d = edit.replace_delivery
+            return ReplaceDelivery(
+                send_event_id=d.send_event_id, recipient=d.recipient, content=d.content
+            )
+        case _:
+            raise ForkError("a fork edit names no edit; set one of its fields.")
 
 
 def plan_runs(
@@ -241,6 +271,32 @@ class ControlService(ControlServiceServicer):
         except RunNotPaused as err:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
         return pb.ResumeRunResponse(run=to_proto(run))
+
+    async def ForkRun(self, request: pb.ForkRunRequest, context: Context) -> pb.ForkRunResponse:
+        try:
+            source = await self._queue.get(request.run_id)
+        except RunNotFound as err:
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(err))
+        if source.status not in FINISHED:
+            await context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                f"run `{source.run_id}` is `{source.status}`; fork a run once it has finished.",
+            )
+        try:
+            edits = [edit_of(e) for e in request.edits]
+        except (ForkError, ValidationError) as err:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"fork edits: {err}")
+        try:
+            point = await fork_point(self._engine, source.run_id, request.at_event_id)
+            check_edits(edits, point.contexts, point.checkpoint.mail)
+        except ForkEventNotFound as err:
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(err))
+        except ForkPointError as err:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
+        except ForkError as err:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
+        run = await self._queue.fork(source, point.seq, [e.model_dump(mode="json") for e in edits])
+        return pb.ForkRunResponse(run=to_proto(run))
 
     async def StreamEvents(
         self, request: pb.StreamEventsRequest, context: Context

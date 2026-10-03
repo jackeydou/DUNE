@@ -66,8 +66,10 @@ SCHEMA_VERSION = 6
 
 6: `lifecycle` events may be `paused` (parent: the `pause` intervention) and `resumed` (parent:
 the `paused` event) in the middle of a run, before its last lifecycle event, which is still its
-outcome. `alert` events from the `swarmeval.monitor` extension. Version 5 runs have neither and
-read as before.
+outcome. `alert` events from the `swarmeval.monitor` extension. A fork's events: `parent_id`
+may name another run's event as `<run>:<event id>`, `intervention` may have `hook: fork`
+(`edit_context`, `deliver`), and its `lifecycle` `started` says what it forks. Version 5 runs have
+none of these and read as before.
 
 5: every event but the run's first names its causal parent in `parent_id`
 (docs/event-log.md#causal-parents), and event ids are UUIDs the worker fixes before commit.

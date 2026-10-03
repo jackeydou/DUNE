@@ -26,7 +26,7 @@ from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n2swarmeval/proto/swarmeval/control/v1/control.proto\x12\x14swarmeval.control.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"s\n\x11SubmitRunsRequest\x12\x13\n\x0b\x63\x61se_bundle\x18\x01 \x01(\x0c\x12*\n\toverrides\x18\x02 \x01(\x0b\x32\x17.google.protobuf.Struct\x12\x0e\n\x06\x65pochs\x18\x03 \x01(\x05\x12\r\n\x05suite\x18\x04 \x01(\t\"<\n\x12SubmitRunsResponse\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\x12\x0f\n\x07run_ids\x18\x02 \x03(\t\"\xb7\x03\n\x03Run\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x15\n\rsubmission_id\x18\x02 \x01(\t\x12\x0f\n\x07\x63\x61se_id\x18\x03 \x01(\t\x12\x11\n\tworkspace\x18\x04 \x01(\t\x12\x0e\n\x06status\x18\x05 \x01(\t\x12\x0f\n\x07variant\x18\x06 \x01(\x05\x12*\n\ttask_args\x18\x07 \x01(\x0b\x32\x17.google.protobuf.Struct\x12\r\n\x05\x65poch\x18\x08 \x01(\x05\x12\x0e\n\x06\x65pochs\x18\t \x01(\x05\x12\x13\n\x0b\x63\x61se_sha256\x18\n \x01(\t\x12\x10\n\x08owner_id\x18\x0b \x01(\t\x12\x11\n\tisolation\x18\x0c \x01(\t\x12\r\n\x05\x65rror\x18\r \x01(\t\x12.\n\ncreated_at\x18\x0e \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nstarted_at\x18\x0f \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12/\n\x0b\x66inished_at\x18\x10 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x10\n\x08replaces\x18\x11 \x01(\t\x12\r\n\x05suite\x18\x12 \x01(\t\"\x1f\n\rGetRunRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\"8\n\x0eGetRunResponse\x12&\n\x03run\x18\x01 \x01(\x0b\x32\x19.swarmeval.control.v1.Run\"g\n\x0fListRunsRequest\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\x12\x0f\n\x07\x63\x61se_id\x18\x02 \x01(\t\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\r\n\x05suite\x18\x05 \x01(\t\x12\r\n\x05limit\x18\x04 \x01(\x05\";\n\x10ListRunsResponse\x12\'\n\x04runs\x18\x01 \x03(\x0b\x32\x19.swarmeval.control.v1.Run\"\"\n\x10\x43\x61ncelRunRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\";\n\x11\x43\x61ncelRunResponse\x12&\n\x03run\x18\x01 \x01(\x0b\x32\x19.swarmeval.control.v1.Run\"\"\n\x10ResumeRunRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\";\n\x11ResumeRunResponse\x12&\n\x03run\x18\x01 \x01(\x0b\x32\x19.swarmeval.control.v1.Run\"8\n\x13StreamEventsRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x11\n\tafter_seq\x18\x02 \x01(\x03\"k\n\x14StreamEventsResponse\x12\x0b\n\x03seq\x18\x01 \x01(\x03\x12\x10\n\x08\x65vent_id\x18\x02 \x01(\t\x12\x0c\n\x04type\x18\x03 \x01(\t\x12\x10\n\x08\x61gent_id\x18\x04 \x01(\t\x12\x14\n\x0cpayload_json\x18\x05 \x01(\t2\xc6\x04\n\x0e\x43ontrolService\x12_\n\nSubmitRuns\x12\'.swarmeval.control.v1.SubmitRunsRequest\x1a(.swarmeval.control.v1.SubmitRunsResponse\x12S\n\x06GetRun\x12#.swarmeval.control.v1.GetRunRequest\x1a$.swarmeval.control.v1.GetRunResponse\x12Y\n\x08ListRuns\x12%.swarmeval.control.v1.ListRunsRequest\x1a&.swarmeval.control.v1.ListRunsResponse\x12\\\n\tCancelRun\x12&.swarmeval.control.v1.CancelRunRequest\x1a\'.swarmeval.control.v1.CancelRunResponse\x12\\\n\tResumeRun\x12&.swarmeval.control.v1.ResumeRunRequest\x1a\'.swarmeval.control.v1.ResumeRunResponse\x12g\n\x0cStreamEvents\x12).swarmeval.control.v1.StreamEventsRequest\x1a*.swarmeval.control.v1.StreamEventsResponse0\x01\x42JZHgithub.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1;controlv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n2swarmeval/proto/swarmeval/control/v1/control.proto\x12\x14swarmeval.control.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"s\n\x11SubmitRunsRequest\x12\x13\n\x0b\x63\x61se_bundle\x18\x01 \x01(\x0c\x12*\n\toverrides\x18\x02 \x01(\x0b\x32\x17.google.protobuf.Struct\x12\x0e\n\x06\x65pochs\x18\x03 \x01(\x05\x12\r\n\x05suite\x18\x04 \x01(\t\"<\n\x12SubmitRunsResponse\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\x12\x0f\n\x07run_ids\x18\x02 \x03(\t\"\xf0\x03\n\x03Run\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x15\n\rsubmission_id\x18\x02 \x01(\t\x12\x0f\n\x07\x63\x61se_id\x18\x03 \x01(\t\x12\x11\n\tworkspace\x18\x04 \x01(\t\x12\x0e\n\x06status\x18\x05 \x01(\t\x12\x0f\n\x07variant\x18\x06 \x01(\x05\x12*\n\ttask_args\x18\x07 \x01(\x0b\x32\x17.google.protobuf.Struct\x12\r\n\x05\x65poch\x18\x08 \x01(\x05\x12\x0e\n\x06\x65pochs\x18\t \x01(\x05\x12\x13\n\x0b\x63\x61se_sha256\x18\n \x01(\t\x12\x10\n\x08owner_id\x18\x0b \x01(\t\x12\x11\n\tisolation\x18\x0c \x01(\t\x12\r\n\x05\x65rror\x18\r \x01(\t\x12.\n\ncreated_at\x18\x0e \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nstarted_at\x18\x0f \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12/\n\x0b\x66inished_at\x18\x10 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x10\n\x08replaces\x18\x11 \x01(\t\x12\r\n\x05suite\x18\x12 \x01(\t\x12\x13\n\x0b\x66orked_from\x18\x13 \x01(\t\x12\x10\n\x08\x66ork_seq\x18\x14 \x01(\x03\x12\x10\n\x08\x66idelity\x18\x15 \x01(\t\"\x1f\n\rGetRunRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\"8\n\x0eGetRunResponse\x12&\n\x03run\x18\x01 \x01(\x0b\x32\x19.swarmeval.control.v1.Run\"g\n\x0fListRunsRequest\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\x12\x0f\n\x07\x63\x61se_id\x18\x02 \x01(\t\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\r\n\x05suite\x18\x05 \x01(\t\x12\r\n\x05limit\x18\x04 \x01(\x05\";\n\x10ListRunsResponse\x12\'\n\x04runs\x18\x01 \x03(\x0b\x32\x19.swarmeval.control.v1.Run\"\"\n\x10\x43\x61ncelRunRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\";\n\x11\x43\x61ncelRunResponse\x12&\n\x03run\x18\x01 \x01(\x0b\x32\x19.swarmeval.control.v1.Run\"\"\n\x10ResumeRunRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\";\n\x11ResumeRunResponse\x12&\n\x03run\x18\x01 \x01(\x0b\x32\x19.swarmeval.control.v1.Run\"d\n\x0e\x46orkRunRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x13\n\x0b\x61t_event_id\x18\x02 \x01(\t\x12-\n\x05\x65\x64its\x18\x03 \x03(\x0b\x32\x1e.swarmeval.control.v1.ForkEdit\"\xd5\x01\n\x08\x46orkEdit\x12?\n\x0freplace_message\x18\x01 \x01(\x0b\x32$.swarmeval.control.v1.ReplaceMessageH\x00\x12=\n\x0e\x64\x65lete_message\x18\x02 \x01(\x0b\x32#.swarmeval.control.v1.DeleteMessageH\x00\x12\x41\n\x10replace_delivery\x18\x03 \x01(\x0b\x32%.swarmeval.control.v1.ReplaceDeliveryH\x00\x42\x06\n\x04\x65\x64it\"B\n\x0eReplaceMessage\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\r\n\x05index\x18\x02 \x01(\x05\x12\x0f\n\x07\x63ontent\x18\x03 \x01(\t\"0\n\rDeleteMessage\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\r\n\x05index\x18\x02 \x01(\x05\"L\n\x0fReplaceDelivery\x12\x15\n\rsend_event_id\x18\x01 \x01(\t\x12\x11\n\trecipient\x18\x02 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x03 \x01(\t\"9\n\x0f\x46orkRunResponse\x12&\n\x03run\x18\x01 \x01(\x0b\x32\x19.swarmeval.control.v1.Run\"8\n\x13StreamEventsRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x11\n\tafter_seq\x18\x02 \x01(\x03\"k\n\x14StreamEventsResponse\x12\x0b\n\x03seq\x18\x01 \x01(\x03\x12\x10\n\x08\x65vent_id\x18\x02 \x01(\t\x12\x0c\n\x04type\x18\x03 \x01(\t\x12\x10\n\x08\x61gent_id\x18\x04 \x01(\t\x12\x14\n\x0cpayload_json\x18\x05 \x01(\t2\x9e\x05\n\x0e\x43ontrolService\x12_\n\nSubmitRuns\x12\'.swarmeval.control.v1.SubmitRunsRequest\x1a(.swarmeval.control.v1.SubmitRunsResponse\x12S\n\x06GetRun\x12#.swarmeval.control.v1.GetRunRequest\x1a$.swarmeval.control.v1.GetRunResponse\x12Y\n\x08ListRuns\x12%.swarmeval.control.v1.ListRunsRequest\x1a&.swarmeval.control.v1.ListRunsResponse\x12\\\n\tCancelRun\x12&.swarmeval.control.v1.CancelRunRequest\x1a\'.swarmeval.control.v1.CancelRunResponse\x12\\\n\tResumeRun\x12&.swarmeval.control.v1.ResumeRunRequest\x1a\'.swarmeval.control.v1.ResumeRunResponse\x12V\n\x07\x46orkRun\x12$.swarmeval.control.v1.ForkRunRequest\x1a%.swarmeval.control.v1.ForkRunResponse\x12g\n\x0cStreamEvents\x12).swarmeval.control.v1.StreamEventsRequest\x1a*.swarmeval.control.v1.StreamEventsResponse0\x01\x42JZHgithub.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1;controlv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -39,27 +39,39 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SUBMITRUNSRESPONSE']._serialized_start=256
   _globals['_SUBMITRUNSRESPONSE']._serialized_end=316
   _globals['_RUN']._serialized_start=319
-  _globals['_RUN']._serialized_end=758
-  _globals['_GETRUNREQUEST']._serialized_start=760
-  _globals['_GETRUNREQUEST']._serialized_end=791
-  _globals['_GETRUNRESPONSE']._serialized_start=793
-  _globals['_GETRUNRESPONSE']._serialized_end=849
-  _globals['_LISTRUNSREQUEST']._serialized_start=851
-  _globals['_LISTRUNSREQUEST']._serialized_end=954
-  _globals['_LISTRUNSRESPONSE']._serialized_start=956
-  _globals['_LISTRUNSRESPONSE']._serialized_end=1015
-  _globals['_CANCELRUNREQUEST']._serialized_start=1017
-  _globals['_CANCELRUNREQUEST']._serialized_end=1051
-  _globals['_CANCELRUNRESPONSE']._serialized_start=1053
-  _globals['_CANCELRUNRESPONSE']._serialized_end=1112
-  _globals['_RESUMERUNREQUEST']._serialized_start=1114
-  _globals['_RESUMERUNREQUEST']._serialized_end=1148
-  _globals['_RESUMERUNRESPONSE']._serialized_start=1150
-  _globals['_RESUMERUNRESPONSE']._serialized_end=1209
-  _globals['_STREAMEVENTSREQUEST']._serialized_start=1211
-  _globals['_STREAMEVENTSREQUEST']._serialized_end=1267
-  _globals['_STREAMEVENTSRESPONSE']._serialized_start=1269
-  _globals['_STREAMEVENTSRESPONSE']._serialized_end=1376
-  _globals['_CONTROLSERVICE']._serialized_start=1379
-  _globals['_CONTROLSERVICE']._serialized_end=1961
+  _globals['_RUN']._serialized_end=815
+  _globals['_GETRUNREQUEST']._serialized_start=817
+  _globals['_GETRUNREQUEST']._serialized_end=848
+  _globals['_GETRUNRESPONSE']._serialized_start=850
+  _globals['_GETRUNRESPONSE']._serialized_end=906
+  _globals['_LISTRUNSREQUEST']._serialized_start=908
+  _globals['_LISTRUNSREQUEST']._serialized_end=1011
+  _globals['_LISTRUNSRESPONSE']._serialized_start=1013
+  _globals['_LISTRUNSRESPONSE']._serialized_end=1072
+  _globals['_CANCELRUNREQUEST']._serialized_start=1074
+  _globals['_CANCELRUNREQUEST']._serialized_end=1108
+  _globals['_CANCELRUNRESPONSE']._serialized_start=1110
+  _globals['_CANCELRUNRESPONSE']._serialized_end=1169
+  _globals['_RESUMERUNREQUEST']._serialized_start=1171
+  _globals['_RESUMERUNREQUEST']._serialized_end=1205
+  _globals['_RESUMERUNRESPONSE']._serialized_start=1207
+  _globals['_RESUMERUNRESPONSE']._serialized_end=1266
+  _globals['_FORKRUNREQUEST']._serialized_start=1268
+  _globals['_FORKRUNREQUEST']._serialized_end=1368
+  _globals['_FORKEDIT']._serialized_start=1371
+  _globals['_FORKEDIT']._serialized_end=1584
+  _globals['_REPLACEMESSAGE']._serialized_start=1586
+  _globals['_REPLACEMESSAGE']._serialized_end=1652
+  _globals['_DELETEMESSAGE']._serialized_start=1654
+  _globals['_DELETEMESSAGE']._serialized_end=1702
+  _globals['_REPLACEDELIVERY']._serialized_start=1704
+  _globals['_REPLACEDELIVERY']._serialized_end=1780
+  _globals['_FORKRUNRESPONSE']._serialized_start=1782
+  _globals['_FORKRUNRESPONSE']._serialized_end=1839
+  _globals['_STREAMEVENTSREQUEST']._serialized_start=1841
+  _globals['_STREAMEVENTSREQUEST']._serialized_end=1897
+  _globals['_STREAMEVENTSRESPONSE']._serialized_start=1899
+  _globals['_STREAMEVENTSRESPONSE']._serialized_end=2006
+  _globals['_CONTROLSERVICE']._serialized_start=2009
+  _globals['_CONTROLSERVICE']._serialized_end=2679
 # @@protoc_insertion_point(module_scope)

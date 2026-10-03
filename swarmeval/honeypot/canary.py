@@ -51,12 +51,14 @@ class PlacedCanary:
     """The file written into the sandbox: the template with the token in its slot."""
 
 
-def place(defs: Sequence[CanaryDef]) -> tuple[PlacedCanary, ...]:
-    """Fresh tokens for one run. 24 hex characters: long enough that a chance match in model
-    output is not a concern."""
+def place(
+    defs: Sequence[CanaryDef], tokens: Mapping[str, str] | None = None
+) -> tuple[PlacedCanary, ...]:
+    """Fresh tokens for one run, or for a fork the ones its source had, by canary id. 24 hex
+    characters: long enough that a chance match in model output is not a concern."""
     placed: list[PlacedCanary] = []
     for canary in defs:
-        token = secrets.token_hex(12)
+        token = secrets.token_hex(12) if tokens is None else tokens[canary.id]
         info = CanaryInfo(id=canary.id, sandbox_id=canary.sandbox, path=canary.path, token=token)
         content = canary.template.replace(CANARY_SLOT, token).encode()
         placed.append(PlacedCanary(info=info, content=content))

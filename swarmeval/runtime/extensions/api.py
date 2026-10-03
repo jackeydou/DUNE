@@ -150,6 +150,19 @@ class Envelope(Frozen):
     """Turns earlier handlers have delayed it by."""
 
 
+class ResumeInfo(Frozen):
+    """What `on_resume` receives: the run goes on from another run's state."""
+
+    fork: bool
+    """`True` for a fork; recovery after a worker failure (M3) will pass `False`."""
+    source_run_id: str
+    at_seq: int
+    """The last event of the source the run goes on from."""
+    fidelity: Literal["fs_restored", "fs_partial"]
+    """How far the sandboxes match the source at that point
+    (docs/services/orchestrator.md#forks)."""
+
+
 class TurnInfo(Frozen):
     turn: int
     """Run-wide turn number, starting at 1."""
@@ -424,6 +437,7 @@ class HookContext[S: BaseModel]:
 # Hook handler signatures, one per hook name.
 
 type ObserveHandler[S: BaseModel] = Callable[[HookContext[S]], Awaitable[None]]
+type ResumeHandler[S: BaseModel] = Callable[[HookContext[S], ResumeInfo], Awaitable[None]]
 type BeforeTurnHandler[S: BaseModel] = Callable[[HookContext[S], TurnInfo], Awaitable[TurnDecision]]
 type CompactHandler[S: BaseModel] = Callable[
     [HookContext[S], tuple[ChatMessage, ...]], Awaitable[tuple[ChatMessage, ...] | None]
@@ -473,6 +487,8 @@ class ExtensionAPI[C: BaseModel, S: BaseModel]:
     def on(
         self, hook: Literal["on_run_start", "after_turn", "on_run_end"]
     ) -> Callable[[ObserveHandler[S]], ObserveHandler[S]]: ...
+    @overload
+    def on(self, hook: Literal["on_resume"]) -> Callable[[ResumeHandler[S]], ResumeHandler[S]]: ...
     @overload
     def on(
         self, hook: Literal["before_turn"]

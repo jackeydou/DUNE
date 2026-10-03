@@ -9,6 +9,7 @@ The rows are the evidence original, so the check reads them rather than the work
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from inspect_ai.event import Event, InfoEvent, ModelEvent, ToolEvent
 from pydantic import TypeAdapter
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.db import events, messages
 from swarmeval.events.convert import from_inspect_assistant
+from swarmeval.events.fork import lineage
 from swarmeval.runtime.messages import AssistantMessage, ChatMessage, RequestOptions
 from swarmeval.runtime.records import (
     GatewayRecord,
@@ -27,6 +29,7 @@ from swarmeval.runtime.records import (
 )
 
 _EVENT = TypeAdapter[Event](Event)
+_TYPES = ("model", "tool", "swarmeval.intervention", "swarmeval.msg.send", "swarmeval.msg.deliver")
 _MESSAGE = TypeAdapter[ChatMessage](ChatMessage)
 
 
@@ -81,38 +84,41 @@ class RunTranscript:
     deliveries: tuple[Recorded[MessageDeliverRecord], ...]
     contexts: Mapping[tuple[str, int], tuple[ChatMessage, ...]]
     """`(agent_id, gen)` to that generation's messages, in `idx` order."""
+    inherited: frozenset[str] = frozenset()
+    """For a fork: its sources' events up to the fork point, which explain the contexts it
+    copied. Their own requests, responses, sends, and deliveries were checked in the source."""
 
 
 async def load_transcript(engine: AsyncEngine, run_id: str) -> RunTranscript:
+    """A fork's transcript also holds its sources' events up to the fork point (`lineage`)."""
     model_calls: list[ModelCall] = []
     tool_results: list[ToolOutcome] = []
     interventions: list[Recorded[InterventionRecord]] = []
     sends: list[Sent] = []
     deliveries: list[Recorded[MessageDeliverRecord]] = []
+    inherited: set[str] = set()
+    ancestors = await lineage(engine, run_id)
     async with engine.connect() as conn:
-        rows = await conn.execute(
-            select(
-                events.c.event_id,
-                events.c.seq,
-                events.c.agent_id,
-                events.c.parent_id,
-                events.c.payload,
+        found: list[tuple[str, int, str | None, str | None, Any]] = []
+        for ancestor in ancestors:
+            query = (
+                select(
+                    events.c.event_id,
+                    events.c.seq,
+                    events.c.agent_id,
+                    events.c.parent_id,
+                    events.c.payload,
+                )
+                .where(events.c.run_id == ancestor.run_id, events.c.type.in_(_TYPES))
+                .order_by(events.c.seq)
             )
-            .where(
-                events.c.run_id == run_id,
-                events.c.type.in_(
-                    (
-                        "model",
-                        "tool",
-                        "swarmeval.intervention",
-                        "swarmeval.msg.send",
-                        "swarmeval.msg.deliver",
-                    )
-                ),
-            )
-            .order_by(events.c.seq)
-        )
-        for event_id, seq, agent_id, parent_id, payload in rows:
+            if ancestor.up_to is not None:
+                query = query.where(events.c.seq <= ancestor.up_to)
+            rows = [tuple(r) for r in await conn.execute(query)]
+            if ancestor.run_id != run_id:
+                inherited.update(str(r[0]) for r in rows)
+            found.extend(rows)  # pyright: ignore[reportArgumentType]
+        for event_id, seq, agent_id, parent_id, payload in found:
             match _EVENT.validate_python(payload):
                 case ModelEvent() as event:
                     model_calls.append(_model_call(event_id, agent_id, event))
@@ -153,6 +159,7 @@ async def load_transcript(engine: AsyncEngine, run_id: str) -> RunTranscript:
         sends=tuple(sends),
         deliveries=tuple(deliveries),
         contexts={k: tuple(v) for k, v in contexts.items()},
+        inherited=frozenset(inherited),
     )
 
 

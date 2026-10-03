@@ -24,6 +24,7 @@ const (
 	ControlService_ListRuns_FullMethodName     = "/swarmeval.control.v1.ControlService/ListRuns"
 	ControlService_CancelRun_FullMethodName    = "/swarmeval.control.v1.ControlService/CancelRun"
 	ControlService_ResumeRun_FullMethodName    = "/swarmeval.control.v1.ControlService/ResumeRun"
+	ControlService_ForkRun_FullMethodName      = "/swarmeval.control.v1.ControlService/ForkRun"
 	ControlService_StreamEvents_FullMethodName = "/swarmeval.control.v1.ControlService/StreamEvents"
 )
 
@@ -46,6 +47,13 @@ type ControlServiceClient interface {
 	// A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
 	// not paused is FAILED_PRECONDITION.
 	ResumeRun(ctx context.Context, in *ResumeRunRequest, opts ...grpc.CallOption) (*ResumeRunResponse, error)
+	// A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+	// happened in, with `edits` applied: the same case
+	// revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+	// epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+	// event before the first turn, or an edit that does not fit the state there is
+	// FAILED_PRECONDITION.
+	ForkRun(ctx context.Context, in *ForkRunRequest, opts ...grpc.CallOption) (*ForkRunResponse, error)
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error)
@@ -109,6 +117,16 @@ func (c *controlServiceClient) ResumeRun(ctx context.Context, in *ResumeRunReque
 	return out, nil
 }
 
+func (c *controlServiceClient) ForkRun(ctx context.Context, in *ForkRunRequest, opts ...grpc.CallOption) (*ForkRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForkRunResponse)
+	err := c.cc.Invoke(ctx, ControlService_ForkRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *controlServiceClient) StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ControlService_ServiceDesc.Streams[0], ControlService_StreamEvents_FullMethodName, cOpts...)
@@ -147,6 +165,13 @@ type ControlServiceServer interface {
 	// A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
 	// not paused is FAILED_PRECONDITION.
 	ResumeRun(context.Context, *ResumeRunRequest) (*ResumeRunResponse, error)
+	// A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+	// happened in, with `edits` applied: the same case
+	// revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+	// epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+	// event before the first turn, or an edit that does not fit the state there is
+	// FAILED_PRECONDITION.
+	ForkRun(context.Context, *ForkRunRequest) (*ForkRunResponse, error)
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error
@@ -174,6 +199,9 @@ func (UnimplementedControlServiceServer) CancelRun(context.Context, *CancelRunRe
 }
 func (UnimplementedControlServiceServer) ResumeRun(context.Context, *ResumeRunRequest) (*ResumeRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResumeRun not implemented")
+}
+func (UnimplementedControlServiceServer) ForkRun(context.Context, *ForkRunRequest) (*ForkRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForkRun not implemented")
 }
 func (UnimplementedControlServiceServer) StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error {
 	return status.Error(codes.Unimplemented, "method StreamEvents not implemented")
@@ -289,6 +317,24 @@ func _ControlService_ResumeRun_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ControlService_ForkRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForkRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).ForkRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_ForkRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).ForkRun(ctx, req.(*ForkRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ControlService_StreamEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamEventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -326,6 +372,10 @@ var ControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResumeRun",
 			Handler:    _ControlService_ResumeRun_Handler,
+		},
+		{
+			MethodName: "ForkRun",
+			Handler:    _ControlService_ForkRun_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

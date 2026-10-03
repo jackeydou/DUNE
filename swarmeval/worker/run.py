@@ -22,6 +22,8 @@ from swarmeval.control.queue import Queue, RunRow, RunStatus
 from swarmeval.core import CaseError, Variant, load_case, run_spec
 from swarmeval.core.models import AxisValue
 from swarmeval.events import ObjectStore, PostgresRunStore, RunHeader, export_events, export_run
+from swarmeval.events.fork import Ancestor, ForkPointError, chain_head, load_tokens, save_tokens
+from swarmeval.events.seal import ChainHead
 from swarmeval.events.transcript import load_transcript
 from swarmeval.gateway.model.client import (
     UPSTREAM_ERROR_STATUS,
@@ -37,14 +39,16 @@ from swarmeval.runtime.extensions import (
     case_resolver,
     load_extensions,
 )
-from swarmeval.runtime.loop import initial_context
+from swarmeval.runtime.fork import ForkStart
 from swarmeval.runtime.ports import AgentCaller, Caller, ExtensionCaller
 from swarmeval.runtime.records import CommittedEvent, EventDraft, Transaction
+from swarmeval.runtime.specs import initial_context
 from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, BUILTIN_TOOLS
 from swarmeval.runtime.writer import RunWriter
 from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError, SeedFile
 from swarmeval.scorers import FinalStateScoring, ScoringError, last_lifecycle
 from swarmeval.web import HttpWebClient
+from swarmeval.worker.fork import last_changes, load_fork, restore
 from swarmeval.worker.pause import CANCELLED, QueuePauser
 from swarmeval.worker.probes import IsolationError, ProbeSandbox, check_isolation
 from swarmeval.worker.transcript import check_transcript
@@ -137,12 +141,26 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
         )
     except (CaseError, ExtensionLoadError) as err:
         return Outcome("failed", f"the case no longer loads: {err}")
-    canaries = place(variant.env.canaries)
-    profiles = variant.env.sandbox_profiles
-    sandbox_canaries = place_sandboxes(
-        {p.id: p.agents for p in variant.sandboxes.values()},
-        {p.id: [m.path for m in profiles[p.profile].fs] for p in variant.sandboxes.values()},
-    )
+    fork: ForkStart | None = None
+    ancestors: list[Ancestor] = []
+    start: ChainHead | None = None
+    tip: str | None = None
+    if run.forked_from is None:
+        canaries = place(variant.env.canaries)
+        profiles = variant.env.sandbox_profiles
+        sandbox_canaries = place_sandboxes(
+            {p.id: p.agents for p in variant.sandboxes.values()},
+            {p.id: [m.path for m in profiles[p.profile].fs] for p in variant.sandboxes.values()},
+        )
+    else:
+        try:
+            fork, ancestors, tip = await load_fork(deps.engine, run)
+            source_canaries, sandbox_canaries = await load_tokens(deps.engine, run.forked_from)
+        except ForkPointError as err:
+            return Outcome("failed", f"the fork cannot start: {err}")
+        canaries = place(variant.env.canaries, {c.id: c.token for c in source_canaries})
+        start = await chain_head(deps.engine, run.forked_from, fork.fork_seq)
+    await save_tokens(deps.engine, run.run_id, [c.info for c in canaries], sandbox_canaries)
     spec = replace(
         run_spec(variant, run_id=run.run_id, seed=run.epoch),
         canaries=tuple(c.info for c in canaries),
@@ -154,8 +172,9 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
         workspace=run.workspace,
         owner_epoch=run.owner_epoch,
         sandboxes={a.id: a.sandbox_id for a in spec.agents},
+        start=start,
     )
-    writer = RunWriter(store)
+    writer = RunWriter(store, last_event_id=tip)
     committed: list[CommittedEvent] = []
     writer.subscribe(committed.extend)
     blobs = S3BlobStore(deps.store)
@@ -166,6 +185,13 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
         async with contextlib.AsyncExitStack() as stack:
             stack.push_async_callback(sandboxes.destroy)
             await _create_sandboxes(run, variant, canaries, sandbox_canaries, sandboxes, deps.queue)
+            if fork is not None:
+                changes = await last_changes(deps.engine, ancestors)
+                fidelity, lost = await restore(sandboxes, blobs, changes, list(variant.sandboxes))
+                if lost:
+                    log.warning("run %s: fork restored partially: %s", run.run_id, "; ".join(lost))
+                await deps.queue.set_fidelity(run.run_id, run.owner_epoch, fidelity)
+                fork = replace(fork, fidelity=fidelity)
             await check_isolation(probe_targets(variant, sandbox_canaries), sandboxes, writer)
             gateway = await stack.enter_async_context(
                 GatewaySession(
@@ -187,6 +213,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                 extensions=extensions,
                 tools=BUILTIN_TOOLS,
                 web_client=web,
+                fork=fork,
             )
             watcher = asyncio.create_task(
                 _watch_cancel(deps.queue, run.run_id, loop, deps.cancel_poll_s)

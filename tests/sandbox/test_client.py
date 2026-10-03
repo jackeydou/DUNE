@@ -15,7 +15,8 @@ from swarmeval.proto.swarmeval.sandbox.v1.sandbox_pb2_grpc import (
 from swarmeval.runtime.messages import ToolCall
 from swarmeval.runtime.records import Exec
 from swarmeval.runtime.tools import SHELL, exec_output
-from swarmeval.sandbox import RunSandboxes, SandboxdError
+from swarmeval.sandbox import RunSandboxes, SandboxdError, SeedFile
+from swarmeval.sandbox.client import RESTORE_BATCH_BYTES
 
 Context = grpc.aio.ServicerContext[Any, Any]
 
@@ -65,6 +66,12 @@ class FakeSandboxd(SandboxServiceServicer):
             await context.abort(self.exec_error, "sandbox box_a of run run_1 not found")
         for item in self.exec_items:
             yield item
+
+    async def RestoreFiles(
+        self, request: pb.RestoreFilesRequest, context: Context
+    ) -> pb.RestoreFilesResponse:
+        self.requests.append(request)
+        return pb.RestoreFilesResponse()
 
     async def ReadFile(self, request: pb.ReadFileRequest, context: Context) -> pb.ReadFileResponse:
         self.requests.append(request)
@@ -305,3 +312,21 @@ def test_shell_runs_its_command_with_sh_and_the_given_timeout() -> None:
     args = SHELL.args.model_validate_json('{"cmd": "echo hi", "timeout_s": 5}')
 
     assert SHELL.build(args) == Exec(argv=("sh", "-c", "echo hi"), timeout_s=5)
+
+
+async def test_restore_sends_removals_and_dirs_first_and_batches_files(rig: Rig) -> None:
+    big = SeedFile(path="/workspace/big.bin", content=b"x" * (RESTORE_BATCH_BYTES - 10))
+    small = SeedFile(path="/workspace/small.txt", content=b"y" * 20, mode=0o600)
+
+    await rig.client.restore(
+        "box_a", remove=["/workspace/old"], dirs=[("/workspace/d", 0o700)], files=[big, small]
+    )
+
+    first, second = rig.server.requests
+    assert (list(first.remove), [d.path for d in first.dirs]) == (
+        ["/workspace/old"],
+        ["/workspace/d"],
+    )
+    assert [f.path for f in first.files] == ["/workspace/big.bin"]
+    assert (list(second.remove), list(second.dirs)) == ([], [])
+    assert [(f.path, f.mode) for f in second.files] == [("/workspace/small.txt", 0o600)]

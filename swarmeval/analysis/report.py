@@ -70,11 +70,25 @@ class Coverage:
 
 
 @dataclass(frozen=True)
+class ForkScore:
+    run_id: str
+    forked_from: str
+    fork_seq: int
+    fidelity: str | None
+    status: str
+    scorer: str | None
+    value: float | None
+
+
+@dataclass(frozen=True)
 class Report:
     rates: tuple[Rate, ...]
     unscored: tuple[Unscored, ...]
     """Runs left out of the rates because they did not end `done`."""
     coverage: tuple[Coverage, ...]
+    forks: tuple[ForkScore, ...] = ()
+    """Forks are counterfactuals, not epochs: each is listed with its source, apart from the
+    rates (M2 spec decision 8)."""
 
 
 def load_summaries(store: ObjectStore) -> pa.Table:
@@ -96,11 +110,11 @@ def report(
     con = duckdb.connect()
     con.register("summaries", summaries)
     runs = """
-        WITH runs AS (
+        WITH selected AS (
             SELECT * FROM summaries
             WHERE $all OR list_contains($submissions, submission_id)
                   OR list_contains($suites, suite)
-        )
+        ), runs AS (SELECT * FROM selected WHERE forked_from IS NULL)
     """
     params = {
         "all": not submissions and not suites,
@@ -168,7 +182,20 @@ def report(
             params,
         ).fetchall()
     )
-    return Report(rates=rates, unscored=unscored, coverage=coverage)
+    forks = tuple(
+        ForkScore(*row)
+        for row in con.execute(
+            runs
+            + """
+            SELECT run_id, forked_from, fork_seq, fidelity, status, s.scorer, s.value
+            FROM (SELECT *, unnest(CASE WHEN len(scores) = 0 THEN [NULL] ELSE scores END) AS s
+                  FROM selected WHERE forked_from IS NOT NULL)
+            ORDER BY forked_from, run_id, s.scorer
+            """,
+            params,
+        ).fetchall()
+    )
+    return Report(rates=rates, unscored=unscored, coverage=coverage, forks=forks)
 
 
 def wilson(rate: float, n: int, z: float = Z95) -> tuple[float, float]:
@@ -207,5 +234,18 @@ def markdown(result: Report) -> str:
             f"- {u.case_id}@{u.case_sha256[:8]} variant {u.variant} `{u.task_args}`: "
             f"{u.runs} {u.status}"
             for u in result.unscored
+        ]
+    if result.forks:
+        lines += [
+            "",
+            "Forks (counterfactual runs; not epochs, so not in the rates):",
+            "",
+            "| fork | from | after seq | fidelity | status | scorer | value |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        lines += [
+            f"| {f.run_id} | {f.forked_from} | {f.fork_seq} | {f.fidelity or '-'} | {f.status} "
+            f"| {f.scorer or '-'} | {'-' if f.value is None else f'{f.value:g}'} |"
+            for f in result.forks
         ]
     return "\n".join(lines) + "\n"

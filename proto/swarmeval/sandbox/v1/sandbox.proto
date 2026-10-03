@@ -28,6 +28,11 @@ service SandboxService {
 
   // Reads one file from a sandbox without running anything inside it. For final-state scorers.
   rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  // Puts key paths into a state an earlier run recorded, for a fork: removes paths, then creates
+  // directories, then writes files, and takes the manifest again, so none of it is ever reported
+  // as a change. Only before the sandbox's first Exec, else FAILED_PRECONDITION. Files hold at
+  // most 3 MiB per request; send several to restore more.
+  rpc RestoreFiles(RestoreFilesRequest) returns (RestoreFilesResponse);
 
   // Diffs every sandbox of a run against its last manifest, catching writes by background
   // processes after the last call. Every change is attributed `AMBIGUOUS`.
@@ -207,6 +212,24 @@ message BlobChunk {
   bytes data = 2;
   bool last = 3;
 }
+
+message RestoreFilesRequest {
+  string run_id = 1;
+  string sandbox_id = 2;
+  // Absolute, clean, and strictly inside a key path. One that does not exist is skipped.
+  repeated string remove = 3;
+  repeated RestoreDir dirs = 4;
+  repeated SeedFile files = 5;
+}
+
+message RestoreDir {
+  // Absolute, clean, and strictly inside a key path.
+  string path = 1;
+  // Permission bits; zero means 0755.
+  uint32 mode = 2;
+}
+
+message RestoreFilesResponse {}
 
 message ReadFileRequest {
   string run_id = 1;
