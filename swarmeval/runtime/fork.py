@@ -148,19 +148,24 @@ def edited_contexts(
     contexts: Mapping[str, tuple[ChatMessage, ...]], edits: Sequence[Edit]
 ) -> dict[str, tuple[ChatMessage, ...]]:
     """Each agent whose context an edit changes, with its new context. Indexes refer to the
-    context at the fork point, so deletions apply after every replacement."""
-    changed: dict[str, list[ChatMessage | None]] = {}
+    context at the fork point: every replacement applies first, then every deletion, so a
+    deleted message stays deleted whatever replaced it."""
+    changed: dict[str, list[ChatMessage]] = {}
+    deleted: dict[str, set[int]] = {}
     for edit in edits:
-        if isinstance(edit, ReplaceDelivery):
-            continue
-        current = changed.setdefault(edit.agent_id, list(contexts[edit.agent_id]))
-        if isinstance(edit, DeleteMessage):
-            current[edit.index] = None
-            continue
-        message = current[edit.index]
-        assert message is not None, "deletions are applied after replacements"
-        current[edit.index] = _with_content(message, edit.content)
-    return {agent: tuple(m for m in msgs if m is not None) for agent, msgs in changed.items()}
+        match edit:
+            case ReplaceMessage():
+                current = changed.setdefault(edit.agent_id, list(contexts[edit.agent_id]))
+                current[edit.index] = _with_content(current[edit.index], edit.content)
+            case DeleteMessage():
+                changed.setdefault(edit.agent_id, list(contexts[edit.agent_id]))
+                deleted.setdefault(edit.agent_id, set()).add(edit.index)
+            case ReplaceDelivery():
+                pass
+    return {
+        agent: tuple(m for i, m in enumerate(msgs) if i not in deleted.get(agent, set()))
+        for agent, msgs in changed.items()
+    }
 
 
 def _with_content(message: ChatMessage, content: str) -> ChatMessage:

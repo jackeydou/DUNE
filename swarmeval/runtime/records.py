@@ -480,6 +480,9 @@ class Checkpoint(Frozen):
     extensions: dict[str, ExtensionCheckpoint]
     mail: tuple[MailCheckpoint, ...] = ()
     queued: tuple[QueuedCheckpoint, ...] = ()
+    spawned: int = 0
+    """Extension work started with `ctx.spawn` and still running. A fork cannot carry a
+    coroutine over, so it refuses such a checkpoint."""
 
 
 @dataclass(frozen=True)

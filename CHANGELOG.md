@@ -227,6 +227,8 @@
 ### Changed
 - Event schema version 6: `lifecycle` events may be `paused` and `resumed` mid-run. Version 5
   runs read unchanged.
+- Event schema version 7: a fork's cross-run parents (`<run>:<event id>`), `hook: fork`
+  interventions, and its `started` reason. Version 6 runs read unchanged.
 - `runtime/specs.py` holds `AgentSpec`, `RunSpec`, `Limits`, `RunOutcome`, and
   `RunConfigError`; tool execution moved to `runtime/execute.py`. `RunWriter` takes the parent of
   a run's first event; `PostgresRunStore` takes where its chain starts.

@@ -1,6 +1,7 @@
 """A fork goes on from a checkpoint: with no edit it continues as its source did; an edit is an
 intervention the agent then sees (M2 spec decision 8)."""
 
+import asyncio
 from dataclasses import replace
 from typing import Any
 
@@ -11,6 +12,7 @@ from swarmeval.runtime.extensions import (
     ExtensionAPI,
     HookContext,
     NoConfig,
+    NoState,
     Proceed,
     ResumeInfo,
     TurnDecision,
@@ -193,3 +195,25 @@ async def test_a_replaced_delivery_reaches_the_recipient() -> None:
 
     delivered = [m for m in fork.store.messages(mail.recipient) if isinstance(m, UserMessage)]
     assert any("changed" in m.content for m in delivered)
+
+
+@extension(id="t.background", api_version=1)
+def background(ext: ExtensionAPI[NoConfig, NoState]) -> None:
+    @ext.on("on_run_start")
+    async def _(ctx: HookContext[NoState]) -> None:
+        async def slow() -> None:
+            await asyncio.sleep(0.05)
+
+        ctx.spawn(slow())
+
+
+async def test_a_checkpoint_counts_background_work_still_running() -> None:
+    h = harness(
+        (agent("a", tools=()), agent("b", tools=())),
+        {"a": [reply("done")], "b": [reply("done")]},
+        extensions=[background],
+    )
+
+    await h.loop.run()
+
+    assert [c.spawned for _, c in h.store.checkpoints] == [1, 1]

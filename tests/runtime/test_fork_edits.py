@@ -69,3 +69,13 @@ def test_replacements_apply_before_deletions_by_original_index() -> None:
 
 def test_cross_run_references_keep_an_existing_run() -> None:
     assert (cross_run("r1", "e"), cross_run("r1", "r0:e")) == ("r1:e", "r0:e")
+
+
+def test_a_deleted_message_stays_deleted_whatever_replaced_it() -> None:
+    edits = [
+        DeleteMessage(agent_id="a", index=3),
+        ReplaceMessage(agent_id="a", index=3, content="y"),
+    ]
+    check_edits(edits, CONTEXTS, MAIL)
+
+    assert edited_contexts(CONTEXTS, edits)["a"] == CONTEXTS["a"][:3]

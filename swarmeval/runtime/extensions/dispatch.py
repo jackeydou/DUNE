@@ -324,6 +324,9 @@ class HookDispatcher:
             txn.extend(effects)
         await self._writer.commit(txn)
 
+    def spawned_running(self) -> int:
+        return sum(1 for task in self._spawned if not task.done())
+
     def take_posts(self) -> list[Post]:
         """Messages extensions posted on channels since the last call, in order."""
         posts, self._posts = self._posts, []
