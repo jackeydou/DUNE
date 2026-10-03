@@ -18,7 +18,8 @@ from pydantic import TypeAdapter, ValidationError
 
 from swarmeval.core.interventions import expand
 from swarmeval.core.models import (
-    SCHEMA_VERSIONS,
+    CASE_SCHEMA_VERSIONS,
+    ENV_SCHEMA_VERSIONS,
     AxisValue,
     CaseFile,
     CommandScorer,
@@ -111,8 +112,10 @@ def load_case(
     case_dir = case_dir.resolve()
     case_path = case_dir / CASE_FILE
     raw_case = _read_yaml(case_path)
-    _check_version(case_path, raw_case)
+    version = _check_version(case_path, raw_case, CASE_SCHEMA_VERSIONS)
     axes = _axes(case_path, raw_case.get("variants", {}), overrides or {})
+    if version < 2:
+        _refuse_v2_axes(case_path, axes)
     for key in _NOT_SUBSTITUTED:
         if key in raw_case and _references(raw_case[key]):
             raise CaseError(
@@ -125,7 +128,7 @@ def load_case(
     names = list(axes)
     for index, combo in enumerate(itertools.product(*axes.values())):
         values = dict(zip(names, combo, strict=True))
-        variants.append(_variant(files, case_path, raw_case, index, values))
+        variants.append(_variant(files, case_path, raw_case, index, values, version))
     first = variants[0].case
     warnings = tuple(dict.fromkeys(w for v in variants for w in v.warnings))
     for warning in warnings:
@@ -146,6 +149,7 @@ def _variant(
     raw_case: dict[str, object],
     index: int,
     values: dict[str, AxisValue],
+    version: int,
 ) -> Variant:
     where = f"{case_path}" + (f" (variant {values})" if values else "")
     substituted = {
@@ -153,6 +157,8 @@ def _variant(
         for key, value in raw_case.items()
     }
     case = _validate(CaseFile, substituted, where)
+    if version < 2:
+        _refuse_v2_fields(case, where)
     try:
         expanded = expand(case)
     except ValueError as err:
@@ -160,7 +166,7 @@ def _variant(
 
     env_path = files.resolve(case.environment, "environment")
     raw_env = files.yaml(env_path)
-    _check_version(env_path, raw_env)
+    _check_version(env_path, raw_env, ENV_SCHEMA_VERSIONS)
     env_where = f"{env_path}" + (f" (variant {values})" if values else "")
     env = _validate(EnvFile, _substitute(raw_env, values, env_where, ()), env_where)
 
@@ -395,18 +401,41 @@ def _read_yaml(path: Path) -> dict[str, object]:
     return {str(k): v for k, v in mapping.items()}
 
 
-def _check_version(path: Path, raw: dict[str, object]) -> None:
+def _check_version(path: Path, raw: dict[str, object], supported: frozenset[int]) -> int:
     version = raw.get("schema_version")
     if version is None:
-        raise CaseError(
-            f"{path} has no `schema_version`. Add `schema_version: {max(SCHEMA_VERSIONS)}`."
-        )
-    if version not in SCHEMA_VERSIONS:
+        raise CaseError(f"{path} has no `schema_version`. Add `schema_version: {max(supported)}`.")
+    if not isinstance(version, int) or isinstance(version, bool) or version not in supported:
         raise CaseError(
             f"{path} has `schema_version: {version}`. This SwarmEval reads "
-            f"{', '.join(map(str, sorted(SCHEMA_VERSIONS)))}. Upgrade SwarmEval, or write the "
+            f"{', '.join(map(str, sorted(supported)))}. Upgrade SwarmEval, or write the "
             "file for a supported version."
         )
+    return version
+
+
+def _refuse_v2_axes(path: Path, axes: Mapping[str, tuple[AxisValue, ...]]) -> None:
+    for name, values in axes.items():
+        if any(isinstance(v, tuple) for v in values):
+            raise CaseError(
+                f"{path}: variant axis `{name}` has a list value, which needs "
+                "`schema_version: 2`. Raise the case's `schema_version` to 2."
+            )
+
+
+def _refuse_v2_fields(case: CaseFile, where: str) -> None:
+    for channel in case.swarm.channels:
+        if channel.interventions:
+            raise CaseError(
+                f"{where}: channel `{channel.id}` lists `interventions`, which needs "
+                "`schema_version: 2`. Raise the case's `schema_version` to 2."
+            )
+    for scorer in case.scorers:
+        if isinstance(scorer, CrossSandboxScorer):
+            raise CaseError(
+                f"{where}: scorer `{scorer.id}` has type `cross_sandbox`, which needs "
+                "`schema_version: 2`. Raise the case's `schema_version` to 2."
+            )
 
 
 def _axes(

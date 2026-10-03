@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -191,7 +192,7 @@ def test_missing_schema_version_is_rejected(tmp_path: Path) -> None:
     case = base_case()
     del case["schema_version"]
 
-    assert "has no `schema_version`. Add `schema_version: 1`" in load_error(tmp_path, case)
+    assert "has no `schema_version`. Add `schema_version: 2`" in load_error(tmp_path, case)
 
 
 def test_unsupported_schema_version_is_rejected(tmp_path: Path) -> None:
@@ -456,6 +457,7 @@ def test_a_command_scorer_needs_its_script_and_a_used_sandbox(tmp_path: Path) ->
 
 def test_a_cross_sandbox_scorer_needs_two_sandboxes(tmp_path: Path) -> None:
     case = base_case()
+    case["schema_version"] = 2
     case["scorers"] = [{"id": "crossed", "type": "cross_sandbox"}]
 
     (variant,) = load_case(write(tmp_path, case)).variants
@@ -516,3 +518,35 @@ def test_a_canary_and_a_copied_file_cannot_share_a_path(tmp_path: Path) -> None:
         CaseError, match=re.escape("both write `/workspace/key.txt` in sandbox `dev`")
     ):
         load_case(case_dir)
+
+
+def _intervened_channel(case: dict[str, Any]) -> None:
+    case["swarm"]["channels"] = [{"id": "dm", "members": ["dev", "qa"], "interventions": ["log"]}]
+
+
+def _cross_sandbox_scorer(case: dict[str, Any]) -> None:
+    case["scorers"] = [{"id": "crossed", "type": "cross_sandbox"}]
+
+
+def _list_axis(case: dict[str, Any]) -> None:
+    case["variants"] = {"paraphrased": [[], ["dm"]]}
+
+
+@pytest.mark.parametrize(
+    ("change", "needs"),
+    [
+        (_intervened_channel, "channel `dm` lists `interventions`"),
+        (_cross_sandbox_scorer, "scorer `crossed` has type `cross_sandbox`"),
+        (_list_axis, "variant axis `paraphrased` has a list value"),
+    ],
+)
+def test_version_1_cases_refuse_the_version_2_grammar(
+    tmp_path: Path, change: Callable[[dict[str, Any]], None], needs: str
+) -> None:
+    case = base_case()
+    change(case)
+
+    error = load_error(tmp_path, case)
+
+    assert needs in error
+    assert "needs `schema_version: 2`" in error

@@ -70,14 +70,14 @@ sandboxes:                            # shared instances only
 
 | Key | Required | Meaning |
 |---|---|---|
-| `schema_version` | yes | `1` |
+| `schema_version` | yes | `1` or `2`. Version 2 is needed for the fields marked v2 below; version 1 cases load unchanged and refuse them |
 | `id` | yes | Case id |
 | `workspace` | yes | Organizational field. It groups runs and is recorded on every event; it is not access control |
 | `category`, `description` | no | Free text |
-| `variants` | no | Axis name → list of values: scalars, or lists of scalars. Each combination is one variant |
+| `variants` | no | Axis name → list of values: scalars, or (v2) lists of scalars. Each combination is one variant |
 | `epochs` | no | Runs per variant. Default 1 |
 | `swarm.agents` | yes | At least one agent, below |
-| `swarm.channels` | no | `id`, at least two `members`, each an agent id, and optional `interventions` ([below](#channel-interventions)) |
+| `swarm.channels` | no | `id`, at least two `members`, each an agent id, and optional (v2) `interventions` ([below](#channel-interventions)) |
 | `swarm.turn_policy` | no | `round_robin`, the only policy so far |
 | `swarm.limits` | no | `max_turns` (all agents together) and `max_tokens`, which accepts `400k` or `2m` |
 | `environment` | no | Path to the env file. Default `env.yaml` |
@@ -118,7 +118,7 @@ Sizes use pydantic `ByteSize`: `2g` and `2gb` are 2 × 10⁹ bytes, and `2gib` i
 
 ## Channel interventions
 
-A channel's `interventions:` puts the built-in channel interventions
+A channel's `interventions:` (case `schema_version: 2`) puts the built-in channel interventions
 ([agent-runtime.md](agent-runtime.md#built-in-extensions)) on it. Each entry is a name, or a
 name with its config, which leaves out the channel:
 
@@ -175,7 +175,7 @@ Each entry has a unique `id` and a `type`. A score of 1 means what the scorer lo
 scorers:
   - { id: tampered_grader, type: protected_write, ignore: ["*/__pycache__/*"] }
   - { id: used_answer_key, type: canary }
-  - { id: found_each_other, type: cross_sandbox }
+  - { id: found_each_other, type: cross_sandbox }  # case schema_version 2
   - id: hardcoded
     type: command
     sandbox: dev                    # a sandbox instance name
@@ -332,9 +332,18 @@ entry, and the field.
 
 ## Versioning
 
-`schema_version` belongs to each file, suites included. A change that alters what an existing field means, or
-removes one, bumps it, and the loader keeps reading older versions (see AGENTS.md "Case
-format").
+`schema_version` belongs to each file, suites included. A change to what a file may contain bumps
+it: a new field, a new scorer type, a wider set of values, a changed meaning, a removed field. A
+reader then tells from the version alone whether it can load a file, instead of failing on the
+first key it does not know. The loader keeps reading older versions, which refuse the newer
+grammar with an error naming the field and the version it needs (see AGENTS.md "Case format").
+
+| `case.yaml` | Adds |
+|---|---|
+| 1 | The format as first released |
+| 2 | Channel `interventions`, list values for variant axes, the `cross_sandbox` scorer |
+
+`env.yaml` and suites are at version 1.
 
 ## Not accepted yet
 

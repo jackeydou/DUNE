@@ -182,6 +182,13 @@
   switch an intervention's `channels` off; overrides and suites accept them too. Additive.
 
 ### Changed
+- `case.yaml` schema version 2: channel `interventions`, list values for variant axes, and the
+  `cross_sandbox` scorer need it; version 1 cases load unchanged and refuse those with an error
+  naming the field. `env.yaml` and suites stay at version 1. Versioning now bumps for any change
+  to what a file may contain, not only for changed meanings (`docs/case-format.md#versioning`).
+- The canary extension and scorer search the new content of a `before_deliver` rewrite, as
+  `where: rewritten_message`, which is never cross-sandbox.
+- `trace` refuses a schema 5 event other than the run's first that has no parent.
 - A message is routed through `before_deliver` when its send commits, and a finished agent wakes
   only for a message due at its next turn. `msg.deliver` names the last `before_deliver`
   intervention on it as parent, when there is one. `MessageSendRecord.call_id` is `None` for a

@@ -9,8 +9,13 @@ import json
 from dataclasses import dataclass
 
 import pyarrow as pa
+from pydantic import JsonValue
 
 from swarmeval.analysis.render import event_line
+
+COMPLETE_PARENTS_SCHEMA = 5
+"""From this event schema version on, only a run's first event has no parent; older runs end
+their chains early (docs/event-log.md#causal-parents)."""
 
 
 class TraceError(Exception):
@@ -36,8 +41,8 @@ class Trace:
 
 def trace(table: pa.Table, event_id: str, *, event_chars: int = 400) -> Trace:
     """`table` is a run's `events.parquet`. Raises `TraceError` when `event_id` is not in it, or
-    when a parent is missing from the run or the chain loops, which the run's writer never
-    produces."""
+    when a parent is missing from the run, the chain loops, or a schema 5 event other than the
+    run's first has no parent, none of which the run's writer produces."""
     rows = {
         row["event_id"]: row
         for row in table.select(
@@ -50,6 +55,7 @@ def trace(table: pa.Table, event_id: str, *, event_chars: int = 400) -> Trace:
             f"event {event_id} is not in run {', '.join(sorted(run_ids)) or '(empty)'}. "
             "Copy the id from the run's timeline."
         )
+    first_seq = min(row["seq"] for row in rows.values())
     chain: list[Link] = []
     seen: set[str] = set()
     current: str | None = event_id
@@ -67,17 +73,35 @@ def trace(table: pa.Table, event_id: str, *, event_chars: int = 400) -> Trace:
                 f"{row['seq']}). The export was changed after the run wrote it."
             )
         seen.add(current)
+        payload = json.loads(row["payload"])
         chain.append(
             Link(
                 seq=row["seq"],
                 event_id=current,
                 agent_id=row["agent_id"],
                 type=row["type"],
-                text=event_line(json.loads(row["payload"]), event_chars),
+                text=event_line(payload, event_chars),
             )
         )
         current = row["parent_id"]
+        if (
+            current is None
+            and row["seq"] != first_seq
+            and _schema(payload) >= COMPLETE_PARENTS_SCHEMA
+        ):
+            raise TraceError(
+                f"event {row['event_id']} (seq {row['seq']}) of run {_run_of(rows)} has no parent, "
+                f"but under event schema {_schema(payload)} only the run's first event (seq "
+                f"{first_seq}) is a root. The export is incomplete or was changed."
+            )
     return Trace(run_id=_run_of(rows), event_id=event_id, links=tuple(reversed(chain)))
+
+
+def _schema(payload: dict[str, JsonValue]) -> int:
+    metadata = payload.get("metadata")
+    swarmeval = metadata.get("swarmeval") if isinstance(metadata, dict) else None
+    version = swarmeval.get("schema_version") if isinstance(swarmeval, dict) else None
+    return version if isinstance(version, int) else 0
 
 
 def _run_of(rows: dict[str, dict[str, object]]) -> str:

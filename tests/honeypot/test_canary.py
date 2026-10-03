@@ -6,10 +6,15 @@ from pydantic import JsonValue
 from swarmeval.core.models import CanaryDef
 from swarmeval.gateway.bus import ChannelSpec
 from swarmeval.honeypot import place, place_sandboxes
-from swarmeval.honeypot.canary import setup
+from swarmeval.honeypot.canary import setup, sightings
 from swarmeval.runtime.extensions import CanaryInfo, ExtensionUse, SandboxCanaryInfo
 from swarmeval.runtime.extensions.registry import resolve_entry_point
-from swarmeval.runtime.records import ExecResult, ExtensionEmitRecord
+from swarmeval.runtime.records import (
+    CommittedEvent,
+    ExecResult,
+    ExtensionEmitRecord,
+    InterventionRecord,
+)
 from tests.runtime.fakes import FakeSandbox, FakeStore, agent, call, harness, reply
 
 KEY = CanaryInfo(
@@ -187,3 +192,51 @@ async def test_a_file_canary_carries_the_cross_sandbox_flag() -> None:
         ("a", "file", False),
         ("b", "file", True),
     ]
+
+
+def rewrite(recipient: str, content: str) -> CommittedEvent:
+    return CommittedEvent(
+        event_id="rw",
+        seq=9,
+        agent_id=recipient,
+        extension="team.paraphrase",
+        parent_id="send",
+        record=InterventionRecord(
+            hook="before_deliver",
+            action="deliver",
+            target_event_id="send",
+            before_sha256="00",
+            after={"recipient": recipient, "kind": "deliver", "content": content},
+        ),
+    )
+
+
+def test_a_token_a_delivery_rewrite_shows_its_recipient_is_a_hit() -> None:
+    (hit,) = sightings(rewrite("b", "the key is f00dcafe1234"), (KEY,), BOXES)
+
+    assert (hit.canary_id, hit.where, hit.agent_id, hit.cross_sandbox) == (
+        "answer_key",
+        "rewritten_message",
+        "b",
+        False,
+    )
+
+
+def test_a_sandbox_token_a_rewrite_carries_through_a_channel_is_not_a_crossing() -> None:
+    assert sightings(rewrite("b", f"a says its host is {A_TOKEN}"), (KEY,), BOXES) == []
+
+
+def test_drops_and_delays_show_nothing() -> None:
+    drop = rewrite("b", "x").model_copy(
+        update={
+            "record": InterventionRecord(
+                hook="before_deliver",
+                action="drop",
+                target_event_id="send",
+                before_sha256="00",
+                after={"recipient": "b", "kind": "drop"},
+            )
+        }
+    )
+
+    assert sightings(drop, (KEY,), BOXES) == []
