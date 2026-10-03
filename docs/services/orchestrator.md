@@ -176,13 +176,17 @@ Built: `swarmeval.web.HttpWebClient`, one per run, and the `WebTool` `WEB_REQUES
   TLS SNI, so certificates are verified against the name. If any address is not global unicast,
   the request is refused: loopback, private, link-local (cloud metadata included), CGNAT,
   multicast, reserved, and IPv6 forms carrying such an IPv4 address (mapped, 6to4, Teredo,
-  NAT64). IPv4 is tried before IPv6. Proxy settings in the worker's environment are ignored. A case cannot turn this off. The worker reaches Postgres,
+  NAT64 under `64:ff9b::/96`). IPv4 is tried before IPv6. Proxy settings in the worker's
+  environment are ignored, and so is any `Host` header in the arguments: `Host` is always the
+  URL's. Deployment requirement: do not run the worker IPv6-only behind DNS64 with a
+  network-specific NAT64 prefix, since a private IPv4 target synthesized under that prefix
+  looks global; such a deployment needs the prefix added to the check first. A case cannot turn this off. The worker reaches Postgres,
   object storage, model-gateway, and the Control API, so this check is what keeps an agent away
   from them.
 - **No redirects followed.** A 3xx goes back to the agent as is, so one call is one outbound
   request.
-- **Stateless.** The worker adds no credentials, keeps no cookies, and opens a new connection
-  for every call.
+- **Stateless.** The worker adds no credentials, refuses every cookie a response sets, and opens
+  a new connection for every call.
 - **Recorded.** The call's `ToolEvent` carries a `WebExchange` under `metadata.swarmeval.web`:
   the request, the address connected to, the status and headers, and both bodies by hash in the
   blob store ([event-log.md](../event-log.md#large-objects)), uploaded before the event commits.
