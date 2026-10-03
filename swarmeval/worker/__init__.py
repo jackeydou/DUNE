@@ -3,6 +3,7 @@
 from swarmeval.worker.run import Outcome, WorkerDeps, execute
 from swarmeval.worker.worker import (
     Worker,
+    WorkerHalted,
     WorkerIdInUse,
     WorkerIdLost,
     hold_worker_id,
@@ -12,6 +13,7 @@ __all__ = [
     "Outcome",
     "Worker",
     "WorkerDeps",
+    "WorkerHalted",
     "WorkerIdInUse",
     "WorkerIdLost",
     "execute",

@@ -156,7 +156,8 @@ place with DuckDB's `httpfs` extension.
   Each run records the isolation level it actually got.
 - Before any agent turn of every run, the worker's isolation self-check probes that each sandbox
   has no interface but loopback and cannot connect out, and that no two sandboxes see each
-  other's files, `/dev/shm`, processes, or names. A probe that gets through fails the run.
+  other's files, `/dev/shm`, processes, or names. A probe that gets through fails the run and
+  stops the worker claiming runs, since the host is at fault.
   Detail: [services/orchestrator.md](services/orchestrator.md#isolation-self-check). That
   `web_request` refuses loopback, private, link-local, and platform addresses is covered by its
   tests, not probed per run.

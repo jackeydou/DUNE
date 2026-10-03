@@ -135,18 +135,17 @@ for two sandboxes of one run, which cannot see each other's files, `/dev/shm`, p
 names. Every run checks the same at start with the worker's
 [isolation self-check](orchestrator.md#isolation-self-check).
 
-**`per-sandbox`, for the network capability.** The worker's isolation self-check fails every run
-here, since each sandbox has an interface besides `lo`. Nothing holds the gateway address until
-net-gateway exists, so a sandbox reaches nothing here either, but every attempt waits for a
-timeout. One network per sandbox, created by `CreateRun`, whose only other member is net-gateway
-at the
-network's gateway address. sandboxd carves each network's subnet out of `--sandbox-subnets`
-(default `10.231.0.0/16`), a `/28` each, skipping every subnet the docker daemon already has;
-docker's own default pools hold about 30 networks, too few for a sandbox each. The network is
-named `swarmeval-<run_id>-<sandbox_id>` and labeled like the run's containers. Each sandbox's
-DNS server is set to the gateway address as well as its `resolv.conf`: under runc, docker's
-embedded resolver on 127.0.0.11 stays reachable and would otherwise forward to the host's
-resolvers. Honeypots and mocks sit on a separate network that only net-gateway joins, and
+**`per-sandbox`, for the network capability.** The worker's isolation self-check fails the first run
+here, since each sandbox has an interface besides `lo`, and the worker then stops claiming runs.
+Nothing holds the gateway address until net-gateway exists, so a sandbox reaches nothing here
+either, but every attempt waits for a timeout. One network per sandbox, created by `CreateRun`,
+whose only other member is net-gateway at the network's gateway address. sandboxd carves each
+network's subnet out of `--sandbox-subnets` (default `10.231.0.0/16`), a `/28` each, skipping every
+subnet the docker daemon already has; docker's own default pools hold about 30 networks, too few for
+a sandbox each. The network is named `swarmeval-<run_id>-<sandbox_id>` and labeled like the run's
+containers. Each sandbox's DNS server is set to the gateway address as well as its `resolv.conf`:
+under runc, docker's embedded resolver on 127.0.0.11 stays reachable and would otherwise forward to
+the host's resolvers. Honeypots and mocks sit on a separate network that only net-gateway joins, and
 net-gateway has one more upstream network for allowed internet traffic. `resolv.conf` is mounted
 pointing at the gateway address. Sandbox networks are bridges with
 `com.docker.network.bridge.inhibit_ipv4=true` and not `--internal`; net-gateway takes the gateway

@@ -70,6 +70,9 @@ class WorkerDeps:
 class Outcome:
     status: RunStatus
     error: str | None = None
+    host_fault: bool = False
+    """The run failed because the worker's host cannot run any case safely (the isolation
+    self-check failed), not because of the case. The worker stops claiming runs."""
 
 
 _SANDBOXD_REFUSALS = frozenset({grpc.StatusCode.INVALID_ARGUMENT})
@@ -195,8 +198,10 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     writer=writer,
                 ).run(committed)
             await _check_transcript(deps.engine, spec, loop, writer)
-    except (ExtensionError, RunConfigError, IsolationError) as err:
+    except (ExtensionError, RunConfigError) as err:
         return Outcome("failed", str(err))
+    except IsolationError as err:
+        return Outcome("failed", str(err), host_fault=True)
     except (SandboxdError, ModelGatewayError) as err:
         outcome = service_failure(err)
         log.warning("run %s %s: %s", run.run_id, outcome.status, err, exc_info=True)

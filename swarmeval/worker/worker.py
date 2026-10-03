@@ -35,6 +35,11 @@ class WorkerIdLost(Exception):
     process could take the id and interrupt this one's runs. The worker stopped serving."""
 
 
+class WorkerHalted(Exception):
+    """A run found this worker's host unfit to run any case (the isolation self-check failed).
+    The worker claimed nothing more and stopped once its other runs finished."""
+
+
 @asynccontextmanager
 async def hold_worker_id(
     engine: AsyncEngine, owner_id: str, check_s: float = LOCK_CHECK_S
@@ -110,6 +115,8 @@ class Worker:
         self._owner_id = owner_id
         self._slots = asyncio.Semaphore(max_runs)
         self._tasks: set[asyncio.Task[None]] = set()
+        self._halt: str | None = None
+        """Why this worker claims no more runs, once a run found its host broken."""
 
     async def recover(self) -> list[Recovered]:
         """Finishes the runs this worker owned before a restart (interrupted ones get reruns),
@@ -130,12 +137,15 @@ class Worker:
     async def serve(self, poll_s: float = 1.0) -> None:
         """Claims and executes runs until cancelled. Raises `WorkerIdInUse`, before touching any
         run, when another live worker has this worker's id, and `WorkerIdLost` if it stops
-        holding the id."""
+        holding the id. When a run finds this host broken, claims nothing more, lets its other
+        runs finish, and raises `WorkerHalted`."""
         async with hold_worker_id(self._deps.engine, self._owner_id):
             await self.recover()
             try:
-                while True:
+                while self._halt is None:
                     await self._slots.acquire()
+                    if self._halt is not None:
+                        break
                     run = await self._deps.queue.claim(self._owner_id)
                     if run is None:
                         self._slots.release()
@@ -144,15 +154,20 @@ class Worker:
                     task = asyncio.create_task(self._run(run))
                     self._tasks.add(task)
                     task.add_done_callback(self._tasks.discard)
+                await asyncio.gather(*self._tasks)
             finally:
                 for task in self._tasks:
                     task.cancel()
                 await asyncio.gather(*self._tasks, return_exceptions=True)
+        raise WorkerHalted(self._halt)
 
     async def drain(self) -> dict[str, Outcome]:
-        """Executes queued runs one at a time until none is left. For tests and one-shot use."""
+        """Executes queued runs one at a time until none is left, or until a run finds this host
+        broken. For tests and one-shot use."""
         outcomes: dict[str, Outcome] = {}
-        while (run := await self._deps.queue.claim(self._owner_id)) is not None:
+        while (
+            self._halt is None and (run := await self._deps.queue.claim(self._owner_id)) is not None
+        ):
             outcomes[run.run_id] = await self._execute(run)
         return outcomes
 
@@ -173,7 +188,15 @@ class Worker:
             # The task boundary: an unexpected error fails this run, not the worker.
             log.error("run %s failed unexpectedly", run.run_id, exc_info=True)
             outcome = Outcome("failed", f"{type(err).__name__}: {err}")
-        return await _to_the_end(self._record(run, outcome))
+        recorded = await _to_the_end(self._record(run, outcome))
+        if outcome.host_fault:
+            self._halt = (
+                f"run `{run.run_id}` found worker `{self._owner_id}`'s host unfit to run any "
+                f"case: {outcome.error} Every run this worker claimed would fail the same way, "
+                "so it claims no more. Fix the host, then restart the worker."
+            )
+            log.error("%s", self._halt)
+        return recorded
 
     async def _record(self, run: RunRow, outcome: Outcome) -> Outcome:
         """Writes the run's final status, then its summary."""

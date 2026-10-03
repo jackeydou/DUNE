@@ -1,5 +1,20 @@
 # Bug fixes
 
+## 2026-10-02 — One unisolated host fails every run it claims
+
+**Symptom.** A worker whose sandboxd was misconfigured (for example `--sandbox-network
+per-sandbox`) failed the isolation self-check on every run it claimed, from every submission, and
+kept claiming more, so one broken host turned a whole queue into `failed` runs.
+**Root cause.** An `IsolationError` ended only the run; nothing told the worker that the fault was
+its host's, not the case's.
+**Fix.** `execute` marks the outcome `host_fault`; the worker then claims nothing more, lets its
+in-flight runs finish, and `serve` raises `WorkerHalted` naming the run and the probes.
+`swarmeval/worker/run.py`, `swarmeval/worker/worker.py`, `swarmeval/worker/server.py`.
+**Guard.** `tests/worker/test_multi_worker.py::test_a_run_that_finds_the_host_unisolated_stops_the_worker_claiming`.
+**Touches.** The run that found the fault still ends `failed` (not `interrupted`), so it is never
+rerun. `drain` stops the same way but returns its outcomes. Any new check of the host itself
+should set `host_fault` rather than fail runs one by one.
+
 ## 2026-10-02 — The DNS probe puts a peer's canary token in another sandbox
 
 **Symptom.** Sandbox A's isolation `check` script carried sandbox B's hostname, which is B's
