@@ -1,9 +1,10 @@
 """Channels, the `send_message` tool, and delivery into recipients' contexts.
 
 The bus lives in the run's worker and has no state of its own beyond what the run has
-committed: a send is pending for a recipient from the moment its `msg.send` event commits until
-a `msg.deliver` event for that recipient commits. The store keeps the same state in
-`runs.deliveries`.
+committed. A send commits as a `msg.send` event; the loop then routes it to each recipient
+through `before_deliver`, whose verdict (deliver, possibly rewritten; delay; drop) commits with
+its interventions. A routed message is pending for its recipient until a `msg.deliver` event for
+it commits. The store keeps the same state in `runs.deliveries`.
 """
 
 from collections.abc import Sequence
@@ -40,6 +41,27 @@ class Delivery:
     """The `msg.deliver` event, committed with the message."""
 
 
+@dataclass(frozen=True)
+class Unrouted:
+    """A committed send that has not been through `before_deliver` for `recipient` yet."""
+
+    send: CommittedEvent
+    record: MessageSendRecord
+    recipient: str
+
+
+@dataclass(frozen=True)
+class _Mail:
+    send: CommittedEvent
+    record: MessageSendRecord
+    content: str
+    due_turn: int | None
+    """`None`: the recipient's next turn."""
+    parent_id: str
+    """What the delivered content is from: the last `before_deliver` intervention on it, or
+    the send."""
+
+
 def delivered_message(record: MessageDeliverRecord) -> UserMessage:
     """What a delivery puts into the recipient's context."""
     return UserMessage(
@@ -50,7 +72,8 @@ def delivered_message(record: MessageDeliverRecord) -> UserMessage:
 class MessageBus:
     def __init__(self, channels: Sequence[ChannelSpec]) -> None:
         self._channels = {c.id: c for c in channels}
-        self._pending: dict[str, list[CommittedEvent]] = {}
+        self._unrouted: list[Unrouted] = []
+        self._mail: dict[str, list[_Mail]] = {}
 
     def tool(self) -> RuntimeTool:
         return RuntimeTool(
@@ -64,36 +87,73 @@ class MessageBus:
         )
 
     def on_commit(self, committed: Sequence[CommittedEvent]) -> None:
-        """`RunWriter` subscriber: a send becomes pending once it has committed."""
+        """`RunWriter` subscriber: a send needs routing once it has committed."""
         for event in committed:
             if isinstance(event.record, MessageSendRecord):
-                for recipient in event.record.recipients:
-                    self._pending.setdefault(recipient, []).append(event)
+                self._unrouted.extend(
+                    Unrouted(event, event.record, recipient)
+                    for recipient in event.record.recipients
+                )
 
-    def has_mail(self, agent_id: str) -> bool:
-        return bool(self._pending.get(agent_id))
+    def unrouted(self) -> list[Unrouted]:
+        """Sends committed since the last call, one entry per recipient, in send order."""
+        found, self._unrouted = self._unrouted, []
+        return found
 
-    def take(self, agent_id: str) -> list[Delivery]:
-        """Every pending message for `agent_id`, in send order. The caller commits the drafts
-        with the messages; until then a crash leaves them pending in the store."""
+    def route(
+        self, item: Unrouted, content: str, *, due_turn: int | None, parent_id: str | None
+    ) -> None:
+        """Queues `content` for the recipient, at its next turn or at `due_turn`. `parent_id` is
+        the last intervention that decided it, if any."""
+        self._mail.setdefault(item.recipient, []).append(
+            _Mail(item.send, item.record, content, due_turn, parent_id or item.send.event_id)
+        )
+
+    def has_mail(self, agent_id: str, turn: int) -> bool:
+        """Whether a message is due for `agent_id` at its turn `turn`."""
+        return any(_due(m, turn) for m in self._mail.get(agent_id, ()))
+
+    def take(self, agent_id: str, turn: int) -> list[Delivery]:
+        """Every message due for `agent_id` at its turn `turn`, in send order; delayed ones not
+        yet due stay. The caller commits the drafts with the messages; until then a crash
+        leaves them undelivered in the store."""
+        mail = self._mail.pop(agent_id, [])
+        held = [m for m in mail if not _due(m, turn)]
+        if held:
+            self._mail[agent_id] = held
         deliveries: list[Delivery] = []
-        for event in self._pending.pop(agent_id, []):
-            send = event.record
-            assert isinstance(send, MessageSendRecord)
+        for m in mail:
+            if not _due(m, turn):
+                continue
             record = MessageDeliverRecord(
-                channel=send.channel,
-                sender=send.sender,
+                channel=m.record.channel,
+                sender=m.record.sender,
                 recipient=agent_id,
-                send_seq=event.seq,
-                content=send.content,
+                send_seq=m.send.seq,
+                content=m.content,
             )
             deliveries.append(
                 Delivery(
                     message=delivered_message(record),
-                    draft=EventDraft(record=record, agent_id=agent_id, parent_id=event.event_id),
+                    draft=EventDraft(record=record, agent_id=agent_id, parent_id=m.parent_id),
                 )
             )
         return deliveries
+
+    def post(
+        self, channel: str, sender: str, content: str, *, by: str, parent_id: str
+    ) -> EventDraft:
+        """The `msg.send` of a message extension `by` put on `channel` as if `sender` sent it.
+        Every member but `sender` gets it."""
+        members = self._channels[channel].members
+        record = MessageSendRecord(
+            channel=channel,
+            sender=sender,
+            content=content,
+            recipients=tuple(m for m in members if m != sender),
+            call_id=None,
+        )
+        return EventDraft(record=record, extension=by, parent_id=parent_id)
 
     def _send(self, args: SendArgs, sender: str, call_id: str) -> RuntimeOutcome:
         channel = self._channels.get(args.channel)
@@ -116,3 +176,7 @@ class MessageBus:
             content=f"Sent to {', '.join(recipients)}.",
             events=(EventDraft(record=record, agent_id=sender),),
         )
+
+
+def _due(mail: _Mail, turn: int) -> bool:
+    return mail.due_turn is None or mail.due_turn <= turn

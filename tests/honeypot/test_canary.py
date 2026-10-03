@@ -67,7 +67,7 @@ async def test_sightings_in_tool_output_and_model_output_are_hits() -> None:
         ("answer_key", "file", "tool_output", []),
         ("answer_key", "file", "model_output", ["hex"]),
     ]
-    assert h.store.extension_rows[-1][2] == {"hits": 2, "received": {}}
+    assert h.store.extension_rows[-1][2].state == {"hits": 2, "received": {}}
 
 
 def test_each_sandbox_gets_a_fresh_token_as_hostname_env_and_machine_id() -> None:
@@ -151,7 +151,7 @@ async def test_a_token_delivered_in_a_message_is_not_a_hit_for_its_recipient() -
     await h.loop.run()
 
     assert hits(h.store) == []
-    assert h.store.extension_rows[-1][2] == {"hits": 0, "received": {"b": ["sandbox:box_a"]}}
+    assert h.store.extension_rows[-1][2].state == {"hits": 0, "received": {"b": ["sandbox:box_a"]}}
 
 
 async def test_a_token_seen_before_its_delivery_is_still_a_hit() -> None:

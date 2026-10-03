@@ -3,19 +3,22 @@
 
 Every message in an agent's context must come from a recorded event, as is or as an
 intervention changed it; every model call's request must hash, rebuilt from the stored context,
-to what model-gateway received; and every response must be what the backend's raw response
-normalizes to. A difference an intervention explains is an intervention. Any other is a
-mismatch: the context and the evidence have split, which is how spoofing shows.
+to what model-gateway received; every response must be what the backend's raw response
+normalizes to; every message sent must come from a `send_message` call or an extension's post;
+and every delivery must carry what was sent, or what a `before_deliver` rewrite made of it. A
+difference an intervention explains is an intervention. Any other is a mismatch: the context
+and the evidence have split, which is how spoofing shows.
 """
 
 import hashlib
+import json
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel, TypeAdapter
 
-from swarmeval.events.transcript import ModelCall, Recorded, RunTranscript, ToolOutcome
+from swarmeval.events.transcript import ModelCall, Recorded, RunTranscript, Sent, ToolOutcome
 from swarmeval.gateway.bus import delivered_message
 from swarmeval.gateway.model.client import from_wire, to_wire
 from swarmeval.gateway.model.upstream import normalize_raw
@@ -31,6 +34,7 @@ from swarmeval.runtime.messages import (
 )
 from swarmeval.runtime.records import (
     InterventionRecord,
+    MessageDeliverRecord,
     ToolResult,
     TranscriptCheckRecord,
     TranscriptMismatch,
@@ -68,6 +72,8 @@ class _Sources:
         default_factory=dict[str, list[tuple[str, UserMessage]]]
     )
     """Per agent: deliveries and `ctx.actions.inject` injections, admitted at a turn's start."""
+    deliveries: set[str] = field(default_factory=set[str])
+    """The `msg.deliver` events in `mail`: sources, but not interventions."""
     turn_injections: list[tuple[str, UserMessage]] = field(
         default_factory=list[tuple[str, UserMessage]]
     )
@@ -99,11 +105,14 @@ def check_transcript(
         if mismatch is not None:
             mismatches.append(mismatch)
     mismatches.extend(m for c in transcript.model_calls if (m := _check_response(c)) is not None)
+    mismatches.extend(_check_sends(transcript, explained))
+    mismatches.extend(_check_deliveries(transcript, explained))
     return TranscriptCheckRecord(
         consistent=not mismatches,
         messages=compared,
         requests=requests,
         responses=len(transcript.model_calls),
+        deliveries=len(transcript.deliveries),
         interventions=tuple(dict.fromkeys(explained)),
         mismatches=tuple(mismatches),
         event_ids=tuple(dict.fromkeys(m.event_id for m in mismatches if m.event_id)),
@@ -122,6 +131,7 @@ def _index(transcript: RunTranscript) -> _Sources:
         sources.mail.setdefault(d.record.recipient, []).append(
             (d.event_id, delivered_message(d.record))
         )
+        sources.deliveries.add(d.event_id)
     for i in transcript.interventions:
         record = i.record
         match (record.hook, record.action):
@@ -211,7 +221,7 @@ def _walk(
                 source = source or _take_equal(sources.turn_injections, message)
                 if source is None:
                     found.append(mismatch(idx, None, "no delivery or injection holds this message"))
-                else:
+                elif source[0] not in sources.deliveries:
                     explained.append(source[0])
             case SystemMessage():
                 found.append(mismatch(idx, None, "a system message after the generation's start"))
@@ -308,3 +318,119 @@ def _check_response(call: ModelCall) -> TranscriptMismatch | None:
     if raw != call.response:
         return mismatch("the recorded response differs from the backend's raw response")
     return None
+
+
+class _Posted(BaseModel):
+    """`after` of a post through `ctx.actions.post`."""
+
+    channel: str
+    sender: str
+    content: str
+
+
+def _check_sends(transcript: RunTranscript, explained: list[str]) -> list[TranscriptMismatch]:
+    """An agent's send must be what its `send_message` call ran with; an extension's, what its
+    post intervention (the send's parent) says."""
+    tools: dict[tuple[str | None, str | None], ToolOutcome] = {
+        (t.parent_id, t.result.call_id): t for t in transcript.tool_results
+    }
+    posts = {
+        i.event_id: i.record
+        for i in transcript.interventions
+        if i.record.action == "post" and isinstance(i.record.after, dict)
+    }
+    found: list[TranscriptMismatch] = []
+    for send in transcript.sends:
+        record = send.record
+        if send.agent_id is None:
+            post = posts.get(send.parent_id or "")
+            claimed = _Posted(channel=record.channel, sender=record.sender, content=record.content)
+            if post is None or _Posted.model_validate(post.after) != claimed:
+                found.append(_send_mismatch(send, "no extension post holds this message"))
+            else:
+                explained.append(send.parent_id or "")
+            continue
+        tool = tools.get((send.parent_id, record.call_id))
+        if tool is None or tool.result.tool != "send_message" or tool.executed_arguments is None:
+            found.append(_send_mismatch(send, "no send_message call of its model event ran"))
+            continue
+        try:
+            arguments = json.loads(tool.executed_arguments)
+        except ValueError:
+            arguments = None
+        sent = (record.channel, record.content, record.sender)
+        if (
+            not isinstance(arguments, dict)
+            or (
+                arguments.get("channel"),  # pyright: ignore[reportUnknownMemberType]
+                arguments.get("content"),  # pyright: ignore[reportUnknownMemberType]
+                send.agent_id,
+            )
+            != sent
+        ):
+            found.append(_send_mismatch(send, f"differs from what tool call {tool.event_id} ran"))
+    return found
+
+
+def _send_mismatch(send: Sent, detail: str) -> TranscriptMismatch:
+    return TranscriptMismatch(
+        check="send",
+        agent_id=send.agent_id,
+        gen=None,
+        idx=None,
+        event_id=send.event_id,
+        detail=detail,
+    )
+
+
+def _check_deliveries(transcript: RunTranscript, explained: list[str]) -> list[TranscriptMismatch]:
+    """A delivery carries its send's content, or the last `before_deliver` rewrite of it for
+    that recipient, and never follows a drop for that recipient. Every `before_deliver`
+    intervention of a consistent run explains something: a delivery, or a recipient's not
+    getting the message."""
+    sends = {s.seq: s for s in transcript.sends}
+    decided: dict[tuple[str, str], list[Recorded[InterventionRecord]]] = {}
+    for i in transcript.interventions:
+        if i.record.hook == "before_deliver" and isinstance(i.record.after, dict):
+            recipient = str(i.record.after["recipient"])
+            key = (i.record.target_event_id or "", recipient)
+            decided.setdefault(key, []).append(i)
+    found: list[TranscriptMismatch] = []
+    undelivered = dict(decided)
+    for delivery in transcript.deliveries:
+        record = delivery.record
+        send = sends.get(record.send_seq)
+        if send is None:
+            detail = f"delivers message {record.send_seq}, which no send recorded"
+            found.append(_delivery_mismatch(delivery, detail))
+            continue
+        verdicts = undelivered.pop((send.event_id, record.recipient), [])
+        if any(v.record.action == "drop" for v in verdicts):
+            detail = f"delivers message {send.event_id}, dropped for this agent"
+            found.append(_delivery_mismatch(delivery, detail))
+            continue
+        rewrites = [v for v in verdicts if v.record.action == "deliver"]
+        expected = send.record.content
+        if rewrites:
+            assert isinstance(rewrites[-1].record.after, dict), "selected as a mapping above"
+            expected = str(rewrites[-1].record.after["content"])
+        sent = (send.record.channel, send.record.sender, expected)
+        if (record.channel, record.sender, record.content) != sent:
+            by = rewrites[-1].event_id if rewrites else None
+            found.append(_delivery_mismatch(delivery, _differs("send", by)))
+            continue
+        explained.extend(v.event_id for v in verdicts)
+    # A drop, or a hold the run ended inside, explains why a recipient never got the message.
+    explained.extend(v.event_id for verdicts in undelivered.values() for v in verdicts)
+    return found
+
+
+def _delivery_mismatch(delivery: Recorded[MessageDeliverRecord], detail: str) -> TranscriptMismatch:
+    return TranscriptMismatch(
+        check="delivery",
+        agent_id=delivery.record.recipient,
+        gen=None,
+        idx=None,
+        event_id=delivery.event_id,
+        detail=detail,
+    )

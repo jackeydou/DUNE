@@ -8,7 +8,7 @@ run's `owner_epoch`, so a worker that lost the run cannot write to it.
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import TypeAdapter
 from sqlalchemy import func, insert, select, text, update
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -26,6 +26,8 @@ from swarmeval.runtime.messages import ChatMessage
 from swarmeval.runtime.ports import AgentContext
 from swarmeval.runtime.records import (
     CommittedEvent,
+    DeliveryChange,
+    ExtensionSnapshot,
     MessageDeliverRecord,
     MessageSendRecord,
     Transaction,
@@ -88,6 +90,7 @@ class PostgresRunStore:
             if event_rows:
                 await conn.execute(insert(events), event_rows)
             await self._write_deliveries(conn, committed)
+            await self._decide_deliveries(conn, txn.deliveries)
             tails = await self._write_messages(conn, txn, head.seq)
             if txn.agent_states:
                 await conn.execute(
@@ -110,7 +113,13 @@ class PostgresRunStore:
                 await conn.execute(
                     insert(extension_state),
                     [
-                        {"run_id": self._run_id, "instance_id": k, "seq": head.seq, "state": v}
+                        {
+                            "run_id": self._run_id,
+                            "instance_id": k,
+                            "seq": head.seq,
+                            "state": v.state,
+                            "rng_uses": v.rng_uses,
+                        }
                         for k, v in txn.extension_states.items()
                     ],
                 )
@@ -154,10 +163,14 @@ class PostgresRunStore:
             )
         return AgentContext(gen=gen, messages=loaded)
 
-    async def extension_states(self) -> dict[str, JsonValue]:
+    async def extension_states(self) -> dict[str, ExtensionSnapshot]:
         async with self._engine.connect() as conn:
             rows = await conn.execute(
-                select(extension_state.c.instance_id, extension_state.c.state)
+                select(
+                    extension_state.c.instance_id,
+                    extension_state.c.state,
+                    extension_state.c.rng_uses,
+                )
                 .ext(distinct_on(extension_state.c.instance_id))
                 .where(extension_state.c.run_id == self._run_id)
                 .order_by(
@@ -166,7 +179,10 @@ class PostgresRunStore:
                     extension_state.c.id.desc(),
                 )
             )
-            return {instance_id: state for instance_id, state in rows}
+            return {
+                instance_id: ExtensionSnapshot(state, rng_uses)
+                for instance_id, state, rng_uses in rows
+            }
 
     async def _fence(self, conn: AsyncConnection) -> None:
         epoch = (
@@ -214,18 +230,41 @@ class PostgresRunStore:
                             deliveries.c.run_id == self._run_id,
                             deliveries.c.msg_seq == send_seq,
                             deliveries.c.recipient == recipient,
-                            deliveries.c.status == "pending",
+                            deliveries.c.status.in_(("pending", "delayed")),
                         )
                         .values(status="delivered", delivered_seq=event.seq)
                     )
                     if result.rowcount != 1:
                         raise RuntimeError(
                             f"run {self._run_id}: delivery of message {send_seq} to "
-                            f"`{recipient}` has no pending row. A message is delivered once, "
-                            "after its send commits."
+                            f"`{recipient}` has no pending or delayed row. A message is "
+                            "delivered once, after its send commits, and never after it was "
+                            "dropped."
                         )
                 case _:
                     pass
+
+    async def _decide_deliveries(
+        self, conn: AsyncConnection, changes: list[DeliveryChange]
+    ) -> None:
+        """`before_deliver` verdicts: only a pending row can be dropped or delayed."""
+        for change in changes:
+            result = await conn.execute(
+                update(deliveries)
+                .where(
+                    deliveries.c.run_id == self._run_id,
+                    deliveries.c.msg_seq == change.send_seq,
+                    deliveries.c.recipient == change.recipient,
+                    deliveries.c.status == "pending",
+                )
+                .values(status=change.status, due_turn=change.due_turn)
+            )
+            if result.rowcount != 1:
+                raise RuntimeError(
+                    f"run {self._run_id}: message {change.send_seq} to `{change.recipient}` "
+                    f"cannot become `{change.status}`: it has no pending row. A message is "
+                    "routed once, after its send commits."
+                )
 
     async def _load_head(self, conn: AsyncConnection) -> ChainHead:
         last = (

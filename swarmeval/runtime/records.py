@@ -27,6 +27,7 @@ HookName = Literal[
     "after_model_response",
     "before_tool_call",
     "after_tool_result",
+    "before_deliver",
     "after_turn",
     "on_event",
     "on_run_end",
@@ -258,13 +259,14 @@ class MessageSendRecord(Frozen):
     sender: str
     content: str
     recipients: tuple[str, ...]
-    call_id: str
-    """The `send_message` tool call that sent it."""
+    call_id: str | None
+    """The `send_message` tool call that sent it; `None` for a message an extension posted on
+    the channel (`ctx.actions.post`), whose event names the extension instead of an agent."""
 
 
 class MessageDeliverRecord(Frozen):
     """A message entered a recipient's context. `content` is what the recipient saw, which
-    differs from the sent original only when an intervention applies."""
+    differs from the sent original only when a `before_deliver` intervention rewrote it."""
 
     kind: Literal["msg.deliver"] = "msg.deliver"
     channel: str
@@ -311,11 +313,14 @@ class LifecycleRecord(Frozen):
 
 
 class TranscriptMismatch(Frozen):
-    check: Literal["context", "request", "response"]
+    check: Literal["context", "request", "response", "send", "delivery"]
     """`context`: a message in an agent's context that no recorded event (or intervention on it)
     explains. `request`: a model call whose request, rebuilt from the stored context, does not
     hash to what model-gateway received. `response`: a model call whose response differs from
-    the backend's raw response, normalized again."""
+    the backend's raw response, normalized again. `send`: a `msg.send` that neither a
+    `send_message` call of its model event nor an extension's post explains. `delivery`: a
+    `msg.deliver` whose content is neither what was sent nor what a `before_deliver` rewrite
+    made of it, or that delivers a message dropped for its recipient."""
     agent_id: str | None
     gen: int | None
     idx: int | None
@@ -338,6 +343,8 @@ class TranscriptCheckRecord(Frozen):
     """Agent model calls whose request hash was recomputed from the stored context."""
     responses: int
     """Model calls whose response was compared with the backend's raw response."""
+    deliveries: int = 0
+    """`msg.deliver` events compared with their sends. Absent before event schema version 5."""
     interventions: tuple[str, ...]
     """Intervention events that explained a context message differing from its source."""
     mismatches: tuple[TranscriptMismatch, ...]
@@ -400,6 +407,28 @@ class AgentStateRow:
     tokens_used: int
 
 
+@dataclass(frozen=True)
+class DeliveryChange:
+    """What `before_deliver` decided for one recipient of a send, when it was not to deliver at
+    the recipient's next turn. Recorded in `runs.deliveries` with the interventions that made
+    it."""
+
+    send_seq: int
+    recipient: str
+    status: Literal["dropped", "delayed"]
+    due_turn: int | None = None
+    """For `delayed`: the recipient's own turn at whose start the message is delivered."""
+
+
+@dataclass(frozen=True)
+class ExtensionSnapshot:
+    """An extension instance's committed state, and how many of its hook calls have drawn from
+    `ctx.rng`, which fixes the random stream its next call gets."""
+
+    state: JsonValue
+    rng_uses: int = 0
+
+
 @dataclass
 class Transaction:
     """One atomic commit. `messages` are appended to each agent's current generation, after
@@ -411,7 +440,10 @@ class Transaction:
     )
     messages: list[tuple[str, ChatMessage]] = field(default_factory=list[tuple[str, ChatMessage]])
     agent_states: list[AgentStateRow] = field(default_factory=list[AgentStateRow])
-    extension_states: dict[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+    extension_states: dict[str, ExtensionSnapshot] = field(
+        default_factory=dict[str, ExtensionSnapshot]
+    )
+    deliveries: list[DeliveryChange] = field(default_factory=list[DeliveryChange])
 
     def extend(self, other: "Transaction") -> None:
         self.events.extend(other.events)
@@ -419,6 +451,7 @@ class Transaction:
         self.messages.extend(other.messages)
         self.agent_states.extend(other.agent_states)
         self.extension_states.update(other.extension_states)
+        self.deliveries.extend(other.deliveries)
 
     def is_empty(self) -> bool:
         return not (
@@ -427,4 +460,5 @@ class Transaction:
             or self.messages
             or self.agent_states
             or self.extension_states
+            or self.deliveries
         )

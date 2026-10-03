@@ -1,5 +1,11 @@
 """The Message Bus: channels between a run's agents (docs/services/orchestrator.md#message-bus)."""
 
-from swarmeval.gateway.bus.bus import ChannelSpec, MessageBus, SendArgs, delivered_message
+from swarmeval.gateway.bus.bus import (
+    ChannelSpec,
+    MessageBus,
+    SendArgs,
+    Unrouted,
+    delivered_message,
+)
 
-__all__ = ["ChannelSpec", "MessageBus", "SendArgs", "delivered_message"]
+__all__ = ["ChannelSpec", "MessageBus", "SendArgs", "Unrouted", "delivered_message"]

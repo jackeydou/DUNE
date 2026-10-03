@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 RUN_STATUSES = ("queued", "running", "paused", "interrupted", "done", "failed", "cancelled")
-DELIVERY_STATUSES = ("pending", "delivered")
+DELIVERY_STATUSES = ("pending", "delivered", "dropped", "delayed")
 VERDICT_STATUSES = ("accepted", "rejected")
 VERDICT_ANSWERS = ("yes", "no", "unclear")
 
@@ -136,10 +136,13 @@ extension_state = Table(
     Column("instance_id", Text, nullable=False),
     Column("seq", BigInteger, nullable=False),
     Column("state", JSONB, nullable=False),
+    Column("rng_uses", BigInteger, nullable=False, server_default="0"),
     ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
     Index(None, "run_id", "instance_id", "seq", "id"),
     schema="runs",
 )
+"""`rng_uses` counts the instance's hook calls that drew from `ctx.rng`; with the run seed it
+fixes the random stream the next call gets (migration 0007)."""
 
 deliveries = Table(
     "deliveries",
@@ -149,12 +152,17 @@ deliveries = Table(
     Column("recipient", Text, primary_key=True),
     Column("status", Text, nullable=False),
     Column("delivered_seq", BigInteger),
+    Column("due_turn", Integer),
     CheckConstraint(
         "status IN (" + ", ".join(f"'{s}'" for s in DELIVERY_STATUSES) + ")", name="status"
     ),
     ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
     schema="runs",
 )
+"""One row per message and recipient. `pending` from the send; `dropped` (final) or `delayed`
+with `due_turn`, the recipient's turn it is held for, when `before_deliver` says so; then
+`delivered` with `delivered_seq`. A delayed message still `delayed` at run end was never
+delivered (migration 0007)."""
 
 judge_verdicts = Table(
     "judge_verdicts",

@@ -15,6 +15,8 @@ from swarmeval.runtime.extensions.api import (
     AgentInfo,
     Block,
     CanaryInfo,
+    ChannelInfo,
+    Envelope,
     ExtensionError,
     Inject,
     Rewrite,
@@ -38,6 +40,7 @@ from swarmeval.runtime.messages import (
 from swarmeval.runtime.ports import AgentCaller, ModelClient, SandboxExecutor, WebClient
 from swarmeval.runtime.records import (
     AgentStateRow,
+    DeliveryChange,
     EventDraft,
     ExecResult,
     LifecycleRecord,
@@ -217,6 +220,9 @@ class RunLoop:
                 agent_ids=tuple(self._agents),
                 canaries=self._spec.canaries,
                 sandbox_canaries=self._spec.sandbox_canaries,
+                channels=tuple(
+                    ChannelInfo(id=c.id, members=c.members) for c in self._spec.channels
+                ),
             ),
             agents={a.spec.id: a.info for a in self._agents.values()},
             seed=self._spec.seed,
@@ -277,7 +283,7 @@ class RunLoop:
         try:
             while True:
                 for agent in self._agents.values():
-                    if agent.finished and self._bus.has_mail(agent.spec.id):
+                    if agent.finished and self._bus.has_mail(agent.spec.id, agent.turn + 1):
                         # Mail wakes a finished agent; admitting it records the state change.
                         agent.finished = False
                 active = [a for a in self._agents.values() if not a.finished]
@@ -334,7 +340,7 @@ class RunLoop:
         agent.turn += 1
         gate = await d.before_turn(agent.info, self._turns, agent.last_input)
         txn = gate.txn
-        deliveries = self._bus.take(agent.spec.id)
+        deliveries = self._bus.take(agent.spec.id, agent.turn)
         txn.events.extend(delivery.draft for delivery in deliveries)
         admitted = [(delivery.message, delivery.draft.event_id) for delivery in deliveries]
         admitted.extend(d.take_injections(agent.spec.id))
@@ -342,7 +348,12 @@ class RunLoop:
             assert gate.intervention_id is not None, "a decision other than Proceed is recorded"
             admitted.extend((m, gate.intervention_id) for m in gate.decision.messages)
         self._admit(txn, agent, admitted)
+        txn.events.extend(
+            self._bus.post(p.channel, p.sender, p.content, by=p.instance_id, parent_id=p.event_id)
+            for p in d.take_posts()
+        )
         await self._writer.commit(txn)
+        await self._route(d)
         match gate.decision:
             case Stop(reason=reason):
                 raise _Stopped(f"{gate.decided_by}: {reason}", gate.intervention_id)
@@ -450,6 +461,7 @@ class RunLoop:
         txn.events.append(draft)
         committed = await self._writer.commit(txn)
         tool_event = next(e for e in committed if isinstance(e.record, ToolCallRecord))
+        await self._route(d)
 
         admitted = await d.after_tool_result(agent.info, result, tool_event.event_id)
         txn = admitted.txn
@@ -511,6 +523,36 @@ class RunLoop:
             agent.spec.sandbox_id, agent.spec.os_user, command, call_id=call.id
         )
         return _Execution(exec_output(call, result), call.arguments, exec_result=result)
+
+    async def _route(self, d: HookDispatcher) -> None:
+        """Runs `before_deliver` for every send committed since the last call, per recipient,
+        and commits the verdicts. A delay counts the recipient's own turns: held for `n`, a
+        message reaches it at the start of its turn `turn + 1 + n`."""
+        items = self._bus.unrouted()
+        if not items:
+            return
+        txn = Transaction()
+        for item in items:
+            recipient = self._agents[item.recipient]
+            envelope = Envelope(
+                send_event_id=item.send.event_id,
+                channel=item.record.channel,
+                sender=item.record.sender,
+                recipient=item.recipient,
+                content=item.record.content,
+            )
+            outcome = await d.before_deliver(recipient.info, envelope)
+            txn.extend(outcome.txn)
+            if outcome.content is None:
+                txn.deliveries.append(DeliveryChange(item.send.seq, item.recipient, "dropped"))
+                continue
+            due = recipient.turn + 1 + outcome.delay if outcome.delay else None
+            if due is not None:
+                txn.deliveries.append(
+                    DeliveryChange(item.send.seq, item.recipient, "delayed", due_turn=due)
+                )
+            self._bus.route(item, outcome.content, due_turn=due, parent_id=outcome.intervention_id)
+        await self._writer.commit(txn)
 
     def _admit(
         self, txn: Transaction, agent: _AgentRun, messages: Sequence[tuple[ChatMessage, str]]
