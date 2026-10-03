@@ -11,6 +11,8 @@
   events, a lane per agent, as Markdown on stdout and optionally an HTML page.
 - `scan --rules FILE (--run ID ... | --submission ID ...)`: a rule set over each run's decoded
   event payloads, stored in `analysis.rule_matches`; one line per run on stdout.
+- `detect --detectors FILE (--run ID ... | --submission ID ...)`: the Monitor's detectors over
+  each run's events, one line per hit on stdout.
 - `trace --run ID --event EVENT_ID`: the event's causal chain along `parent_id`, the run's root
   first, one line per event on stdout.
 """
@@ -25,13 +27,14 @@ import httpx2
 
 from swarmeval import config
 from swarmeval.analysis import compare, timeline, trace
+from swarmeval.analysis.detect import DetectorSetError, detect_rows, load_detectors
 from swarmeval.analysis.evalset import describe, variant_runs, write_eval_set
 from swarmeval.analysis.exports import ExportError, load_events, load_events_table, runs_of
 from swarmeval.analysis.judge import Gateway, judge
 from swarmeval.analysis.report import load_summaries, markdown, report
-from swarmeval.analysis.rules import RuleSetError, load_rules
 from swarmeval.analysis.scan import scan_events, store_scan
 from swarmeval.db import async_engine
+from swarmeval.detect.rules import RuleSetError, load_rules
 from swarmeval.events import DEFAULT_REDUCERS
 
 
@@ -122,6 +125,18 @@ def main() -> None:
     config.add_object_store(scan)
     config.add_database(scan)
 
+    find = jobs.add_parser("detect", help="the Monitor's detectors over exported runs' events")
+    find.add_argument("--detectors", type=Path, required=True, help="the detectors, a YAML file")
+    runs = find.add_mutually_exclusive_group(required=True)
+    runs.add_argument("--run", action="append", default=[], help="a run id; repeatable")
+    runs.add_argument(
+        "--submission",
+        action="append",
+        default=[],
+        help="every exported (`done` or `cancelled`) run of a submission; repeatable",
+    )
+    config.add_object_store(find)
+
     chain = jobs.add_parser("trace", help="an event's causal chain, from the run's root to it")
     chain.add_argument("--run", required=True, help="the run id")
     chain.add_argument("--event", required=True, help="the event id to trace")
@@ -147,9 +162,17 @@ def main() -> None:
                 asyncio.run(_timeline(args))
             case "trace":
                 asyncio.run(_trace(args))
+            case "detect":
+                asyncio.run(_detect(args))
             case _:
                 asyncio.run(_scan(args))
-    except (ExportError, RuleSetError, trace.TraceError, compare.CompareError) as err:
+    except (
+        ExportError,
+        RuleSetError,
+        DetectorSetError,
+        trace.TraceError,
+        compare.CompareError,
+    ) as err:
         raise SystemExit(str(err)) from err
 
 
@@ -174,6 +197,22 @@ async def _scan(args: argparse.Namespace) -> None:
     finally:
         await engine.dispose()
     print(f"rule set {rules.sha256()[:12]}: {total} matches in {len(run_ids)} runs")
+
+
+async def _detect(args: argparse.Namespace) -> None:
+    detectors = load_detectors(args.detectors)
+    store = config.object_store(args)
+    run_ids: list[str] = list(args.run)
+    if args.submission:
+        summaries = await asyncio.to_thread(load_summaries, store)
+        run_ids = runs_of(summaries, args.submission, ["done", "cancelled"])
+    total = 0
+    for run_id in run_ids:
+        hits = detect_rows(await load_events(store, run_id), detectors)
+        total += len(hits)
+        for hit in hits:
+            print(f"{run_id}\t{','.join(hit.event_ids)}\t{hit.detector}\t{hit.detail}")
+    print(f"{total} hits in {len(run_ids)} runs")
 
 
 async def _trace(args: argparse.Namespace) -> None:

@@ -15,8 +15,9 @@ swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent l
                  `db/` (Postgres tables, migrations), `events/` (Inspect events, hash chain, run store),
                  `sandbox/` (sandboxd client, blob store), `gateway/` (model-gateway, Message Bus),
                  `honeypot/` (canaries), `scorers/`, `control/` (Control API, queue),
-                 `worker/` (run lifecycle), `web/` (`web_request`'s client), `analysis/` (batch
-                 jobs over exports), `proto/` (generated gRPC stubs)
+                 `worker/` (run lifecycle), `web/` (`web_request`'s client), `detect/` (detectors),
+                 `monitor/` (the online Monitor), `analysis/` (batch jobs over exports), `proto/`
+                 (generated gRPC stubs)
 tests/           Python tests
 cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pricing/`
 suites/          suites, one file each: `m1_core.yaml`

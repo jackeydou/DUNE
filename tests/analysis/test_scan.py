@@ -8,9 +8,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from swarmeval.analysis.rules import Rule, RuleSet, RuleSetError, load_rules
 from swarmeval.analysis.scan import Match, scan_events, store_scan
 from swarmeval.db import rule_matches, rule_scans
+from swarmeval.detect.rules import Rule, RuleSet, RuleSetError, load_rules
 
 RULES = RuleSet(
     schema_version=1,

@@ -19,6 +19,9 @@ service ControlService {
   // A queued run never starts; a running one stops at its owner's next step, keeps its events,
   // and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
   rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+  // A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+  // not paused is FAILED_PRECONDITION.
+  rpc ResumeRun(ResumeRunRequest) returns (ResumeRunResponse);
   // A run's events with seq greater than `after_seq`, live while the run is going. The stream
   // ends once the run has finished and every event was sent.
   rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
@@ -95,6 +98,14 @@ message CancelRunRequest {
 }
 
 message CancelRunResponse {
+  Run run = 1;
+}
+
+message ResumeRunRequest {
+  string run_id = 1;
+}
+
+message ResumeRunResponse {
   Run run = 1;
 }
 

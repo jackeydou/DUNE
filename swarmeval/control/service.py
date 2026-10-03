@@ -27,6 +27,7 @@ from swarmeval.control.queue import (
     Queue,
     RunFinished,
     RunNotFound,
+    RunNotPaused,
     RunRow,
     run_id_of,
 )
@@ -229,6 +230,17 @@ class ControlService(ControlServiceServicer):
             # one is finished, and summarized, by its worker.
             await export_summary(self._engine, run.run_id, self._store)
         return pb.CancelRunResponse(run=to_proto(run))
+
+    async def ResumeRun(
+        self, request: pb.ResumeRunRequest, context: Context
+    ) -> pb.ResumeRunResponse:
+        try:
+            run = await self._queue.resume(request.run_id)
+        except RunNotFound as err:
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(err))
+        except RunNotPaused as err:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
+        return pb.ResumeRunResponse(run=to_proto(run))
 
     async def StreamEvents(
         self, request: pb.StreamEventsRequest, context: Context

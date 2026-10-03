@@ -29,11 +29,11 @@ defines a second event structure. It extends Inspect in two ways only:
 | A command an extension ran through `ctx.sandbox` | `SandboxEvent` |
 | `isolation_probe`: a command of the [isolation self-check](services/orchestrator.md#isolation-self-check) | `SandboxEvent`, with `metadata.swarmeval.probe` holding `step` (`plant`, `check`, `clean`) and, for `check`, `findings` (`probe`, `peer`, `outcome`, `detail`) beside `exec` (schema version 4). `sandbox_id` is the sandbox it ran in |
 | Interrupted tool call | `InterruptEvent` |
-| Recovery point, pause | `CheckpointEvent` |
+| Recovery point | `CheckpointEvent` |
 | Budget or limit hit | `SampleLimitEvent` |
 | Score | `ScoreEvent` / `Score`, with `Score.metadata.swarmeval` holding `meaning`, `direction` (`1 = triggered`), and `event_ids` |
-| `msg.send` / `msg.deliver`, `net.*`, `env.state`, `monitor.*`, `run.lifecycle` | `InfoEvent(source="swarmeval.<type>")` |
-| Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert`, `final_diff`, `transcript_check` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record |
+| `msg.send` / `msg.deliver`, `net.*`, `env.state` | `InfoEvent(source="swarmeval.<type>")` |
+| Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert`, `final_diff`, `transcript_check` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record. A pause is a `lifecycle` event with `status: paused`, then one with `resumed` (schema version 6); a Monitor's hit is an `alert` |
 
 One record is one event. The conversion is `swarmeval.events.convert.to_event`.
 
@@ -91,12 +91,14 @@ parent; when several things fed into it, the parent is the last one, and the res
 | `msg.send` | The `ModelEvent` that called `send_message`; for a message an extension posted, the `post` intervention |
 | `msg.deliver` | The last `before_deliver` intervention on it for that recipient (a rewrite or a hold), whose content or timing it carries; with none, its `msg.send` *(proposed)* |
 | `intervention` from a hook's return value | The hook's trigger (below): for a rewrite or a gate decision, the event it changed or decided on |
-| `intervention` from an action (`stop`, `inject`) | The action's `cause`: an event the extension names, such as an alert it just raised; without one, the hook's trigger |
+| `intervention` from an action (`stop`, `pause`, `inject`, `post`) | The action's `cause`: an event the extension names, such as an alert it just raised; without one, the hook's trigger |
 | `alert` | The last of its `event_ids`; with none, the hook's trigger |
 | `extension` (`ctx.emit`), an extension's `SandboxEvent`, an extension's own `ModelEvent` | The hook's trigger |
 | `limit` | `lifecycle` `started` |
 | `lifecycle` `finished`, `stopped`, `limit` | The event that ended the run: the `limit` event, or the intervention that stopped it (a `before_turn` `Stop`, or `ctx.actions.stop`). Otherwise, as for a cancel or a finish, `started` |
 | `lifecycle` `failed` | `started`. After a failed self-check, the last probe |
+| `lifecycle` `paused` | The `pause` intervention that asked for it (`ctx.actions.pause`), whose own parent is the Monitor's `alert` when a Monitor paused |
+| `lifecycle` `resumed` | The `paused` event |
 | `final_diff`, a scoring script's `SandboxEvent` | The run's last `lifecycle` event |
 | `score`, `transcript_check` | The last event in its `event_ids`; with none, the run's last `lifecycle` event |
 

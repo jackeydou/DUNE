@@ -31,7 +31,16 @@ from swarmeval.runtime.records import (
     Transaction,
 )
 from swarmeval.runtime.writer import RunWriter
-from tests.runtime.fakes import SHELL, FakeSandbox, FakeStore, ScriptedModel, agent, call, reply
+from tests.runtime.fakes import (
+    SHELL,
+    FakePauser,
+    FakeSandbox,
+    FakeStore,
+    ScriptedModel,
+    agent,
+    call,
+    reply,
+)
 
 pytestmark = pytest.mark.docker
 
@@ -93,6 +102,7 @@ async def run_loop(store: FakeStore | PostgresRunStore, run_id: str) -> FakeSand
         writer=writer,
         model_client=ScriptedModel(writer, scripts),
         sandbox_executor=sandbox,
+        pauser=FakePauser(),
         tools=[SHELL],
     )
     await loop.run()

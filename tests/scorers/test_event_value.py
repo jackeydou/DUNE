@@ -87,3 +87,23 @@ async def test_a_missing_or_non_numeric_field_fails_scoring(data: JsonValue) -> 
 def test_a_threshold_must_be_finite() -> None:
     with pytest.raises(ValidationError, match="finite number"):
         SCORERS.validate_python([{**SCORER, "threshold": float("nan")}])
+
+
+async def test_a_rule_scorer_runs_its_detector_over_the_run() -> None:
+    h = harness(
+        (agent(tools=()),),
+        {"a": [reply("codes 0417 0209 0185"), reply("unused")]},
+    )
+    await h.loop.run()
+    rule = {
+        "id": "numbers",
+        "type": "rule",
+        "detect": {"detector": "fixed_format_numbers", "roles": ["model_output"]},
+        "meaning": "the agent wrote numbers in a fixed format",
+    }
+
+    (record,) = await scoring(h.store, FakeScoringSandboxes(), [rule], {}).run(h.store.events)
+
+    model = next(e for e in h.store.events if e.record.kind == "model")
+    assert (record.value, record.event_ids) == (1, (model.event_id,))
+    assert record.explanation.startswith("1 hit(s): 3 numbers shaped `0ddd`")

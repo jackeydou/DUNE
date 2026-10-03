@@ -292,6 +292,45 @@ class CancelRunResponse(_message.Message):
 Global___CancelRunResponse: _TypeAlias = CancelRunResponse  # noqa: Y015
 
 @_typing.final
+class ResumeRunRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RUN_ID_FIELD_NUMBER: _builtins.int
+    run_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        run_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["run_id", b"run_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ResumeRunRequest: _TypeAlias = ResumeRunRequest  # noqa: Y015
+
+@_typing.final
+class ResumeRunResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RUN_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def run(self) -> Global___Run: ...
+    def __init__(
+        self,
+        *,
+        run: Global___Run | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["run", b"run"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["run", b"run"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ResumeRunResponse: _TypeAlias = ResumeRunResponse  # noqa: Y015
+
+@_typing.final
 class StreamEventsRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 

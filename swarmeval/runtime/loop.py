@@ -25,7 +25,7 @@ from swarmeval.runtime.extensions.api import (
     Skip,
     Stop,
 )
-from swarmeval.runtime.extensions.dispatch import HookDispatcher
+from swarmeval.runtime.extensions.dispatch import HookDispatcher, PauseRequest
 from swarmeval.runtime.extensions.registry import LoadedExtension
 from swarmeval.runtime.messages import (
     ChatMessage,
@@ -37,7 +37,7 @@ from swarmeval.runtime.messages import (
     ToolSchema,
     UserMessage,
 )
-from swarmeval.runtime.ports import AgentCaller, ModelClient, SandboxExecutor, WebClient
+from swarmeval.runtime.ports import AgentCaller, ModelClient, Pauser, SandboxExecutor, WebClient
 from swarmeval.runtime.records import (
     AgentStateRow,
     DeliveryChange,
@@ -159,6 +159,7 @@ class RunLoop:
         writer: RunWriter,
         model_client: ModelClient,
         sandbox_executor: SandboxExecutor,
+        pauser: Pauser,
         extensions: Sequence[LoadedExtension] = (),
         tools: Sequence[Tool] = (),
         web_client: WebClient | None = None,
@@ -170,6 +171,7 @@ class RunLoop:
         self._model = model_client
         self._sandbox = sandbox_executor
         self._web = web_client
+        self._pauser = pauser
         self._bus = MessageBus(spec.channels)
         writer.subscribe(self._bus.on_commit)
         bus_tool = self._bus.tool()
@@ -223,6 +225,7 @@ class RunLoop:
                 channels=tuple(
                     ChannelInfo(id=c.id, members=c.members) for c in self._spec.channels
                 ),
+                agents=tuple(a.info for a in self._agents.values()),
             ),
             agents={a.spec.id: a.info for a in self._agents.values()},
             seed=self._spec.seed,
@@ -290,7 +293,7 @@ class RunLoop:
                 if not active:
                     return self._outcome("finished", None)
                 for agent in active:
-                    self._check_stop(dispatcher)
+                    await self._checkpoint(dispatcher)
                     if limits.max_turns is not None and self._turns >= limits.max_turns:
                         return await self._limit("max_turns", limits.max_turns)
                     if limits.max_tokens is not None and self._tokens_used >= limits.max_tokens:
@@ -318,6 +321,26 @@ class RunLoop:
         reason = self._stop_requested(dispatcher)
         if reason is not None:
             raise _Stopped(reason, self._stop_cause(dispatcher))
+
+    async def _checkpoint(self, d: HookDispatcher) -> None:
+        """A hook point: a requested pause takes effect, then a requested stop."""
+        pause = d.take_pause()
+        if pause is not None:
+            await self._pause(d, pause)
+        self._check_stop(d)
+
+    async def _pause(self, d: HookDispatcher, request: PauseRequest) -> None:
+        """Waits for the observers first, so the pause's intervention, which an observer may
+        still be committing, precedes the `paused` event it parents."""
+        await d.barrier()
+        paused = EventDraft(
+            record=LifecycleRecord(status="paused", reason=request.reason),
+            parent_id=request.event_id,
+        )
+        await self._writer.commit(Transaction(events=[paused]))
+        await self._pauser.wait(request.reason)
+        resumed = EventDraft(record=LifecycleRecord(status="resumed"), parent_id=paused.event_id)
+        await self._writer.commit(Transaction(events=[resumed]))
 
     def _stop_cause(self, dispatcher: HookDispatcher) -> str | None:
         """An extension's stop intervention; `None` for a stop from outside (a cancel)."""
@@ -361,7 +384,7 @@ class RunLoop:
                 return
             case _:
                 pass
-        self._check_stop(d)
+        await self._checkpoint(d)
 
         context = await self._store.context(agent.spec.id)
         assert context is not None, "every agent gets generation 0 in _start"
@@ -377,7 +400,7 @@ class RunLoop:
             txn.new_generations[agent.spec.id] = messages
             txn.agent_states.append(self._state_row(agent, "ready"))
         await self._writer.commit(txn)
-        self._check_stop(d)
+        await self._checkpoint(d)
 
         spec = agent.spec
         options = RequestOptions(
@@ -389,7 +412,7 @@ class RunLoop:
         )
         requested = await d.before_model_request(agent.info, options, agent.last_input)
         await self._writer.commit(requested.txn)
-        self._check_stop(d)
+        await self._checkpoint(d)
         request = ModelRequest(
             model=spec.model,
             messages=messages,
@@ -428,6 +451,11 @@ class RunLoop:
     ) -> None:
         gate = await d.before_tool_call(agent.info, call, model_event_id)
         txn = gate.txn
+        pause = d.take_pause()
+        if pause is not None:
+            await self._writer.commit(txn)
+            txn = Transaction()
+            await self._pause(d, pause)
         reason = self._stop_requested(d)
         if reason is not None:
             await self._writer.commit(txn)

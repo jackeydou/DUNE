@@ -46,6 +46,10 @@ class ControlServiceStub:
     """A queued run never starts; a running one stops at its owner's next step, keeps its events,
     and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
     """
+    ResumeRun: _grpc.UnaryUnaryMultiCallable[_control_pb2.ResumeRunRequest, _control_pb2.ResumeRunResponse]
+    """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+    not paused is FAILED_PRECONDITION.
+    """
     StreamEvents: _grpc.UnaryStreamMultiCallable[_control_pb2.StreamEventsRequest, _control_pb2.StreamEventsResponse]
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
     ends once the run has finished and every event was sent.
@@ -68,6 +72,10 @@ class ControlServiceAsyncStub(ControlServiceStub):
     CancelRun: _aio.UnaryUnaryMultiCallable[_control_pb2.CancelRunRequest, _control_pb2.CancelRunResponse]  # type: ignore[assignment]
     """A queued run never starts; a running one stops at its owner's next step, keeps its events,
     and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
+    """
+    ResumeRun: _aio.UnaryUnaryMultiCallable[_control_pb2.ResumeRunRequest, _control_pb2.ResumeRunResponse]  # type: ignore[assignment]
+    """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+    not paused is FAILED_PRECONDITION.
     """
     StreamEvents: _aio.UnaryStreamMultiCallable[_control_pb2.StreamEventsRequest, _control_pb2.StreamEventsResponse]  # type: ignore[assignment]
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
@@ -112,6 +120,16 @@ class ControlServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_control_pb2.CancelRunResponse, _abc.Awaitable[_control_pb2.CancelRunResponse]]:
         """A queued run never starts; a running one stops at its owner's next step, keeps its events,
         and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
+        """
+
+    @_abc_1.abstractmethod
+    def ResumeRun(
+        self,
+        request: _control_pb2.ResumeRunRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.ResumeRunResponse, _abc.Awaitable[_control_pb2.ResumeRunResponse]]:
+        """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+        not paused is FAILED_PRECONDITION.
         """
 
     @_abc_1.abstractmethod

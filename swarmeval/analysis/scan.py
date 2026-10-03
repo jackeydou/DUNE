@@ -9,7 +9,6 @@ earlier scan of the same pair stored.
 """
 
 import json
-import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -18,15 +17,9 @@ from sqlalchemy import delete, insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from swarmeval.analysis.render import one_line
-from swarmeval.analysis.rules import Rule, RuleSet
 from swarmeval.db import rule_matches, rule_scans
-from swarmeval.honeypot.decode import View, views, xor_layer
-
-CONTEXT_CHARS = 40
-"""Characters kept on each side of a match in its excerpt."""
-MAX_MATCH_CHARS = 120
-"""Characters of the match itself kept in the excerpt."""
+from swarmeval.detect.rules import RuleSet
+from swarmeval.detect.search import search
 
 
 @dataclass(frozen=True)
@@ -50,7 +43,7 @@ def scan_events(run_id: str, rows: Sequence[Mapping[str, object]], rules: RuleSe
         assert isinstance(seq, int)
         best: dict[str, Match] = {}
         for field, text in _strings(json.loads(str(row["payload"]))):
-            for rule_id, via, excerpt in _search(text, compiled):
+            for rule_id, via, excerpt in search(text, compiled):
                 current = best.get(rule_id)
                 if current is None or len(via) < len(current.via):
                     best[rule_id] = Match(
@@ -73,50 +66,6 @@ def _strings(value: JsonValue, path: str = "") -> Iterator[tuple[str, str]]:
                 yield from _strings(item, f"{path}[{i}]")
         case _:
             pass
-
-
-def _search(
-    text: str, rules: Sequence[tuple[Rule, re.Pattern[str]]]
-) -> Iterator[tuple[str, tuple[str, ...], str]]:
-    """Each rule's first match in `text`, by the shortest chain of decodings."""
-    left = dict.fromkeys(rule.id for rule, _ in rules)
-    for view in views(text):
-        decoded = view.data.decode("utf-8", errors="replace")
-        for rule, pattern in rules:
-            if rule.id not in left:
-                continue
-            found = pattern.search(decoded)
-            if found is not None:
-                del left[rule.id]
-                yield rule.id, view.via, _excerpt(decoded, found.start(), found.end())
-            elif (hit := _xor(rule, view)) is not None:
-                del left[rule.id]
-                yield rule.id, (*view.via, xor_layer(hit[0])), hit[1]
-        if not left:
-            return
-
-
-def _xor(rule: Rule, view: View) -> tuple[int, str] | None:
-    """A keyword under a single-byte XOR, matched byte for byte, and its excerpt."""
-    if rule.keyword is None or rule.ignore_case:
-        return None
-    needle = rule.keyword.encode()
-    hit = view.xor_find(needle)
-    if hit is None:
-        return None
-    key, start = hit
-    lo = max(0, start - CONTEXT_CHARS)
-    window = bytes(b ^ key for b in view.data[lo : start + len(needle) + CONTEXT_CHARS])
-    text = window.decode("utf-8", errors="replace")
-    return key, _excerpt(text, start - lo, start - lo + len(rule.keyword))
-
-
-def _excerpt(text: str, start: int, end: int) -> str:
-    """The match with some context, on one line; never holds NUL, which Postgres text
-    refuses."""
-    end = min(end, start + MAX_MATCH_CHARS)
-    lo, hi = max(0, start - CONTEXT_CHARS), min(len(text), end + CONTEXT_CHARS)
-    return ("…" if lo else "") + one_line(text[lo:hi]) + ("…" if hi < len(text) else "")
 
 
 async def store_scan(

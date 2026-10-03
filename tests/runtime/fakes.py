@@ -1,5 +1,6 @@
 """In-memory stand-ins for Postgres, model-gateway, and sandboxd."""
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable, Sequence
@@ -227,6 +228,19 @@ class FakeSandbox:
 
 
 @dataclass
+class FakePauser:
+    """Resumes at once, or when `resume` is set, and keeps each pause's reason."""
+
+    resume: asyncio.Event | None = None
+    reasons: list[str] = field(default_factory=list[str])
+
+    async def wait(self, reason: str) -> None:
+        self.reasons.append(reason)
+        if self.resume is not None:
+            await self.resume.wait()
+
+
+@dataclass
 class FakeWeb:
     """Answers every request with `200` and the URL as the body."""
 
@@ -269,6 +283,7 @@ class Harness:
     model: ScriptedModel
     sandbox: FakeSandbox
     web: FakeWeb | None
+    pauser: "FakePauser"
 
 
 def harness(
@@ -284,8 +299,10 @@ def harness(
     canaries: tuple[CanaryInfo, ...] = (),
     sandbox_canaries: tuple[SandboxCanaryInfo, ...] = (),
     web: FakeWeb | None = None,
+    pauser: FakePauser | None = None,
 ) -> Harness:
     store = store or FakeStore()
+    pauser = pauser or FakePauser()
     writer = RunWriter(store)
     model = ScriptedModel(writer, scripts)
     sandbox = sandbox or FakeSandbox()
@@ -308,8 +325,9 @@ def harness(
         writer=writer,
         model_client=model,
         sandbox_executor=sandbox,
+        pauser=pauser,
         extensions=loaded,
         tools=[SHELL, WEB_REQUEST],
         web_client=web,
     )
-    return Harness(loop=loop, store=store, model=model, sandbox=sandbox, web=web)
+    return Harness(loop=loop, store=store, model=model, sandbox=sandbox, web=web, pauser=pauser)

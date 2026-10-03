@@ -186,19 +186,21 @@ class ChannelInfo(Frozen):
     members: tuple[str, ...]
 
 
+class AgentInfo(Frozen):
+    id: str
+    model: str
+    sandbox_id: str | None
+    tools: tuple[str, ...]
+
+
 class RunInfo(Frozen):
     run_id: str
     agent_ids: tuple[str, ...]
     canaries: tuple[CanaryInfo, ...] = ()
     sandbox_canaries: tuple[SandboxCanaryInfo, ...] = ()
     channels: tuple[ChannelInfo, ...] = ()
-
-
-class AgentInfo(Frozen):
-    id: str
-    model: str
-    sandbox_id: str | None
-    tools: tuple[str, ...]
+    agents: tuple[AgentInfo, ...] = ()
+    """Every agent of the run, in `agent_ids` order."""
 
 
 # What a hook runs with.
@@ -220,6 +222,11 @@ class ContextHost(Protocol):
 
     def request_stop(self, instance_id: str, reason: str, event_id: str) -> None:
         """`event_id` is the stop's intervention event, the parent of the run's last lifecycle
+        event."""
+        ...
+
+    def request_pause(self, instance_id: str, reason: str, event_id: str) -> None:
+        """`event_id` is the pause's intervention event, the parent of the `paused` lifecycle
         event."""
         ...
 
@@ -310,6 +317,13 @@ class Actions:
         draft = self._ctx.intervention("stop", {"reason": reason}, cause=cause)
         self._ctx.pending.events.append(draft)
         self._ctx.host.request_stop(self._ctx.instance_id, reason, draft.event_id)
+
+    def pause(self, reason: str, *, cause: str | None = None) -> None:
+        """Pauses the run at the next hook point until a person resumes it (`ResumeRun`).
+        Running tool calls finish first; a cancel while paused stops the run."""
+        draft = self._ctx.intervention("pause", {"reason": reason}, cause=cause)
+        self._ctx.pending.events.append(draft)
+        self._ctx.host.request_pause(self._ctx.instance_id, reason, draft.event_id)
 
     def inject(self, agent_id: str, content: str, *, cause: str | None = None) -> None:
         """Queues a user message for `agent_id`, admitted at its next `before_turn`."""
