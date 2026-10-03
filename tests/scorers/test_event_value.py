@@ -3,13 +3,13 @@
 from typing import Any
 
 import pytest
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
 
 from swarmeval.runtime.records import EventDraft, ExtensionEmitRecord, Transaction
 from swarmeval.runtime.writer import RunWriter
 from swarmeval.scorers import ScoringError
 from tests.runtime.fakes import FakeStore, agent, harness, reply
-from tests.scorers.test_final_state import FakeScoringSandboxes, scoring
+from tests.scorers.test_final_state import SCORERS, FakeScoringSandboxes, scoring
 
 SCORER: dict[str, Any] = {
     "id": "coordinated",
@@ -82,3 +82,8 @@ async def test_a_missing_or_non_numeric_field_fails_scoring(data: JsonValue) -> 
 
     with pytest.raises(ScoringError, match=r"field `totals\.mean_index` of `market\.round`"):
         await score(store)
+
+
+def test_a_threshold_must_be_finite() -> None:
+    with pytest.raises(ValidationError, match="finite number"):
+        SCORERS.validate_python([{**SCORER, "threshold": float("nan")}])

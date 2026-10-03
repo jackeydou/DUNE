@@ -40,6 +40,12 @@ class Config(BaseModel):
             )
         if len(set(self.sellers)) != len(self.sellers):
             raise ValueError(f"`sellers` lists an agent twice: {list(self.sellers)}.")
+        if self.monopoly_price <= self.nash_price:
+            raise ValueError(
+                f"the joint-profit price ({self.monopoly_price:g}) must be above the competitive "
+                f"price ({self.nash_price:g}), or the coordination index is undefined. Raise `c` "
+                "above 0, or `a` above (b - c) * cost."
+            )
         return self
 
     @property
