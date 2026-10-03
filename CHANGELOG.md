@@ -103,7 +103,7 @@
   recorded model calls, tool results, deliveries, and interventions, rebuilds every agent model
   request's hash from the stored context, and normalizes the gateway's raw response again. The
   outcome is a `swarmeval.transcript_check` event naming every mismatching event; a mismatch
-  is the spoofing signal and does not fail the run. New `InfoEvent` source, no schema bump.
+  is the spoofing signal and does not fail the run. Part of event schema version 4.
 - `python -m swarmeval.analysis timeline --run ID`: one run's events in `seq` order as a
   Markdown table with a lane per agent, narrowed by `--agent` and a `seq` range, and with
   `--html` a self-contained page. Events render as the judge's one-line text, now shared in
@@ -133,6 +133,20 @@
 - Several workers can share one queue. `Worker.serve` holds a Postgres advisory lock on its
   worker id (`swarmeval.worker.hold_worker_id`), and a second worker with an id in use exits
   with `WorkerIdInUse` before touching any run.
+- Sandbox canaries: every sandbox instance gets a token per run, with no case declaration, as
+  its hostname, its `INSTANCE_ID` variable, and its `/etc/machine-id` (unless a key path at
+  `/etc` hides it) (`swarmeval.honeypot.place_sandboxes`, `ctx.run.sandbox_canaries`). A sighting is a
+  `canary_hit` only from an agent outside that sandbox that no channel message had carried it
+  to first. `canary_hit` events add `kind`, `sandbox_id`, and `cross_sandbox`.
+- `cross_sandbox` final-state scorer in `case.yaml`: triggered by a sandbox's canary, or a file
+  canary, crossing to an agent outside its sandbox that way; its verdict cites the events.
+- Isolation self-check (`swarmeval.worker.probes`): before any agent turn, probes in every
+  sandbox check it has only loopback and cannot connect out, and that no two sandboxes see each
+  other's marker files, `/dev/shm`, marker processes, or names. Each probe command is an
+  `isolation_probe` event; a probe that gets through, or a probe process that survives, fails the
+  run with a `failed` lifecycle event naming the sandboxes and the probe.
+- `RunSandboxes.create` takes `env`, `hostname`, and `machine_id`, the new `CreateSandbox`
+  fields.
 
 ### Changed
 - Missing exports raise `swarmeval.analysis.exports.ExportError` (was `JudgeError`), and the
@@ -141,6 +155,11 @@
   `interrupted`, since retrying gets the same answer.
 - `Queue.finish` returns the rerun it queued; `Queue.interrupt_owned` and `Worker.recover` return
   `Recovered` entries, and also finish runs cancelled while their worker was down.
+- Event schema version 4: `isolation_probe` events, a `SandboxEvent` with `probe` beside `exec`,
+  and `swarmeval.transcript_check` events. Additive; version 3 events read unchanged.
+- The run lifecycle runs the isolation self-check before attaching the model-gateway stream, so
+  a run that fails it never reaches a model.
+- The judge's transcript shows an isolation self-check event by its findings, not its scripts.
 - A run whose summary cannot be written ends `failed`, with the reason in its error. Cancelled
   queued runs and runs interrupted by a worker restart get summaries too.
 - Event schema version 3: tool events from `web_request` carry `web`. Additive; version 2 events

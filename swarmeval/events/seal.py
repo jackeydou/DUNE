@@ -9,7 +9,13 @@ from pydantic import JsonValue
 
 from swarmeval.events.chain import genesis, link
 from swarmeval.events.convert import Attribution, event_type, source_of, to_event
-from swarmeval.runtime.records import CommittedEvent, EventDraft, SandboxExecRecord, ToolCallRecord
+from swarmeval.runtime.records import (
+    CommittedEvent,
+    EventDraft,
+    IsolationProbeRecord,
+    SandboxExecRecord,
+    ToolCallRecord,
+)
 
 
 @dataclass(frozen=True)
@@ -95,7 +101,7 @@ def seal(
 
 def _sandbox_of(draft: EventDraft, sandboxes: Mapping[str, str | None]) -> str | None:
     match draft.record:
-        case SandboxExecRecord(sandbox_id=sandbox_id):
+        case SandboxExecRecord(sandbox_id=sandbox_id) | IsolationProbeRecord(sandbox_id=sandbox_id):
             return sandbox_id
         case ToolCallRecord(exec_result=result) if result is not None:
             assert draft.agent_id is not None, "the loop attributes every tool call"

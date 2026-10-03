@@ -417,7 +417,17 @@ type CreateSandboxRequest struct {
 	Files []*SeedFile `protobuf:"bytes,6,rep,name=files,proto3" json:"files,omitempty"`
 	// Unix users to add before the sandbox starts, each with a home directory under /home. A
 	// name the image already has is left as it is. Names match [a-z_][a-z0-9_-]{0,31}.
-	Users         []string `protobuf:"bytes,7,rep,name=users,proto3" json:"users,omitempty"`
+	Users []string `protobuf:"bytes,7,rep,name=users,proto3" json:"users,omitempty"`
+	// Environment variables of every process in the sandbox, exec'd commands included. They
+	// override the image's. Names match [A-Za-z_][A-Za-z0-9_]{0,127}; values hold no NUL.
+	Env map[string]string `protobuf:"bytes,8,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// The sandbox's hostname. Empty leaves the backend's default. At most 63 characters of
+	// [a-z0-9-], neither first nor last a `-`.
+	Hostname string `protobuf:"bytes,9,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	// Written to /etc/machine-id before the sandbox starts, outside every key path, so it is never
+	// diffed. Empty writes nothing. 32 lowercase hex characters, the file's format. The image
+	// must have /etc.
+	MachineId     string `protobuf:"bytes,10,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -499,6 +509,27 @@ func (x *CreateSandboxRequest) GetUsers() []string {
 		return x.Users
 	}
 	return nil
+}
+
+func (x *CreateSandboxRequest) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *CreateSandboxRequest) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *CreateSandboxRequest) GetMachineId() string {
+	if x != nil {
+		return x.MachineId
+	}
+	return ""
 }
 
 type SeedFile struct {
@@ -1638,7 +1669,7 @@ const file_swarmeval_sandbox_v1_sandbox_proto_rawDesc = "" +
 	"\fmemory_bytes\x18\x02 \x01(\x03R\vmemoryBytes\x12\x12\n" +
 	"\x04pids\x18\x03 \x01(\x03R\x04pids\x12\x1d\n" +
 	"\n" +
-	"disk_bytes\x18\x04 \x01(\x03R\tdiskBytes\"\xa2\x02\n" +
+	"disk_bytes\x18\x04 \x01(\x03R\tdiskBytes\"\xdc\x03\n" +
 	"\x14CreateSandboxRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
@@ -1647,7 +1678,15 @@ const file_swarmeval_sandbox_v1_sandbox_proto_rawDesc = "" +
 	"\x06mounts\x18\x04 \x03(\v2\x1b.swarmeval.sandbox.v1.MountR\x06mounts\x12=\n" +
 	"\tresources\x18\x05 \x01(\v2\x1f.swarmeval.sandbox.v1.ResourcesR\tresources\x124\n" +
 	"\x05files\x18\x06 \x03(\v2\x1e.swarmeval.sandbox.v1.SeedFileR\x05files\x12\x14\n" +
-	"\x05users\x18\a \x03(\tR\x05users\"L\n" +
+	"\x05users\x18\a \x03(\tR\x05users\x12E\n" +
+	"\x03env\x18\b \x03(\v23.swarmeval.sandbox.v1.CreateSandboxRequest.EnvEntryR\x03env\x12\x1a\n" +
+	"\bhostname\x18\t \x01(\tR\bhostname\x12\x1d\n" +
+	"\n" +
+	"machine_id\x18\n" +
+	" \x01(\tR\tmachineId\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"L\n" +
 	"\bSeedFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12\x12\n" +
@@ -1767,7 +1806,7 @@ func file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP() []byte {
 }
 
 var file_swarmeval_sandbox_v1_sandbox_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_swarmeval_sandbox_v1_sandbox_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_swarmeval_sandbox_v1_sandbox_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_swarmeval_sandbox_v1_sandbox_proto_goTypes = []any{
 	(FsChange_Op)(0),              // 0: swarmeval.sandbox.v1.FsChange.Op
 	(FsChange_Kind)(0),            // 1: swarmeval.sandbox.v1.FsChange.Kind
@@ -1793,44 +1832,46 @@ var file_swarmeval_sandbox_v1_sandbox_proto_goTypes = []any{
 	(*SandboxChanges)(nil),        // 21: swarmeval.sandbox.v1.SandboxChanges
 	(*DestroyRunRequest)(nil),     // 22: swarmeval.sandbox.v1.DestroyRunRequest
 	(*DestroyRunResponse)(nil),    // 23: swarmeval.sandbox.v1.DestroyRunResponse
-	(*durationpb.Duration)(nil),   // 24: google.protobuf.Duration
+	nil,                           // 24: swarmeval.sandbox.v1.CreateSandboxRequest.EnvEntry
+	(*durationpb.Duration)(nil),   // 25: google.protobuf.Duration
 }
 var file_swarmeval_sandbox_v1_sandbox_proto_depIdxs = []int32{
 	5,  // 0: swarmeval.sandbox.v1.CreateSandboxRequest.mounts:type_name -> swarmeval.sandbox.v1.Mount
 	6,  // 1: swarmeval.sandbox.v1.CreateSandboxRequest.resources:type_name -> swarmeval.sandbox.v1.Resources
 	8,  // 2: swarmeval.sandbox.v1.CreateSandboxRequest.files:type_name -> swarmeval.sandbox.v1.SeedFile
-	24, // 3: swarmeval.sandbox.v1.ExecRequest.timeout:type_name -> google.protobuf.Duration
-	12, // 4: swarmeval.sandbox.v1.ExecResponse.header:type_name -> swarmeval.sandbox.v1.ExecHeader
-	16, // 5: swarmeval.sandbox.v1.ExecResponse.blob:type_name -> swarmeval.sandbox.v1.BlobChunk
-	24, // 6: swarmeval.sandbox.v1.ExecHeader.duration:type_name -> google.protobuf.Duration
-	13, // 7: swarmeval.sandbox.v1.ExecHeader.stdout:type_name -> swarmeval.sandbox.v1.Output
-	13, // 8: swarmeval.sandbox.v1.ExecHeader.stderr:type_name -> swarmeval.sandbox.v1.Output
-	14, // 9: swarmeval.sandbox.v1.ExecHeader.background_changes:type_name -> swarmeval.sandbox.v1.FsChange
-	14, // 10: swarmeval.sandbox.v1.ExecHeader.changes:type_name -> swarmeval.sandbox.v1.FsChange
-	15, // 11: swarmeval.sandbox.v1.ExecHeader.processes:type_name -> swarmeval.sandbox.v1.Process
-	0,  // 12: swarmeval.sandbox.v1.FsChange.op:type_name -> swarmeval.sandbox.v1.FsChange.Op
-	1,  // 13: swarmeval.sandbox.v1.FsChange.kind:type_name -> swarmeval.sandbox.v1.FsChange.Kind
-	2,  // 14: swarmeval.sandbox.v1.FsChange.attribution:type_name -> swarmeval.sandbox.v1.FsChange.Attribution
-	21, // 15: swarmeval.sandbox.v1.FinalDiffResponse.changes:type_name -> swarmeval.sandbox.v1.SandboxChanges
-	16, // 16: swarmeval.sandbox.v1.FinalDiffResponse.blob:type_name -> swarmeval.sandbox.v1.BlobChunk
-	14, // 17: swarmeval.sandbox.v1.SandboxChanges.changes:type_name -> swarmeval.sandbox.v1.FsChange
-	3,  // 18: swarmeval.sandbox.v1.SandboxService.CreateRun:input_type -> swarmeval.sandbox.v1.CreateRunRequest
-	7,  // 19: swarmeval.sandbox.v1.SandboxService.CreateSandbox:input_type -> swarmeval.sandbox.v1.CreateSandboxRequest
-	10, // 20: swarmeval.sandbox.v1.SandboxService.Exec:input_type -> swarmeval.sandbox.v1.ExecRequest
-	17, // 21: swarmeval.sandbox.v1.SandboxService.ReadFile:input_type -> swarmeval.sandbox.v1.ReadFileRequest
-	19, // 22: swarmeval.sandbox.v1.SandboxService.FinalDiff:input_type -> swarmeval.sandbox.v1.FinalDiffRequest
-	22, // 23: swarmeval.sandbox.v1.SandboxService.DestroyRun:input_type -> swarmeval.sandbox.v1.DestroyRunRequest
-	4,  // 24: swarmeval.sandbox.v1.SandboxService.CreateRun:output_type -> swarmeval.sandbox.v1.CreateRunResponse
-	9,  // 25: swarmeval.sandbox.v1.SandboxService.CreateSandbox:output_type -> swarmeval.sandbox.v1.CreateSandboxResponse
-	11, // 26: swarmeval.sandbox.v1.SandboxService.Exec:output_type -> swarmeval.sandbox.v1.ExecResponse
-	18, // 27: swarmeval.sandbox.v1.SandboxService.ReadFile:output_type -> swarmeval.sandbox.v1.ReadFileResponse
-	20, // 28: swarmeval.sandbox.v1.SandboxService.FinalDiff:output_type -> swarmeval.sandbox.v1.FinalDiffResponse
-	23, // 29: swarmeval.sandbox.v1.SandboxService.DestroyRun:output_type -> swarmeval.sandbox.v1.DestroyRunResponse
-	24, // [24:30] is the sub-list for method output_type
-	18, // [18:24] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	24, // 3: swarmeval.sandbox.v1.CreateSandboxRequest.env:type_name -> swarmeval.sandbox.v1.CreateSandboxRequest.EnvEntry
+	25, // 4: swarmeval.sandbox.v1.ExecRequest.timeout:type_name -> google.protobuf.Duration
+	12, // 5: swarmeval.sandbox.v1.ExecResponse.header:type_name -> swarmeval.sandbox.v1.ExecHeader
+	16, // 6: swarmeval.sandbox.v1.ExecResponse.blob:type_name -> swarmeval.sandbox.v1.BlobChunk
+	25, // 7: swarmeval.sandbox.v1.ExecHeader.duration:type_name -> google.protobuf.Duration
+	13, // 8: swarmeval.sandbox.v1.ExecHeader.stdout:type_name -> swarmeval.sandbox.v1.Output
+	13, // 9: swarmeval.sandbox.v1.ExecHeader.stderr:type_name -> swarmeval.sandbox.v1.Output
+	14, // 10: swarmeval.sandbox.v1.ExecHeader.background_changes:type_name -> swarmeval.sandbox.v1.FsChange
+	14, // 11: swarmeval.sandbox.v1.ExecHeader.changes:type_name -> swarmeval.sandbox.v1.FsChange
+	15, // 12: swarmeval.sandbox.v1.ExecHeader.processes:type_name -> swarmeval.sandbox.v1.Process
+	0,  // 13: swarmeval.sandbox.v1.FsChange.op:type_name -> swarmeval.sandbox.v1.FsChange.Op
+	1,  // 14: swarmeval.sandbox.v1.FsChange.kind:type_name -> swarmeval.sandbox.v1.FsChange.Kind
+	2,  // 15: swarmeval.sandbox.v1.FsChange.attribution:type_name -> swarmeval.sandbox.v1.FsChange.Attribution
+	21, // 16: swarmeval.sandbox.v1.FinalDiffResponse.changes:type_name -> swarmeval.sandbox.v1.SandboxChanges
+	16, // 17: swarmeval.sandbox.v1.FinalDiffResponse.blob:type_name -> swarmeval.sandbox.v1.BlobChunk
+	14, // 18: swarmeval.sandbox.v1.SandboxChanges.changes:type_name -> swarmeval.sandbox.v1.FsChange
+	3,  // 19: swarmeval.sandbox.v1.SandboxService.CreateRun:input_type -> swarmeval.sandbox.v1.CreateRunRequest
+	7,  // 20: swarmeval.sandbox.v1.SandboxService.CreateSandbox:input_type -> swarmeval.sandbox.v1.CreateSandboxRequest
+	10, // 21: swarmeval.sandbox.v1.SandboxService.Exec:input_type -> swarmeval.sandbox.v1.ExecRequest
+	17, // 22: swarmeval.sandbox.v1.SandboxService.ReadFile:input_type -> swarmeval.sandbox.v1.ReadFileRequest
+	19, // 23: swarmeval.sandbox.v1.SandboxService.FinalDiff:input_type -> swarmeval.sandbox.v1.FinalDiffRequest
+	22, // 24: swarmeval.sandbox.v1.SandboxService.DestroyRun:input_type -> swarmeval.sandbox.v1.DestroyRunRequest
+	4,  // 25: swarmeval.sandbox.v1.SandboxService.CreateRun:output_type -> swarmeval.sandbox.v1.CreateRunResponse
+	9,  // 26: swarmeval.sandbox.v1.SandboxService.CreateSandbox:output_type -> swarmeval.sandbox.v1.CreateSandboxResponse
+	11, // 27: swarmeval.sandbox.v1.SandboxService.Exec:output_type -> swarmeval.sandbox.v1.ExecResponse
+	18, // 28: swarmeval.sandbox.v1.SandboxService.ReadFile:output_type -> swarmeval.sandbox.v1.ReadFileResponse
+	20, // 29: swarmeval.sandbox.v1.SandboxService.FinalDiff:output_type -> swarmeval.sandbox.v1.FinalDiffResponse
+	23, // 30: swarmeval.sandbox.v1.SandboxService.DestroyRun:output_type -> swarmeval.sandbox.v1.DestroyRunResponse
+	25, // [25:31] is the sub-list for method output_type
+	19, // [19:25] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_swarmeval_sandbox_v1_sandbox_proto_init() }
@@ -1852,7 +1893,7 @@ func file_swarmeval_sandbox_v1_sandbox_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_swarmeval_sandbox_v1_sandbox_proto_rawDesc), len(file_swarmeval_sandbox_v1_sandbox_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   21,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

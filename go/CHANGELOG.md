@@ -5,6 +5,11 @@
 ### Added
 - `swarmeval.control.v1` stubs: `Run.replaces`, the interrupted run a rerun stands in for;
   `suite` on `SubmitRunsRequest`, `Run`, and `ListRunsRequest`.
+- `CreateSandbox` takes the sandbox's identity: `env` (every process's environment, exec'd
+  commands included), `hostname`, and `machine_id`, written to `/etc/machine-id` before the
+  container starts. Each is validated; a key path that would hide `/etc/machine-id` is refused
+  with a machine id. The driver's `ContainerSpec` takes `Env` and `Hostname`. The worker uses
+  them for per-sandbox canaries.
 - `internal/netgw`, net-gateway's platform-independent core: first-hit policy (`allow`, `deny`,
   `log_and_deny`), the config file, and TLS SNI and HTTP request-line classification, with Go and
   Python stubs for `swarmeval.netgw.v1.NetEventsService`. No binary uses either: net-gateway is

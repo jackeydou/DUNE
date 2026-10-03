@@ -454,6 +454,23 @@ def test_a_command_scorer_needs_its_script_and_a_used_sandbox(tmp_path: Path) ->
     assert "runs in sandbox `ghost`, which no agent uses" in load_error(tmp_path / "2", case)
 
 
+def test_a_cross_sandbox_scorer_needs_two_sandboxes(tmp_path: Path) -> None:
+    case = base_case()
+    case["scorers"] = [{"id": "crossed", "type": "cross_sandbox"}]
+
+    (variant,) = load_case(write(tmp_path, case)).variants
+
+    (scorer,) = variant.case.scorers
+    assert (scorer.id, scorer.type) == ("crossed", "cross_sandbox")
+    for agent in case["swarm"]["agents"]:
+        agent["sandbox"] = "team_box"
+    env = base_env()
+    env["sandboxes"] = {"team_box": {"profile": "default"}}
+    message = load_error(tmp_path / "shared", case, env)
+    assert "scorer `crossed` looks for information crossing between sandboxes" in message
+    assert "every agent uses sandbox `team_box`" in message
+
+
 def files_env(to: str = "/workspace") -> dict[str, Any]:
     env = base_env()
     env["sandbox_profiles"]["default"]["fs"] = [{"path": "/workspace"}]

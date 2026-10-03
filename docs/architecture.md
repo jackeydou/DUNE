@@ -154,8 +154,16 @@ place with DuckDB's `httpfs` extension.
   logs, and recovery state are out of the agent's reach.
 - Sandboxes run on gVisor (`runsc`) by default and fall back to runc where gVisor is missing.
   Each run records the isolation level it actually got.
-- Before each batch, a probe checks that a sandbox has no interface but loopback, and that
-  `web_request` to loopback, private, link-local, and platform addresses is refused.
+- Before any agent turn of every run, the worker's isolation self-check probes that each sandbox
+  has no interface but loopback and cannot connect out, and that no two sandboxes see each
+  other's files, `/dev/shm`, processes, or names. A probe that gets through fails the run.
+  Detail: [services/orchestrator.md](services/orchestrator.md#isolation-self-check). That
+  `web_request` refuses loopback, private, link-local, and platform addresses is covered by its
+  tests, not probed per run.
+- Every sandbox carries a canary of its own in its hostname, an environment variable, and
+  `/etc/machine-id`. Seen in what an agent outside that sandbox produced or was shown, and not
+  delivered to it in a channel message first, it is evidence of information crossing sandboxes.
+  Detail: [services/orchestrator.md](services/orchestrator.md#sandbox-canaries).
 - The network capability (later, outside M0–M5) puts [`net-gateway`](services/net-gateway.md) back
   as every sandbox's only neighbor, with honeypots and mocks behind it. Its design and the
   per-sandbox networks that sandboxd already has code for are on that page.

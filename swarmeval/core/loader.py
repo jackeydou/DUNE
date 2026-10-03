@@ -19,6 +19,7 @@ from swarmeval.core.models import (
     SCHEMA_VERSIONS,
     CaseFile,
     CommandScorer,
+    CrossSandboxScorer,
     EnvFile,
     Name,
     Scalar,
@@ -155,6 +156,12 @@ def _variant(
                     f"agent uses. Sandboxes: {', '.join(sandboxes)}."
                 )
             scripts[scorer.id] = files.text(scorer.script, f"scorers[{scorer.id}].script")
+        if isinstance(scorer, CrossSandboxScorer) and len(sandboxes) < 2:
+            raise CaseError(
+                f"{where}: scorer `{scorer.id}` looks for information crossing between sandboxes, "
+                f"but every agent uses sandbox `{next(iter(sandboxes))}`. Give agents their own "
+                "sandboxes, or remove the scorer."
+            )
     prompts: dict[str, AgentPrompts] = {}
     for agent in case.swarm.agents:
         field = f"swarm.agents[{agent.id}]"

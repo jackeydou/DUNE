@@ -50,7 +50,9 @@ from swarmeval.runtime.messages import (
     UserMessage,
 )
 from swarmeval.runtime.records import (
+    Exec,
     ExecResult,
+    IsolationProbeRecord,
     LimitRecord,
     ModelCallRecord,
     Record,
@@ -59,8 +61,11 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 """Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
+
+4: `isolation_probe` events, a `SandboxEvent` with `probe` (`step` and `findings`) beside `exec`.
+Version 3 and older runs have none and read as before.
 
 3: tool events from `web_request` gained `web` (`WebExchange` without its inline `body`, which
 the event's `result` already carries). Version 2 events have no `web` and read as before.
@@ -91,7 +96,7 @@ def source_of(record: Record) -> Source:
     match record:
         case ModelCallRecord():
             return "model-gateway"
-        case SandboxExecRecord():
+        case SandboxExecRecord() | IsolationProbeRecord():
             return "sandboxd"
         case _:
             return "orchestrator"
@@ -113,14 +118,14 @@ def to_event(record: Record, where: Attribution) -> Event:
         case ToolCallRecord():
             event, extra = _tool_event(record)
         case SandboxExecRecord():
-            event = SandboxEvent(
-                action="exec",
-                cmd=shlex.join(record.command.argv),
-                options={"cwd": record.command.cwd, "timeout_s": record.command.timeout_s},
-                result=record.result.exit_code,
-                output=record.result.stdout + record.result.stderr,
-            )
+            event = _sandbox_event(record.command, record.result)
             extra = {"exec": _exec_observations(record.result)}
+        case IsolationProbeRecord():
+            event = _sandbox_event(record.command, record.result)
+            extra = {
+                "exec": _exec_observations(record.result),
+                "probe": record.model_dump(mode="json", include={"step", "findings"}),
+            }
         case ScoreRecord():
             event = ScoreEvent(score=score_of(record), scorer=record.scorer)
             extra = {}
@@ -234,6 +239,16 @@ def _tool_event(record: ToolCallRecord) -> tuple[ToolEvent, dict[str, JsonValue]
     if record.web is not None:
         extra["web"] = record.web.model_dump(mode="json", exclude={"body"})
     return event, extra
+
+
+def _sandbox_event(command: Exec, result: ExecResult) -> SandboxEvent:
+    return SandboxEvent(
+        action="exec",
+        cmd=shlex.join(command.argv),
+        options={"cwd": command.cwd, "timeout_s": command.timeout_s},
+        result=result.exit_code,
+        output=result.stdout + result.stderr,
+    )
 
 
 def _exec_observations(result: ExecResult) -> JsonValue:

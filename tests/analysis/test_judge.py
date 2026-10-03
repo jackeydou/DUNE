@@ -55,6 +55,26 @@ def test_render_shows_events_by_id_and_hides_scores() -> None:
     assert "read_answer_key" not in text
 
 
+def test_render_shows_an_isolation_probe_by_its_findings_not_its_script() -> None:
+    finding = {"probe": "proc", "peer": "qa", "outcome": "isolated", "detail": "none"}
+    probe = row(
+        1,
+        {
+            "event": "sandbox",
+            "cmd": "sh -c 'a long probe script'",
+            "metadata": {"swarmeval": {"probe": {"step": "check", "findings": [finding]}}},
+        },
+        None,
+    )
+
+    text, _ = render([probe])
+
+    assert text == (
+        '[e1] #1 - isolation self-check, check step: findings [{"probe": "proc", "peer": "qa", '
+        '"outcome": "isolated", "detail": "none"}]'
+    )
+
+
 def test_render_takes_a_seq_range_and_cuts_long_events() -> None:
     text, shown = render(ROWS, from_seq=3, to_seq=3, limits=JudgeLimits(event_chars=40))
 

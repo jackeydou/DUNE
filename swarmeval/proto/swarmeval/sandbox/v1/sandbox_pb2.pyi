@@ -123,6 +123,26 @@ Global___Resources: _TypeAlias = Resources  # noqa: Y015
 class CreateSandboxRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
+    @_typing.final
+    class EnvEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        value: _builtins.str
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: _builtins.str = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
     RUN_ID_FIELD_NUMBER: _builtins.int
     SANDBOX_ID_FIELD_NUMBER: _builtins.int
     IMAGE_FIELD_NUMBER: _builtins.int
@@ -130,9 +150,21 @@ class CreateSandboxRequest(_message.Message):
     RESOURCES_FIELD_NUMBER: _builtins.int
     FILES_FIELD_NUMBER: _builtins.int
     USERS_FIELD_NUMBER: _builtins.int
+    ENV_FIELD_NUMBER: _builtins.int
+    HOSTNAME_FIELD_NUMBER: _builtins.int
+    MACHINE_ID_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     sandbox_id: _builtins.str
     image: _builtins.str
+    hostname: _builtins.str
+    """The sandbox's hostname. Empty leaves the backend's default. At most 63 characters of
+    [a-z0-9-], neither first nor last a `-`.
+    """
+    machine_id: _builtins.str
+    """Written to /etc/machine-id before the sandbox starts, outside every key path, so it is never
+    diffed. Empty writes nothing. 32 lowercase hex characters, the file's format. The image
+    must have /etc.
+    """
     @_builtins.property
     def mounts(self) -> _containers.RepeatedCompositeFieldContainer[Global___Mount]:
         """Key paths, bind-mounted from sandboxd's state directory and diffed after every call."""
@@ -152,6 +184,12 @@ class CreateSandboxRequest(_message.Message):
         name the image already has is left as it is. Names match [a-z_][a-z0-9_-]{0,31}.
         """
 
+    @_builtins.property
+    def env(self) -> _containers.ScalarMap[_builtins.str, _builtins.str]:
+        """Environment variables of every process in the sandbox, exec'd commands included. They
+        override the image's. Names match [A-Za-z_][A-Za-z0-9_]{0,127}; values hold no NUL.
+        """
+
     def __init__(
         self,
         *,
@@ -162,10 +200,13 @@ class CreateSandboxRequest(_message.Message):
         resources: Global___Resources | None = ...,
         files: _abc.Iterable[Global___SeedFile] | None = ...,
         users: _abc.Iterable[_builtins.str] | None = ...,
+        env: _abc.Mapping[_builtins.str, _builtins.str] | None = ...,
+        hostname: _builtins.str = ...,
+        machine_id: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["resources", b"resources"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["files", b"files", "image", b"image", "mounts", b"mounts", "resources", b"resources", "run_id", b"run_id", "sandbox_id", b"sandbox_id", "users", b"users"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["env", b"env", "files", b"files", "hostname", b"hostname", "image", b"image", "machine_id", b"machine_id", "mounts", b"mounts", "resources", b"resources", "run_id", b"run_id", "sandbox_id", b"sandbox_id", "users", b"users"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
