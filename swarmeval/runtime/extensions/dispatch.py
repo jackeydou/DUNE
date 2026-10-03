@@ -21,6 +21,10 @@ from swarmeval.runtime.extensions.api import (
     Allow,
     AnyHandler,
     Block,
+    Delay,
+    Deliver,
+    Drop,
+    Envelope,
     ExtensionError,
     HookContext,
     Inject,
@@ -46,6 +50,7 @@ from swarmeval.runtime.ports import ModelClient, SandboxExecutor
 from swarmeval.runtime.records import (
     CommittedEvent,
     EventDraft,
+    ExtensionSnapshot,
     HookName,
     InterventionRecord,
     ToolResult,
@@ -67,6 +72,31 @@ class GateOutcome[D]:
 
 
 @dataclass
+class DeliveryOutcome:
+    """`before_deliver`'s verdict on one recipient. `content` is what to deliver, after `delay`
+    turns; `None` when the message was dropped."""
+
+    content: str | None
+    delay: int
+    txn: Transaction
+    intervention_id: str | None
+    """The last intervention on this delivery: what the delivered content, or the hold, is
+    from."""
+
+
+@dataclass(frozen=True)
+class Post:
+    """A message an extension put on a channel (`ctx.actions.post`)."""
+
+    instance_id: str
+    channel: str
+    sender: str
+    content: str
+    event_id: str
+    """The post's intervention event."""
+
+
+@dataclass
 class TransformOutcome[T]:
     value: T
     txn: Transaction
@@ -75,18 +105,61 @@ class TransformOutcome[T]:
     then shown comes from it."""
 
 
+class _Draws(random.Random):
+    """`ctx.rng` for one hook call. It takes its seed on the first draw, from the run seed, the
+    instance id, and the instance's count of calls that drew so far, then counts itself. A
+    resumed or forked run that restores the count gets the same streams from there on."""
+
+    def __init__(self, instance: "_Instance") -> None:
+        super().__init__(0)
+        self._instance = instance
+        self._seeded = False
+
+    def _seed_once(self) -> None:
+        if not self._seeded:
+            self._seeded = True
+            super().seed(self._instance.claim_stream())
+
+    def random(self) -> float:
+        self._seed_once()
+        return super().random()
+
+    def getrandbits(self, k: int, /) -> int:
+        self._seed_once()
+        return super().getrandbits(k)
+
+
 class _Instance:
-    def __init__(self, loaded: LoadedExtension, state: BaseModel, seed: int, timeout_s: float):
+    def __init__(
+        self, loaded: LoadedExtension, saved: ExtensionSnapshot | None, seed: int, timeout_s: float
+    ):
         self.loaded = loaded
         self.id = loaded.instance_id
+        if saved is None:
+            state, self.rng_uses = loaded.initial_state(), 0
+        else:
+            state = loaded.extension.state.model_validate(saved.state)
+            self.rng_uses = saved.rng_uses
         self.state = StateCell(state)
-        self.committed_state = state.model_dump_json()
-        digest = hashlib.sha256(f"{seed}:{self.id}".encode()).digest()
-        self.rng = random.Random(int.from_bytes(digest[:8], "big"))
+        self.committed = ExtensionSnapshot(state.model_dump(mode="json"), self.rng_uses)
+        self.seed = seed
         self.timeout_s = loaded.extension.hook_timeout_s or timeout_s
 
     def handlers(self, hook: HookName) -> list[AnyHandler]:
         return self.loaded.registrations.handlers.get(hook, [])
+
+    def claim_stream(self) -> int:
+        digest = hashlib.sha256(f"{self.seed}:{self.id}:{self.rng_uses}".encode()).digest()
+        self.rng_uses += 1
+        return int.from_bytes(digest[:8], "big")
+
+    def snapshot(self) -> ExtensionSnapshot | None:
+        """The state to commit, when it differs from the last committed."""
+        current = ExtensionSnapshot(self.state.value.model_dump(mode="json"), self.rng_uses)
+        if current == self.committed:
+            return None
+        self.committed = current
+        return current
 
 
 def sha256_json(value: JsonValue) -> str:
@@ -107,7 +180,7 @@ class HookDispatcher:
         run: RunInfo,
         agents: Mapping[str, AgentInfo],
         seed: int,
-        states: Mapping[str, JsonValue],
+        states: Mapping[str, ExtensionSnapshot],
         model_client: ModelClient,
         sandbox_executor: SandboxExecutor,
         writer: RunWriter,
@@ -121,17 +194,13 @@ class HookDispatcher:
         self._instances: list[_Instance] = []
         for loaded in extensions:
             saved = states.get(loaded.instance_id)
-            state = (
-                loaded.initial_state()
-                if saved is None
-                else loaded.extension.state.model_validate(saved)
-            )
-            self._instances.append(_Instance(loaded, state, seed, default_timeout_s))
+            self._instances.append(_Instance(loaded, saved, seed, default_timeout_s))
 
         self.stop_reason: str | None = None
         self.stop_cause: str | None = None
         """The intervention event of the stop that `stop_reason` describes."""
         self._injections: dict[str, list[tuple[UserMessage, str]]] = {}
+        self._posts: list[Post] = []
         self._spawned: dict[asyncio.Task[None], _Instance] = {}
         self._failure: ExtensionError | None = None
         self._queue: asyncio.Queue[CommittedEvent] = asyncio.Queue()
@@ -174,6 +243,11 @@ class HookDispatcher:
         self, instance_id: str, agent_id: str, message: UserMessage, event_id: str
     ) -> None:
         self._injections.setdefault(agent_id, []).append((message, event_id))
+
+    def queue_post(
+        self, instance_id: str, channel: str, sender: str, content: str, event_id: str
+    ) -> None:
+        self._posts.append(Post(instance_id, channel, sender, content, event_id))
 
     def spawn(self, ctx: HookContext[Any], coro: Coroutine[Any, Any, None]) -> None:
         instance = self._instance(ctx.instance_id)
@@ -246,6 +320,11 @@ class HookDispatcher:
     def take_injections(self, agent_id: str) -> list[tuple[UserMessage, str]]:
         """Queued injections for `agent_id`, each with its intervention event."""
         return self._injections.pop(agent_id, [])
+
+    def take_posts(self) -> list["Post"]:
+        """Messages extensions posted on channels since the last call, in order."""
+        posts, self._posts = self._posts, []
+        return posts
 
     # Hooks
 
@@ -365,6 +444,44 @@ class HookDispatcher:
             "after_tool_result", agent, result, target_event_id, target_event_id, ToolResult
         )
 
+    async def before_deliver(self, agent: AgentInfo, envelope: Envelope) -> DeliveryOutcome:
+        """Chains every handler: a `Deliver`'s content is the next handler's input, delays add
+        up, and a `Drop` ends the chain. Each change is an intervention on the `msg.send`, its
+        `after` naming the recipient."""
+        await self.barrier()
+        txn = Transaction()
+        last: str | None = None
+        send_id = envelope.send_event_id
+        for instance, handler in self._handlers("before_deliver"):
+            decision, effects = await self._call(
+                instance, "before_deliver", agent, send_id, handler, envelope
+            )
+            txn.extend(effects)
+            match decision:
+                case Deliver(content=content) if content == envelope.content:
+                    continue
+                case Deliver(content=content):
+                    changed = envelope.model_copy(update={"content": content})
+                case Delay(turns=turns):
+                    changed = envelope.model_copy(
+                        update={"delayed_turns": envelope.delayed_turns + turns}
+                    )
+                case Drop():
+                    changed = None
+                case _:
+                    raise ExtensionError(
+                        instance.id,
+                        "before_deliver",
+                        f"returned {type(decision).__name__}; return Deliver, Drop, or Delay.",
+                    )
+            draft = self._delivery_intervention(instance, envelope, decision)
+            txn.events.append(draft)
+            last = draft.event_id
+            if changed is None:
+                return DeliveryOutcome(None, envelope.delayed_turns, txn, last)
+            envelope = changed
+        return DeliveryOutcome(envelope.content, envelope.delayed_turns, txn, last)
+
     async def run_worker_tool(
         self, tool: WorkerTool, agent: AgentInfo, args: BaseModel, trigger_id: str
     ) -> tuple[str, Transaction]:
@@ -396,7 +513,7 @@ class HookDispatcher:
             run=self._run,
             agent=agent,
             state=instance.state,
-            rng=instance.rng,
+            rng=_Draws(instance),
             trigger_id=trigger_id,
         )
 
@@ -425,10 +542,9 @@ class HookDispatcher:
 
     def _drain(self, instance: _Instance, ctx: HookContext[Any]) -> Transaction:
         txn, ctx.pending = ctx.pending, Transaction()
-        state = instance.state.value.model_dump_json()
-        if state != instance.committed_state:
-            txn.extension_states[instance.id] = instance.state.value.model_dump(mode="json")
-            instance.committed_state = state
+        snapshot = instance.snapshot()
+        if snapshot is not None:
+            txn.extension_states[instance.id] = snapshot
         return txn
 
     async def _transform[T: BaseModel](
@@ -512,6 +628,23 @@ class HookDispatcher:
             after=_dump(after),
         )
         return EventDraft(record=record, extension=instance.id, parent_id=trigger_id)
+
+    def _delivery_intervention(
+        self, instance: _Instance, envelope: Envelope, decision: BaseModel
+    ) -> EventDraft:
+        record = InterventionRecord(
+            hook="before_deliver",
+            action=str(decision.model_dump()["kind"]),
+            target_event_id=envelope.send_event_id,
+            before_sha256=sha256_json(envelope.content),
+            after={"recipient": envelope.recipient, **decision.model_dump(mode="json")},
+        )
+        return EventDraft(
+            record=record,
+            agent_id=envelope.recipient,
+            extension=instance.id,
+            parent_id=envelope.send_event_id,
+        )
 
     def _last_changer(self, hook: HookName, txn: Transaction) -> str:
         changers = [

@@ -65,9 +65,11 @@ SCHEMA_VERSION = 5
 """Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
 
 5: every event but the run's first names its causal parent in `parent_id`
-(docs/event-log.md#causal-parents), and event ids are UUIDs the worker fixes before commit. In
-version 4 and older runs only tool events, deliveries, and some interventions have a parent;
-they read as before.
+(docs/event-log.md#causal-parents), and event ids are UUIDs the worker fixes before commit.
+`before_deliver` interventions (`after` names the recipient) and `post` interventions; a
+`msg.send` an extension posted has no agent and a `null` `call_id`; `transcript_check` gained
+`deliveries` and the `send` and `delivery` checks. In version 4 and older runs only tool events,
+deliveries, and some interventions have a parent; they read as before.
 
 4: `isolation_probe` events, a `SandboxEvent` with `probe` (`step` and `findings`) beside `exec`,
 and `transcript_check` events, an `InfoEvent(source="swarmeval.transcript_check")`. Version 3 and

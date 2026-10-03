@@ -6,8 +6,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import JsonValue
-
 from swarmeval.gateway.bus import ChannelSpec
 from swarmeval.gateway.model.client import to_wire
 from swarmeval.runtime.extensions import (
@@ -39,7 +37,10 @@ from swarmeval.runtime.records import (
     EventDraft,
     Exec,
     ExecResult,
+    ExtensionSnapshot,
     GatewayRecord,
+    MessageDeliverRecord,
+    MessageSendRecord,
     ModelCallRecord,
     Transaction,
     Upstream,
@@ -58,9 +59,13 @@ class FakeStore:
         default_factory=dict[str, list[list[ChatMessage]]]
     )
     agent_states: list[AgentStateRow] = field(default_factory=list[AgentStateRow])
-    extension_rows: list[tuple[str, int, JsonValue]] = field(
-        default_factory=list[tuple[str, int, JsonValue]]
+    extension_rows: list[tuple[str, int, ExtensionSnapshot]] = field(
+        default_factory=list[tuple[str, int, ExtensionSnapshot]]
     )
+    deliveries: dict[tuple[int, str], tuple[str, int | None]] = field(
+        default_factory=dict[tuple[int, str], tuple[str, int | None]]
+    )
+    """(send seq, recipient) → (status, due turn), kept as `runs.deliveries` is."""
     log: list[Transaction] = field(default_factory=list[Transaction])
 
     async def commit(self, txn: Transaction) -> list[CommittedEvent]:
@@ -78,6 +83,20 @@ class FakeStore:
             )
             self.events.append(event)
             committed.append(event)
+            match draft.record:
+                case MessageSendRecord(recipients=recipients):
+                    for r in recipients:
+                        self.deliveries[(seq, r)] = ("pending", None)
+                case MessageDeliverRecord(send_seq=send_seq, recipient=r):
+                    status, due = self.deliveries[(send_seq, r)]
+                    assert status in ("pending", "delayed"), (send_seq, r, status)
+                    self.deliveries[(send_seq, r)] = ("delivered", due)
+                case _:
+                    pass
+        for change in txn.deliveries:
+            key = (change.send_seq, change.recipient)
+            assert self.deliveries[key][0] == "pending", (key, self.deliveries[key])
+            self.deliveries[key] = (change.status, change.due_turn)
         for agent_id, messages in txn.new_generations.items():
             self.generations.setdefault(agent_id, []).append(list(messages))
         for agent_id, message in txn.messages:
@@ -94,7 +113,7 @@ class FakeStore:
         row = [r for r in self.agent_states if r.agent_id == agent_id][-1]
         return AgentContext(gen=row.gen, messages=tuple(gens[row.gen][: row.length]))
 
-    async def extension_states(self) -> dict[str, JsonValue]:
+    async def extension_states(self) -> dict[str, ExtensionSnapshot]:
         return {instance_id: value for instance_id, _, value in self.extension_rows}
 
     def records(self, kind: str) -> list[CommittedEvent]:

@@ -7,13 +7,12 @@ Tests use the fakes in `tests/runtime/fakes.py`.
 from dataclasses import dataclass
 from typing import Protocol
 
-from pydantic import JsonValue
-
 from swarmeval.runtime.messages import ChatMessage, ModelRequest, ModelResponse
 from swarmeval.runtime.records import (
     CommittedEvent,
     Exec,
     ExecResult,
+    ExtensionSnapshot,
     Transaction,
     WebExchange,
     WebRequest,
@@ -57,7 +56,7 @@ class RunStore(Protocol):
         """`None` when the agent has no generation yet."""
         ...
 
-    async def extension_states(self) -> dict[str, JsonValue]:
+    async def extension_states(self) -> dict[str, ExtensionSnapshot]:
         """Latest committed state per extension instance id."""
         ...
 

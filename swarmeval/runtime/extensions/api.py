@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, get_args, overload
 
-from pydantic import BaseModel, JsonValue
+from pydantic import BaseModel, JsonValue, PositiveInt
 
 from swarmeval.runtime.messages import (
     AssistantMessage,
@@ -110,6 +110,46 @@ class Block(Frozen):
 type ToolDecision = Allow | Rewrite | Block
 
 
+class Deliver(Frozen):
+    """Deliver `content` at the recipient's next turn, or when a `Delay` earlier in the chain
+    makes it due. The next `before_deliver` handler gets this content."""
+
+    kind: Literal["deliver"] = "deliver"
+    content: str
+
+
+class Drop(Frozen):
+    """The recipient never gets the message. Later handlers are not called."""
+
+    kind: Literal["drop"] = "drop"
+    reason: str | None = None
+
+
+class Delay(Frozen):
+    """Hold the message for `turns` more of the recipient's own turns. Delays from several
+    handlers add up; later handlers are still called and may rewrite or drop it."""
+
+    kind: Literal["delay"] = "delay"
+    turns: PositiveInt
+
+
+type DeliveryDecision = Deliver | Drop | Delay
+
+
+class Envelope(Frozen):
+    """One message on its way to one recipient, as `before_deliver` sees it."""
+
+    send_event_id: str
+    """The `msg.send` event."""
+    channel: str
+    sender: str
+    recipient: str
+    content: str
+    """What the previous handler decided to deliver; the sent content for the first."""
+    delayed_turns: int = 0
+    """Turns earlier handlers have delayed it by."""
+
+
 class TurnInfo(Frozen):
     turn: int
     """Run-wide turn number, starting at 1."""
@@ -141,11 +181,17 @@ class SandboxCanaryInfo(Frozen):
     """`None` when a key path of the sandbox would hide the file behind its mount."""
 
 
+class ChannelInfo(Frozen):
+    id: str
+    members: tuple[str, ...]
+
+
 class RunInfo(Frozen):
     run_id: str
     agent_ids: tuple[str, ...]
     canaries: tuple[CanaryInfo, ...] = ()
     sandbox_canaries: tuple[SandboxCanaryInfo, ...] = ()
+    channels: tuple[ChannelInfo, ...] = ()
 
 
 class AgentInfo(Frozen):
@@ -182,6 +228,12 @@ class ContextHost(Protocol):
     ) -> None:
         """`event_id` is the injection's intervention event, recorded as the cause of what the
         agent does after reading it."""
+        ...
+
+    def queue_post(
+        self, instance_id: str, channel: str, sender: str, content: str, event_id: str
+    ) -> None:
+        """`event_id` is the post's intervention event, the parent of its `msg.send`."""
         ...
 
     def spawn(self, ctx: "HookContext[Any]", coro: Coroutine[Any, Any, None]) -> None: ...
@@ -274,6 +326,21 @@ class Actions:
             self._ctx.instance_id, agent_id, UserMessage(content=content), draft.event_id
         )
 
+    def post(self, channel: str, sender: str, content: str, *, cause: str | None = None) -> None:
+        """Puts a message on `channel` as if `sender` had sent it, at the start of the next turn.
+        Every member but `sender` gets it, through `before_deliver` like any message."""
+        channels = {c.id: c for c in self._ctx.run.channels}
+        if channel not in channels:
+            raise ExtensionDefinitionError(
+                f"extension `{self._ctx.instance_id}` posted to unknown channel `{channel}`. "
+                f"Channels in this run: {', '.join(channels) or 'none'}."
+            )
+        draft = self._ctx.intervention(
+            "post", {"channel": channel, "sender": sender, "content": content}, cause=cause
+        )
+        self._ctx.pending.events.append(draft)
+        self._ctx.host.queue_post(self._ctx.instance_id, channel, sender, content, draft.event_id)
+
 
 class HookContext[S: BaseModel]:
     """What a hook or worker tool receives. One is built per call."""
@@ -355,6 +422,9 @@ type ResponseHandler[S: BaseModel] = Callable[
 ]
 type ToolCallHandler[S: BaseModel] = Callable[[HookContext[S], ToolCall], Awaitable[ToolDecision]]
 type ToolResultHandler[S: BaseModel] = Callable[[HookContext[S], ToolResult], Awaitable[ToolResult]]
+type DeliverHandler[S: BaseModel] = Callable[
+    [HookContext[S], Envelope], Awaitable[DeliveryDecision]
+]
 type EventHandler[S: BaseModel] = Callable[[HookContext[S], CommittedEvent], Awaitable[None]]
 type WorkerToolFn[S: BaseModel, A: BaseModel] = Callable[[HookContext[S], A], Awaitable[str]]
 type AnyHandler = Callable[..., Awaitable[Any]]
@@ -413,6 +483,10 @@ class ExtensionAPI[C: BaseModel, S: BaseModel]:
     def on(
         self, hook: Literal["after_tool_result"]
     ) -> Callable[[ToolResultHandler[S]], ToolResultHandler[S]]: ...
+    @overload
+    def on(
+        self, hook: Literal["before_deliver"]
+    ) -> Callable[[DeliverHandler[S]], DeliverHandler[S]]: ...
     @overload
     def on(self, hook: Literal["on_event"]) -> Callable[[EventHandler[S]], EventHandler[S]]: ...
     def on(self, hook: HookName) -> Callable[[AnyHandler], AnyHandler]:

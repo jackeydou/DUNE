@@ -1,5 +1,18 @@
 # Bug fixes
 
+## 2026-10-02 — The transcript check lists deliveries as interventions
+
+**Symptom.** A run with no extension had a `transcript_check` whose `interventions` named every
+`msg.deliver` an agent read, so the field could not tell a run with interventions from one
+without.
+**Root cause.** The context walk added the source of every user message it matched to the
+explained list, and a delivery is a source, not an intervention.
+**Fix.** Only injections and `Inject` decisions are added; deliveries are matched but not listed.
+`swarmeval/worker/transcript.py`.
+**Guard.** `tests/worker/test_transcript.py::test_an_untouched_run_is_consistent` (asserted the
+old behavior; now asserts `interventions == ()`).
+**Touches.** The new `delivery` check adds `before_deliver` verdicts to the same list; anything
+that adds a source of context messages must decide whether it is an intervention.
 ## 2026-10-03 — A worker claims runs while it records a host fault
 
 **Symptom.** After a run failed the isolation self-check, a worker whose summary write was slow

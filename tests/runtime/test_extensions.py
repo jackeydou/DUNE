@@ -35,6 +35,7 @@ from swarmeval.runtime.extensions import (
 )
 from swarmeval.runtime.messages import ModelRequest, ModelResponse
 from swarmeval.runtime.records import (
+    ExtensionSnapshot,
     InterventionRecord,
     LifecycleRecord,
     ModelCallRecord,
@@ -300,17 +301,17 @@ async def test_state_changes_are_committed_with_the_step() -> None:
 
     await h.loop.run()
 
-    values = [v for i, _, v in h.store.extension_rows if i == "t.counter"]
+    values = [v.state for i, _, v in h.store.extension_rows if i == "t.counter"]
     assert values == [{"calls": 1}, {"calls": 2}]
 
 
 async def test_state_is_restored_from_the_store() -> None:
-    store = FakeStore(extension_rows=[("t.counter", 0, {"calls": 41})])
+    store = FakeStore(extension_rows=[("t.counter", 0, ExtensionSnapshot({"calls": 41}))])
     h = harness((agent(),), two_steps(), extensions=[counter], store=store)
 
     await h.loop.run()
 
-    assert store.extension_rows[-1] == ("t.counter", 3, {"calls": 42})
+    assert store.extension_rows[-1] == ("t.counter", 3, ExtensionSnapshot({"calls": 42}))
 
 
 # Observers

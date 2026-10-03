@@ -15,18 +15,20 @@ spec describes but the code does not do.
 `RunLoop` runs one fresh run. Agents take turns in `round_robin` order. A turn is one model call
 plus every tool call it makes:
 
-1. `before_turn` gate. Messages waiting on the Message Bus, then queued injections and `Inject`
-   messages, are admitted first.
+1. `before_turn` gate. Messages due on the Message Bus, then queued injections and `Inject`
+   messages, are admitted first. Messages extensions posted on channels (`ctx.actions.post`)
+   are sent now, after this agent's mail was taken, and routed.
 2. Read the context from the store: the first `len` messages of the agent's current generation.
 3. `compact_context`. A new message list starts a new generation.
 4. `before_model_request`, which may narrow the tool list and change sampling options.
 5. The model call. It returns only after the gateway's record has been committed.
 6. `after_model_response`, then admit the assistant message.
-7. For each tool call: `before_tool_call` gate, execute, record the `ToolCallRecord`,
-   `after_tool_result`, then admit the tool message.
+7. For each tool call: `before_tool_call` gate, execute, record the `ToolCallRecord`, route any
+   message it sent ([below](#routing-messages)), `after_tool_result`, then admit the tool
+   message.
 8. `after_turn`.
 
-An agent whose response has no tool calls is finished until a message arrives for it on the
+An agent whose response has no tool calls is finished until a message is due for it on the
 Message Bus, which gives it another turn. The run ends when every agent is finished with no
 messages waiting, when `max_turns` or `max_tokens` is reached (`max_tokens` is checked before each model
 call), or when a hook or an action stops it.
@@ -34,6 +36,20 @@ call), or when a hook or an action stops it.
 A stop takes effect at the hook point where it is seen: after `before_turn`, `compact_context`,
 and `before_model_request`, and before each tool call. Nothing after that point runs, including
 the remaining tool calls of the same response. A tool call already executing finishes.
+
+### Routing messages
+
+A message is routed once, right after its `msg.send` commits: for each recipient, in the order
+the channel lists them, `before_deliver` decides ([Hooks](#hooks)), and the verdicts commit
+together with their interventions and `runs.deliveries` changes. A message delivered as is, or
+rewritten, reaches the recipient at the start of its next turn, as a `msg.deliver` carrying the
+final content. A dropped message never does. A message held for `n` turns reaches it at the
+start of its own turn `t + 1 + n`, where `t` is the number of turns it had started when the
+message was routed: `n` of its turns pass without it. A finished agent is woken by a message due
+at its next turn; held mail that is not yet due does not wake it, and since a finished agent
+takes no turns, mail held for it stays held unless something else wakes it *(proposed)*. A
+message still held when the run ends was never delivered: its row stays `delayed` and no
+`msg.deliver` is written.
 
 ### Record, then admit
 
@@ -194,12 +210,20 @@ agents that use the sandbox), `token`, and where it is planted: `hostname`, `env
 | `after_model_response` | Transform | `AssistantMessage` | `AssistantMessage` |
 | `before_tool_call` | Gate | `ToolCall` | `Allow`, `Rewrite(arguments)`, `Block(result)` |
 | `after_tool_result` | Transform | `ToolResult` | `ToolResult` |
+| `before_deliver` | Chain of verdicts | `Envelope`: `send_event_id`, `channel`, `sender`, `recipient`, `content`, `delayed_turns` | `Deliver(content)`, `Drop(reason)`, `Delay(turns)` |
 | `on_event` | Observe | `CommittedEvent` | `None` |
 
 The three kinds combine differently:
 
 - **Transform** hooks chain: each receives the previous one's output. Returning the input
   unchanged records nothing.
+- **`before_deliver`** runs once per message and recipient. A `Deliver`'s content is the next
+  handler's input (`Deliver` of the same content changes nothing); `Delay`s add up, and later
+  handlers still run and see the total in `delayed_turns`; a `Drop` ends the chain. Each change
+  is an `intervention` (`hook` `before_deliver`, `action` `deliver`, `drop`, or `delay`) whose
+  parent and `target_event_id` are the `msg.send` and whose `after` is the verdict with
+  `recipient`. `Delay` counts the recipient's own turns; delays in seconds wait for the `async`
+  turn policy.
 - **Gate** hooks stop at the first decision that is not the default (`Proceed` / `Allow`). Later
   gates are not called.
 - **Observe** hooks all run.
@@ -218,11 +242,12 @@ Observers see every event up to and including the terminal `lifecycle` event.
 | `ctx.run`, `ctx.agent`, `ctx.hook` | Run id and agents; the agent this call concerns (`None` for run-level hooks); the current hook |
 | `ctx.trigger_id` | The event that caused this call ([table](event-log.md#causal-parents)). What the call records names it as parent unless an action names its own `cause` |
 | `ctx.state` | This instance's state. Changes are committed with the step's next transaction and restored from the store when a run starts |
-| `ctx.rng` | `random.Random` seeded from the run seed and the instance id |
+| `ctx.rng` | A `random.Random` for this call. Its seed comes from the run seed, the instance id, and how many of the instance's calls have drawn from `ctx.rng` before; that count is committed with the instance's state, so a resumed or forked run continues the same draws. Randomness in an extension comes only from here |
 | `ctx.emit(name, data)` | Records an `extension` event |
 | `ctx.actions.alert(message, severity=, event_ids=)` | Records an `alert` event, parented to the last of `event_ids`, and returns its id |
 | `ctx.actions.stop(reason, cause=)` | Stops the run at the next hook point. Recorded as an intervention whose parent is `cause` (an event id, such as an alert's), or the trigger; the run's last `lifecycle` event descends from it |
 | `ctx.actions.inject(agent_id, content, cause=)` | Queues a user message for the agent's next `before_turn`. Recorded as an intervention, parented like `stop`'s |
+| `ctx.actions.post(channel, sender, content, cause=)` | Puts a message on a channel as if `sender` sent it, at the next `before_turn`: every member but `sender` gets it, routed through `before_deliver` like any message. Recorded as a `post` intervention, parented like `stop`'s, and a `msg.send` with no agent, the instance as its `extension`, no `call_id`, and the intervention as parent |
 | `ctx.model.generate(request)` | A model call under this instance's identity, recorded like an agent's |
 | `ctx.sandbox.exec(sandbox_id, command)` | A command in a sandbox, recorded as `sandbox_exec` and attributed to this instance |
 | `ctx.spawn(coro)` | Background work. Its emits and state are committed when it finishes. The run waits for it at the end ([Run end](#run-end)) |
@@ -252,7 +277,8 @@ The timeout is the loop's `hook_timeout_s` (default 30 s) unless the extension d
 | Spec item | State |
 |---|---|
 | Resume, takeover, fork | `RunLoop` refuses a run that already has context. The `awaiting_admit` status exists, and the gateway path is to write it when that path is built |
-| `before_deliver`, `on_resume` hooks | Arrive with interventions (M2) and with recovery (M3) |
+| `on_resume` hook | Arrives with recovery (M3) |
+| `Delay` in seconds | With the `async` turn policy |
 | `read_messages` | Arrives with monitors (M2). Channel members get messages pushed at their next turn |
 | `Pause` decisions and pause actions | Need a resume path |
 | `async` and `event_driven` turn policies, `wall_clock` limit | Only `round_robin`, `max_turns`, and `max_tokens` exist |

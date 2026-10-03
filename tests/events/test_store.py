@@ -21,8 +21,10 @@ from swarmeval.runtime.messages import SystemMessage, UserMessage
 from swarmeval.runtime.records import (
     AgentStateRow,
     AlertRecord,
+    DeliveryChange,
     EventDraft,
     ExecResult,
+    ExtensionSnapshot,
     FsChange,
     MessageDeliverRecord,
     MessageSendRecord,
@@ -243,10 +245,19 @@ async def test_context_reads_the_state_as_of_its_latest_row(
 
 async def test_the_latest_extension_state_wins(engine: AsyncEngine, run_id: str) -> None:
     store = store_for(engine, run_id)
-    await store.commit(Transaction(extension_states={"x": {"n": 1}, "y": [1]}))
-    await store.commit(Transaction(events=[alert("a")], extension_states={"x": {"n": 2}}))
+    await store.commit(
+        Transaction(
+            extension_states={"x": ExtensionSnapshot({"n": 1}), "y": ExtensionSnapshot([1])}
+        )
+    )
+    await store.commit(
+        Transaction(events=[alert("a")], extension_states={"x": ExtensionSnapshot({"n": 2}, 3)})
+    )
 
-    assert await store.extension_states() == {"x": {"n": 2}, "y": [1]}
+    assert await store.extension_states() == {
+        "x": ExtensionSnapshot({"n": 2}, 3),
+        "y": ExtensionSnapshot([1]),
+    }
 
 
 async def test_a_commit_with_events_notifies_listeners(
@@ -290,6 +301,55 @@ async def test_a_send_opens_a_delivery_row_that_its_delivery_closes(
     (delivered,) = await store.commit(Transaction(events=[EventDraft(deliver, agent_id="b")]))
     assert await rows() == [(sent.seq, "b", "delivered", delivered.seq)]
 
-    with pytest.raises(RuntimeError, match="has no pending row"):
+    with pytest.raises(RuntimeError, match="has no pending or delayed row"):
         await store.commit(Transaction(events=[EventDraft(deliver, agent_id="b")]))
     assert await rows() == [(sent.seq, "b", "delivered", delivered.seq)]
+
+
+async def test_before_deliver_verdicts_move_delivery_rows(engine: AsyncEngine, run_id: str) -> None:
+    store = store_for(engine, run_id)
+    send = MessageSendRecord(
+        channel="team", sender="a", content="hi", recipients=("b", "c", "d"), call_id="c1"
+    )
+    (sent,) = await store.commit(Transaction(events=[EventDraft(send, agent_id="a")]))
+    await store.commit(
+        Transaction(
+            deliveries=[
+                DeliveryChange(sent.seq, "b", "dropped"),
+                DeliveryChange(sent.seq, "c", "delayed", due_turn=3),
+            ]
+        )
+    )
+
+    async def rows() -> dict[str, tuple[str, int | None, int | None]]:
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                select(
+                    deliveries.c.recipient,
+                    deliveries.c.status,
+                    deliveries.c.due_turn,
+                    deliveries.c.delivered_seq,
+                ).where(deliveries.c.run_id == run_id)
+            )
+            return {r[0]: (r[1], r[2], r[3]) for r in result}
+
+    assert await rows() == {
+        "b": ("dropped", None, None),
+        "c": ("delayed", 3, None),
+        "d": ("pending", None, None),
+    }
+
+    def deliver(recipient: str) -> Transaction:
+        record = MessageDeliverRecord(
+            channel="team", sender="a", recipient=recipient, send_seq=sent.seq, content="hi"
+        )
+        return Transaction(events=[EventDraft(record, agent_id=recipient)])
+
+    (delivered,) = await store.commit(deliver("c"))
+    assert (await rows())["c"] == ("delivered", 3, delivered.seq)
+    # A dropped message is never delivered, and a verdict applies only to a pending row.
+    with pytest.raises(RuntimeError, match="never after it was dropped"):
+        await store.commit(deliver("b"))
+    with pytest.raises(RuntimeError, match="cannot become `delayed`: it has no pending row"):
+        await store.commit(Transaction(deliveries=[DeliveryChange(sent.seq, "b", "delayed", 1)]))
+    assert (await rows())["b"] == ("dropped", None, None)

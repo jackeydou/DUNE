@@ -1,6 +1,7 @@
 """A run's two transcripts, read back from its rows for the transcript check
 (docs/event-log.md#transcript-check): what the agents saw (`messages`) and what the sources
-recorded (model calls with the gateway's record, tool results, interventions, deliveries).
+recorded (model calls with the gateway's record, tool results, interventions, sends, and
+deliveries).
 
 The rows are the evidence original, so the check reads them rather than the worker's memory.
 """
@@ -21,6 +22,7 @@ from swarmeval.runtime.records import (
     GatewayRecord,
     InterventionRecord,
     MessageDeliverRecord,
+    MessageSendRecord,
     ToolResult,
 )
 
@@ -48,6 +50,18 @@ class ToolOutcome:
     parent_id: str | None
     """The model event whose call this was."""
     result: ToolResult
+    executed_arguments: str | None = None
+    """What actually ran, after any `before_tool_call` rewrite; `None` when nothing ran."""
+
+
+@dataclass(frozen=True)
+class Sent:
+    event_id: str
+    seq: int
+    agent_id: str | None
+    """`None` for a message an extension posted."""
+    parent_id: str | None
+    record: MessageSendRecord
 
 
 @dataclass(frozen=True)
@@ -63,6 +77,7 @@ class RunTranscript:
     model_calls: tuple[ModelCall, ...]
     tool_results: tuple[ToolOutcome, ...]
     interventions: tuple[Recorded[InterventionRecord], ...]
+    sends: tuple[Sent, ...]
     deliveries: tuple[Recorded[MessageDeliverRecord], ...]
     contexts: Mapping[tuple[str, int], tuple[ChatMessage, ...]]
     """`(agent_id, gen)` to that generation's messages, in `idx` order."""
@@ -72,19 +87,32 @@ async def load_transcript(engine: AsyncEngine, run_id: str) -> RunTranscript:
     model_calls: list[ModelCall] = []
     tool_results: list[ToolOutcome] = []
     interventions: list[Recorded[InterventionRecord]] = []
+    sends: list[Sent] = []
     deliveries: list[Recorded[MessageDeliverRecord]] = []
     async with engine.connect() as conn:
         rows = await conn.execute(
-            select(events.c.event_id, events.c.agent_id, events.c.parent_id, events.c.payload)
+            select(
+                events.c.event_id,
+                events.c.seq,
+                events.c.agent_id,
+                events.c.parent_id,
+                events.c.payload,
+            )
             .where(
                 events.c.run_id == run_id,
                 events.c.type.in_(
-                    ("model", "tool", "swarmeval.intervention", "swarmeval.msg.deliver")
+                    (
+                        "model",
+                        "tool",
+                        "swarmeval.intervention",
+                        "swarmeval.msg.send",
+                        "swarmeval.msg.deliver",
+                    )
                 ),
             )
             .order_by(events.c.seq)
         )
-        for event_id, agent_id, parent_id, payload in rows:
+        for event_id, seq, agent_id, parent_id, payload in rows:
             match _EVENT.validate_python(payload):
                 case ModelEvent() as event:
                     model_calls.append(_model_call(event_id, agent_id, event))
@@ -95,10 +123,17 @@ async def load_transcript(engine: AsyncEngine, run_id: str) -> RunTranscript:
                         content=str(event.result),
                         is_error=bool(event.failed),
                     )
-                    tool_results.append(ToolOutcome(event_id, agent_id, parent_id, result))
+                    assert event.metadata is not None, "stored events carry metadata.swarmeval"
+                    executed = event.metadata["swarmeval"]["executed_arguments"]
+                    tool_results.append(
+                        ToolOutcome(event_id, agent_id, parent_id, result, executed)
+                    )
                 case InfoEvent(source="swarmeval.intervention", data=data):
                     record = InterventionRecord.model_validate(data)
                     interventions.append(Recorded(event_id, record))
+                case InfoEvent(source="swarmeval.msg.send", data=data):
+                    send = MessageSendRecord.model_validate(data)
+                    sends.append(Sent(event_id, seq, agent_id, parent_id, send))
                 case InfoEvent(data=data):
                     deliveries.append(Recorded(event_id, MessageDeliverRecord.model_validate(data)))
                 case other:
@@ -115,6 +150,7 @@ async def load_transcript(engine: AsyncEngine, run_id: str) -> RunTranscript:
         model_calls=tuple(model_calls),
         tool_results=tuple(tool_results),
         interventions=tuple(interventions),
+        sends=tuple(sends),
         deliveries=tuple(deliveries),
         contexts={k: tuple(v) for k, v in contexts.items()},
     )

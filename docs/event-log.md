@@ -88,8 +88,8 @@ parent; when several things fed into it, the parent is the last one, and the res
 | `lifecycle` `started` | The event before it: the self-check's last probe |
 | An agent's `ModelEvent` | The last event whose content was admitted into the agent's context before the request: a tool result (`ToolEvent`), a `msg.deliver`, an injection's `intervention`, a `before_turn` `Inject`, an `after_model_response` / `after_tool_result` rewrite (instead of the event it rewrote), a `compact_context` compaction, or `lifecycle` `started` for the generation it admitted. After a response with no tool calls and no new input, the agent's own previous `ModelEvent` |
 | `ToolEvent` | The `ModelEvent` that made the call |
-| `msg.send` | The `ModelEvent` that called `send_message` |
-| `msg.deliver` | Its `msg.send` |
+| `msg.send` | The `ModelEvent` that called `send_message`; for a message an extension posted, the `post` intervention |
+| `msg.deliver` | The last `before_deliver` intervention on it for that recipient (a rewrite or a hold), whose content or timing it carries; with none, its `msg.send` *(proposed)* |
 | `intervention` from a hook's return value | The hook's trigger (below): for a rewrite or a gate decision, the event it changed or decided on |
 | `intervention` from an action (`stop`, `inject`) | The action's `cause`: an event the extension names, such as an alert it just raised; without one, the hook's trigger |
 | `alert` | The last of its `event_ids`; with none, the hook's trigger |
@@ -107,8 +107,14 @@ A hook's trigger is the event that caused the call, given to the hook as `ctx.tr
 | `on_event` | The committed event |
 | `after_model_response`, `before_tool_call`, a worker tool | The `ModelEvent` |
 | `after_tool_result` | The `ToolEvent` |
+| `before_deliver` | The `msg.send` |
 | `before_turn`, `compact_context`, `before_model_request`, `after_turn` | The agent's last admitted event, the parent its next model call would get |
 | `on_run_start`, `on_run_end` | `lifecycle` `started` |
+
+A `before_deliver` intervention's `after` is the verdict with the recipient:
+`{"recipient", "kind": "deliver", "content"}`, `{"recipient", "kind": "drop", "reason"}`, or
+`{"recipient", "kind": "delay", "turns"}`; `before_sha256` is the hash of the content it was
+given. A `post` intervention's `after` is `{"channel", "sender", "content"}`.
 
 Events written before schema version 5 have a parent only where the first rows of the first table
 say (`ToolEvent`, `msg.deliver`, and interventions on a model or tool event). The trace of such an
@@ -133,9 +139,16 @@ of `events` are never rewritten.
 | `events` | `(run_id, seq)` | `event_id`, `ts`, `type`, `source`, `agent_id`, `sandbox_id`, `parent_id`, `prev_hash`, `hash`, `payload jsonb` | Append only |
 | `messages` | `(run_id, agent_id, gen, idx)` | One context message (the runtime's `ChatMessage` as JSON), and `seq` | Append only |
 | `agent_state` | `id`, indexed on `(run_id, agent_id, seq, id)` | `gen`, `len`, `turn`, `status`, `tokens_used` | Append only, one row per state change |
-| `extension_state` | `id`, indexed on `(run_id, instance_id, seq, id)` | An extension instance's state, `jsonb` | Append only |
-| `deliveries` | `(run_id, msg_seq, recipient)` | `status` (`pending`, `delivered`), `delivered_seq` | Updated. The store writes it from `msg.send` and `msg.deliver` events, in their transaction |
+| `extension_state` | `id`, indexed on `(run_id, instance_id, seq, id)` | An extension instance's state, `jsonb`, and `rng_uses`, how many of its calls have drawn from `ctx.rng` (migration 0007; `0` for older rows) | Append only |
+| `deliveries` | `(run_id, msg_seq, recipient)` | `status`, `delivered_seq`, `due_turn` | Updated. The store writes it from `msg.send` and `msg.deliver` events and from the `before_deliver` verdicts the loop passes, each in their transaction |
 | `sandboxes` | `(run_id, sandbox_id)` | Container id, recovery fidelity | Updated. Not built yet |
+
+A `deliveries` row starts `pending` when its send commits. `before_deliver` may make it `dropped`,
+which is final: no delivery, recovery, or fork ever delivers it, and the store refuses a
+`msg.deliver` for it. Or `delayed`, with `due_turn`, the recipient's own turn at whose start it
+is delivered. A `pending` or `delayed` row becomes `delivered` with the `msg.deliver`'s `seq`
+(`due_turn` stays). A row still `delayed` or `pending` when the run ends was never delivered.
+Only a `pending` row takes a verdict (migration 0007 added `dropped`, `delayed`, `due_turn`).
 
 `seq` on a `messages`, `agent_state`, or `extension_state` row is the run's last event `seq` when
 the row was committed. Many transactions commit no event, so several rows can share a `seq`; the
@@ -181,9 +194,14 @@ event, `InfoEvent(source="swarmeval.transcript_check")`, so both exports carry i
 | `context` | Walking each agent's generations in `idx` order: generation 0 starts with the case's system prompt and task; a later generation starts with the `after` of a `compact_context` intervention. After that, an assistant message at index *i* of generation *g* is the response of the agent's model call built from `(g, i)`; the tool messages after it are the results of that call's `ToolEvent`s (`parent_id`), in `seq` order, with the call's id; a user message is a `msg.deliver` to this agent (as the bus words it), an injection into it (`ctx.actions.inject`), or a `before_turn` `Inject`. Where an `after_model_response` / `after_tool_result` intervention rewrote the event, the last rewrite's `after` is what must appear instead | The model or tool event the message was compared with; none when no event could explain it. A generation whose start nothing explains is reported once and not walked further |
 | `request` | Each agent model call's request, rebuilt from the stored context (`gen`, `len`), the tools it offered, and its sampling options, hashes (sha256 of the wire body the worker sends) to the gateway's `request_sha256` | The model event |
 | `response` | Each model call's response equals the gateway's `upstream_response_json` normalized again the way model-gateway normalizes it | The model event |
+| `send` | An agent's `msg.send` has the channel and content its `send_message` call ran with: the `ToolEvent` with the send's `call_id` under the same model event, by its executed arguments. A `msg.send` with no agent has a `post` intervention as parent with the same channel, sender, and content | The `msg.send` |
+| `delivery` | A `msg.deliver` names a recorded send, has its channel and sender, and carries its content, or the content of the last `before_deliver` rewrite (`action` `deliver`) of it for that recipient; and no `drop` for that recipient precedes it | The `msg.deliver` |
 
-`data` holds `consistent`, the counts compared (`messages`, `requests`, `responses`), the
-intervention events that explained a difference (`interventions`), each mismatch (`check`,
+`data` holds `consistent`, the counts compared (`messages`, `requests`, `responses`, and
+`deliveries`, from schema version 5), the intervention events that explained a difference or an
+absence (`interventions`: rewrites, compactions, and injections a context message matched;
+`before_deliver` verdicts a delivery matched; and drops and holds of messages a recipient never
+got), each mismatch (`check`,
 `agent_id`, `gen`, `idx`, `event_id`, `detail`), and `event_ids`, every event a mismatch names.
 A difference an intervention explains is an intervention; any other is a mismatch, the spoofing
 signal. A mismatch does not fail the run; the worker logs a warning.
@@ -194,7 +212,8 @@ explain an equal message in any agent's context; and content that merely looks l
 or result inside a recorded result is not a mismatch, since the event recorded it so. Rule scans
 and the judge look at content.
 
-Added in schema version 4 (with `isolation_probe`); older runs simply lack it.
+Added in schema version 4 (with `isolation_probe`); older runs simply lack it. The `send` and
+`delivery` checks and `deliveries` are from schema version 5.
 
 ## Hash chain
 

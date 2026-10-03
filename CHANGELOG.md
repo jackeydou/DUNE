@@ -155,8 +155,26 @@
   the run's first event, one line per event.
 - `ctx.trigger_id`, the event that caused a hook call; `ctx.actions.alert` returns the alert's
   event id, and `ctx.actions.stop` / `inject` take a `cause`.
+- `before_deliver` hook: once per message and recipient, right after the send commits, extensions
+  chain `Deliver(content)` (rewrite), `Delay(turns)` (adds up, counted in the recipient's own
+  turns), and `Drop` (ends the chain). Each verdict is an `intervention` on the `msg.send`;
+  `runs.deliveries` gains `dropped`, `delayed`, and `due_turn` (migration 0007). A dropped
+  message is never delivered; one still held at run end has no `msg.deliver`.
+- `ctx.actions.post(channel, sender, content)`: an extension puts a message on a channel as if
+  `sender` sent it; `RunInfo.channels`.
+- `ctx.rng` is seeded per call from the run seed, the instance id, and the count of the
+  instance's calls that drew before, committed as `runs.extension_state.rng_uses`, so a resumed
+  or forked run continues the same draws.
+- The transcript check's `send` and `delivery` checks: every `msg.send` matches its
+  `send_message` call or an extension's post, and every `msg.deliver` carries what was sent or
+  what a `before_deliver` rewrite made of it, never after a drop. `transcript_check` counts
+  `deliveries`.
 
 ### Changed
+- A message is routed through `before_deliver` when its send commits, and a finished agent wakes
+  only for a message due at its next turn. `msg.deliver` names the last `before_deliver`
+  intervention on it as parent, when there is one. `MessageSendRecord.call_id` is `None` for a
+  posted message. `RunStore.extension_states` returns `ExtensionSnapshot`s.
 - Event schema version 5: `parent_id` is set on every event but the run's first, and event ids
   are UUIDs fixed before commit (`EventDraft.event_id`). Version 4 events read unchanged.
 - `ModelClient.generate` takes the recorded event's `parent_id`; `RunWriter.last_event_id` is
