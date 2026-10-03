@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from swarmeval.control.bundles import bundle_key, unpack
 from swarmeval.control.queue import Queue, RunRow, RunStatus
 from swarmeval.core import CaseError, Variant, load_case, run_spec
-from swarmeval.core.models import Scalar
+from swarmeval.core.models import AxisValue
 from swarmeval.events import ObjectStore, PostgresRunStore, RunHeader, export_events, export_run
 from swarmeval.events.transcript import load_transcript
 from swarmeval.gateway.model.client import (
@@ -51,7 +51,7 @@ log = logging.getLogger(__name__)
 
 CANCELLED = "cancelled through the Control API"
 
-_OVERRIDES = TypeAdapter(dict[str, list[Scalar]])
+_OVERRIDES = TypeAdapter(dict[str, list[AxisValue]])
 
 
 @dataclass(frozen=True)
@@ -126,7 +126,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
     causes, become an `Outcome`; anything else is a bug and propagates."""
     try:
         variant = await _variant(run, deps.store)
-        extensions = load_extensions(variant.case.extensions, builtin_tools=BUILTIN_TOOL_NAMES)
+        extensions = load_extensions(variant.extensions, builtin_tools=BUILTIN_TOOL_NAMES)
     except (CaseError, ExtensionLoadError) as err:
         return Outcome("failed", f"the case no longer loads: {err}")
     canaries = place(variant.env.canaries)

@@ -175,8 +175,9 @@ Register it under the `swarmeval.extensions` entry point group:
 ```
 
 `load_extensions` takes the case's `extensions:` entries (`ExtensionUse`: `use`, optional `as`,
-`config`). It resolves them, checks `api_version`, validates each config, and runs setup. It
-refuses the following:
+`config`), followed by its channels' `interventions:` expanded into the same form
+(`Variant.extensions`, [case-format.md](case-format.md#channel-interventions)). It resolves them,
+checks `api_version`, validates each config, and runs setup. It refuses the following:
 
 - The same instance listed twice without `as:`.
 - Two tools with the same name.
@@ -193,6 +194,14 @@ Registered under the same entry point group by this package; a case lists them l
 |---|---|---|
 | `swarmeval.canary` | `on_event` | Searches each committed model call, tool result, and message for the run's file canaries (`ctx.run.canaries`) and sandbox canaries (`ctx.run.sandbox_canaries`) and emits a `canary_hit` event per hit: `canary` (a file canary's id, or the sandbox id), `kind` (`file` or `sandbox`), `sandbox_id` (where it was planted), `where`, `event_id`, `agent_id`, `via` (the decodings that revealed it, empty when the token appeared as is), and `cross_sandbox`. Every file canary sighting is a hit; a sandbox canary sighting only when it crosses sandboxes ([rule](services/orchestrator.md#sandbox-canaries)). State: the hit count, and per agent the canaries a delivered message carried to it |
 | `swarmeval.env_state` | `on_run_start`, `after_turn` (with `every_turn: true`), `on_run_end` | Runs each configured snapshot command (`id`, `sandbox`, `run`, `timeout_s`) through `ctx.sandbox` and emits an `env.state` event with its output |
+| `swarmeval.bus.drop` | `before_deliver` | `channels`, `p`: drops each message on those channels, per recipient, with probability `p` (one `ctx.rng` draw per message and recipient) |
+| `swarmeval.bus.delay` | `before_deliver` | `channels`, `turns`: holds each message on those channels for `turns` of the recipient's own turns, or for a count drawn uniformly from `[min, max]` with `ctx.rng` |
+| `swarmeval.bus.paraphrase` | `before_deliver` | `channels`, `model`, `prompt`: asks `model`, through model-gateway under the instance's own key, to rewrite each message on those channels, `prompt` as the system message and the message as the user message, and delivers the reply. The default `prompt` keeps every fact and the intent and changes the wording, structure, and formatting (`DEFAULT_PARAPHRASE_PROMPT`). One call per message and recipient, recorded as the instance's `ModelEvent` with the `msg.send` as parent. Its hooks may take 600 s |
+| `swarmeval.bus.inject` | `before_turn` | `channel`, `at_turn`, `sender`, `content`: at the start of run-wide turn `at_turn` (every agent's turns counted together), posts `content` on `channel` as if `sender` sent it (`ctx.actions.post`); members read it at their next turn |
+
+The four `swarmeval.bus.*` extensions are in `swarmeval/gateway/bus/interventions.py`. Their
+`channels` may be empty, so a variant axis can switch one off (`[]`) without removing it. A
+message they leave alone records nothing.
 
 `ctx.run.canaries` holds each file canary placed for the run: `id`, `sandbox_id`, `path`, and
 `token`. `ctx.run.sandbox_canaries` holds each sandbox's own canary: `sandbox_id`, `agents` (the
@@ -213,7 +222,7 @@ agents that use the sandbox), `token`, and where it is planted: `hostname`, `env
 | `before_deliver` | Chain of verdicts | `Envelope`: `send_event_id`, `channel`, `sender`, `recipient`, `content`, `delayed_turns` | `Deliver(content)`, `Drop(reason)`, `Delay(turns)` |
 | `on_event` | Observe | `CommittedEvent` | `None` |
 
-The three kinds combine differently:
+The kinds combine differently:
 
 - **Transform** hooks chain: each receives the previous one's output. Returning the input
   unchanged records nothing.

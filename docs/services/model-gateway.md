@@ -21,7 +21,7 @@ Both addresses have no authentication beyond the virtual keys; bind them to the 
 | Caller | Key | Recorded as |
 |---|---|---|
 | Run worker, for an agent | One virtual key per agent per run, registered when the worker attaches | Run evidence: a `ModelEvent` committed by the run's worker before the response is returned |
-| Run worker, for the Message Bus `paraphrase` intervention (M2) | A bus key for the run | Run evidence, the same way |
+| Run worker, for an extension's own model calls, such as the `swarmeval.bus.paraphrase` intervention | One virtual key per extension instance per run (`extension:<instance>`), registered with the agents' keys | Run evidence, the same way, as a `ModelEvent` with no agent and the instance as its `extension` |
 | [analysis](analysis.md), for the LLM judge | One analysis key, from the environment variable the config's `analysis_key_env` names (at least 32 characters). Unset, no analysis call is served | Not run evidence. Answered directly, with no `Attach` stream; analysis stores the call with its verdict |
 
 Sandboxes cannot reach model-gateway, and neither can [net-gateway](net-gateway.md).

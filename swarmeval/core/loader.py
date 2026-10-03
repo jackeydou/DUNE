@@ -6,6 +6,7 @@ same way everywhere.
 """
 
 import itertools
+import logging
 import posixpath
 import re
 from collections.abc import Mapping, Sequence
@@ -15,15 +16,19 @@ from pathlib import Path
 import yaml
 from pydantic import TypeAdapter, ValidationError
 
+from swarmeval.core.interventions import expand
 from swarmeval.core.models import (
     SCHEMA_VERSIONS,
+    AxisValue,
     CaseFile,
     CommandScorer,
     CrossSandboxScorer,
     EnvFile,
     Name,
-    Scalar,
 )
+from swarmeval.runtime.extensions import ExtensionUse
+
+log = logging.getLogger(__name__)
 
 CASE_FILE = "case.yaml"
 
@@ -31,7 +36,9 @@ _REF = re.compile(r"\$\{variant\.([^}]*)\}")
 _NOT_SUBSTITUTED = ("schema_version", "id", "workspace", "variants", "epochs")
 """Case keys that identify the case or size its run matrix, so they cannot vary."""
 
-_AXES: TypeAdapter[dict[str, tuple[Scalar, ...]]] = TypeAdapter(dict[Name, tuple[Scalar, ...]])
+_AXES: TypeAdapter[dict[str, tuple[AxisValue, ...]]] = TypeAdapter(
+    dict[Name, tuple[AxisValue, ...]]
+)
 
 
 class CaseError(Exception):
@@ -67,7 +74,7 @@ class SandboxPlan:
 @dataclass(frozen=True)
 class Variant:
     index: int
-    values: Mapping[str, Scalar]
+    values: Mapping[str, AxisValue]
     case: CaseFile
     env: EnvFile
     prompts: Mapping[str, AgentPrompts]
@@ -77,6 +84,9 @@ class Variant:
     """Command scorer id → its script's text."""
     files: Mapping[str, tuple[FileSeed, ...]]
     """Sandbox instance → the case files its profile copies in."""
+    extensions: tuple[ExtensionUse, ...]
+    """What the run loads: `extensions:`, then the channels' `interventions:` expanded."""
+    warnings: tuple[str, ...]
 
     def sandbox_of(self, agent_id: str) -> SandboxPlan:
         return next(s for s in self.sandboxes.values() if agent_id in s.agents)
@@ -90,10 +100,12 @@ class LoadedCase:
     epochs: int
     variants: tuple[Variant, ...]
     """Cartesian product of the variant axes, first axis varying slowest."""
+    warnings: tuple[str, ...]
+    """Things that load but do nothing, once each across variants. Also logged."""
 
 
 def load_case(
-    case_dir: Path, overrides: Mapping[str, Sequence[Scalar]] | None = None
+    case_dir: Path, overrides: Mapping[str, Sequence[AxisValue]] | None = None
 ) -> LoadedCase:
     """Loads and validates every variant. `overrides` replaces the values of declared axes."""
     case_dir = case_dir.resolve()
@@ -115,12 +127,16 @@ def load_case(
         values = dict(zip(names, combo, strict=True))
         variants.append(_variant(files, case_path, raw_case, index, values))
     first = variants[0].case
+    warnings = tuple(dict.fromkeys(w for v in variants for w in v.warnings))
+    for warning in warnings:
+        log.warning("%s: %s", case_path, warning)
     return LoadedCase(
         dir=case_dir,
         id=first.id,
         workspace=first.workspace,
         epochs=first.epochs,
         variants=tuple(variants),
+        warnings=warnings,
     )
 
 
@@ -129,7 +145,7 @@ def _variant(
     case_path: Path,
     raw_case: dict[str, object],
     index: int,
-    values: dict[str, Scalar],
+    values: dict[str, AxisValue],
 ) -> Variant:
     where = f"{case_path}" + (f" (variant {values})" if values else "")
     substituted = {
@@ -137,6 +153,10 @@ def _variant(
         for key, value in raw_case.items()
     }
     case = _validate(CaseFile, substituted, where)
+    try:
+        expanded = expand(case)
+    except ValueError as err:
+        raise CaseError(f"{where}: {err}") from err
 
     env_path = files.resolve(case.environment, "environment")
     raw_env = files.yaml(env_path)
@@ -183,6 +203,8 @@ def _variant(
         sandboxes=sandboxes,
         scripts=scripts,
         files=seeds,
+        extensions=expanded.extensions,
+        warnings=expanded.warnings,
     )
 
 
@@ -388,8 +410,8 @@ def _check_version(path: Path, raw: dict[str, object]) -> None:
 
 
 def _axes(
-    path: Path, raw: object, overrides: Mapping[str, Sequence[Scalar]]
-) -> dict[str, tuple[Scalar, ...]]:
+    path: Path, raw: object, overrides: Mapping[str, Sequence[AxisValue]]
+) -> dict[str, tuple[AxisValue, ...]]:
     try:
         axes = _AXES.validate_python(raw)
     except ValidationError as err:
@@ -427,7 +449,7 @@ def _references(node: object) -> bool:
 
 
 def _substitute(
-    node: object, values: Mapping[str, Scalar], where: str, path: tuple[str | int, ...]
+    node: object, values: Mapping[str, AxisValue], where: str, path: tuple[str | int, ...]
 ) -> object:
     """A string that is exactly one reference takes the value with its type; a reference
     inside a longer string is replaced by the value's text."""
@@ -435,8 +457,9 @@ def _substitute(
         case str():
             whole = _REF.fullmatch(node)
             if whole is not None:
-                return _value(whole.group(1), values, where, path)
-            return _REF.sub(lambda m: _text(_value(m.group(1), values, where, path)), node)
+                value = _value(whole.group(1), values, where, path)
+                return list(value) if isinstance(value, tuple) else value
+            return _REF.sub(lambda m: _text(m.group(1), values, where, path), node)
         case list():
             items: list[object] = node  # pyright: ignore[reportUnknownVariableType]
             return [_substitute(v, values, where, (*path, i)) for i, v in enumerate(items)]
@@ -448,8 +471,8 @@ def _substitute(
 
 
 def _value(
-    name: str, values: Mapping[str, Scalar], where: str, path: tuple[str | int, ...]
-) -> Scalar:
+    name: str, values: Mapping[str, AxisValue], where: str, path: tuple[str | int, ...]
+) -> AxisValue:
     if name not in values:
         raise CaseError(
             f"{where}: `{_dotted(path)}` refers to `${{variant.{name}}}`, but the case has no "
@@ -459,7 +482,15 @@ def _value(
     return values[name]
 
 
-def _text(value: Scalar) -> str:
+def _text(
+    name: str, values: Mapping[str, AxisValue], where: str, path: tuple[str | int, ...]
+) -> str:
+    value = _value(name, values, where, path)
+    if isinstance(value, tuple):
+        raise CaseError(
+            f"{where}: `{_dotted(path)}` puts `${{variant.{name}}}`, a list, inside a longer "
+            "string. A list-valued axis can only be a field's whole value."
+        )
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)

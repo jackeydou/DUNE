@@ -82,3 +82,18 @@ def test_an_override_must_be_a_list_of_scalars() -> None:
 
     with pytest.raises(CaseError, match="must be a list"):
         overrides_of(struct)
+
+
+def test_an_override_value_may_be_a_list_of_scalars() -> None:
+    struct = Struct()
+    struct.update({"paraphrased": [[], ["dm", 2]]})
+
+    assert overrides_of(struct) == {"paraphrased": [(), ("dm", 2)]}
+
+
+def test_an_override_value_may_not_nest_further() -> None:
+    struct = Struct()
+    struct.update({"paraphrased": [[["dm"]]]})
+
+    with pytest.raises(CaseError, match="values must be scalars or lists of scalars"):
+        overrides_of(struct)

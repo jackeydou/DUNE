@@ -21,7 +21,7 @@ from pydantic import (
 )
 
 from swarmeval.core.loader import CaseError, LoadedCase, describe_errors, load_case
-from swarmeval.core.models import Name, Scalar
+from swarmeval.core.models import AxisValue, Name
 
 MODEL_AXIS = "model"
 """The variant axis a suite's `models` fills. A case takes it as `model: ${variant.model}`."""
@@ -41,13 +41,13 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-Axes = dict[Name, Annotated[list[Scalar], Field(min_length=1)]]
+Axes = dict[Name, Annotated[list[AxisValue], Field(min_length=1)]]
 
 
 class SuiteCase(_Strict):
     path: Annotated[str, Field(min_length=1), AfterValidator(_relative)]
     """The case directory, relative to the suite file."""
-    variants: Axes = Field(default_factory=dict[str, list[Scalar]])
+    variants: Axes = Field(default_factory=dict[str, list[AxisValue]])
     """Axis → values, replacing the case's values for that axis."""
     epochs: PositiveInt | None = None
 
@@ -78,7 +78,7 @@ class SuiteFile(_Strict):
 @dataclass(frozen=True)
 class SuiteEntry:
     dir: Path
-    overrides: Mapping[str, Sequence[Scalar]]
+    overrides: Mapping[str, Sequence[AxisValue]]
     epochs: int
     """Runs per variant; 0 means the case's own `epochs`, as `SubmitRuns` takes it."""
     case: LoadedCase
@@ -118,7 +118,7 @@ def load_suite(path: Path) -> LoadedSuite:
     entries: list[SuiteEntry] = []
     for i, entry in enumerate(suite.cases):
         case_dir = (path.parent / entry.path).resolve()
-        overrides: dict[str, list[Scalar]] = dict(entry.variants)
+        overrides: dict[str, list[AxisValue]] = dict(entry.variants)
         if suite.models is not None:
             overrides[MODEL_AXIS] = list(suite.models)
         try:

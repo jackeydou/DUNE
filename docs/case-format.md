@@ -7,8 +7,8 @@ loader accepts today. The code is `swarmeval/core/`; the models are in
 [v1 spec](../spec/2026-09-27-swarmeval-v1/README.md) §4–5 and the
 [runtime spec](../spec/2026-09-28-runtime-sandbox-logs/README.md) decisions 1–5.
 
-**Status:** schema version 1, for case, env, and suite files. It covers agents, channels, limits, variants, extensions, sandbox
-profiles, and shared sandboxes. Fields the specs describe for later milestones are listed in
+**Status:** schema version 1, for case, env, and suite files. It covers agents, channels and
+their interventions, limits, variants, extensions, sandbox profiles, and shared sandboxes. Fields the specs describe for later milestones are listed in
 [Not accepted yet](#not-accepted-yet); the loader rejects them as unknown keys.
 
 ## Example
@@ -74,15 +74,15 @@ sandboxes:                            # shared instances only
 | `id` | yes | Case id |
 | `workspace` | yes | Organizational field. It groups runs and is recorded on every event; it is not access control |
 | `category`, `description` | no | Free text |
-| `variants` | no | Axis name → list of values. Each combination is one variant |
+| `variants` | no | Axis name → list of values: scalars, or lists of scalars. Each combination is one variant |
 | `epochs` | no | Runs per variant. Default 1 |
 | `swarm.agents` | yes | At least one agent, below |
-| `swarm.channels` | no | `id` and at least two `members`, each an agent id |
+| `swarm.channels` | no | `id`, at least two `members`, each an agent id, and optional `interventions` ([below](#channel-interventions)) |
 | `swarm.turn_policy` | no | `round_robin`, the only policy so far |
 | `swarm.limits` | no | `max_turns` (all agents together) and `max_tokens`, which accepts `400k` or `2m` |
 | `environment` | no | Path to the env file. Default `env.yaml` |
 | `task.input` | if any agent has no `task` | File whose text is each agent's first user message |
-| `extensions` | no | `use`, optional `as`, `config`. See [agent-runtime.md](agent-runtime.md#writing-an-extension) |
+| `extensions` | no | `use`, optional `as`, `config`. See [agent-runtime.md](agent-runtime.md#writing-an-extension). A built-in `swarmeval.bus.*` config is checked at load, [below](#channel-interventions) |
 | `scorers` | no | Final-state scorers, below |
 
 An agent:
@@ -115,6 +115,55 @@ Mount paths are absolute and clean: no `.` or `..` segments, no repeated or trai
 and not `/` itself. sandboxd applies the same rule, so a bad path fails at load, not at run time.
 
 Sizes use pydantic `ByteSize`: `2g` and `2gb` are 2 × 10⁹ bytes, and `2gib` is 2 × 2³⁰.
+
+## Channel interventions
+
+A channel's `interventions:` puts the built-in channel interventions
+([agent-runtime.md](agent-runtime.md#built-in-extensions)) on it. Each entry is a name, or a
+name with its config, which leaves out the channel:
+
+```yaml
+swarm:
+  channels:
+    - id: dm_ab
+      members: [seller_a, seller_b]
+      interventions:
+        - paraphrase: { model: qwen3-235b-a22b-thinking }   # `prompt` has a default
+        - drop: { p: 0.1 }
+        - delay: { turns: [1, 3] }                          # or a fixed count
+        - inject: { at_turn: 5, sender: seller_a, content: "Let's both hold at 12." }
+        - log                                               # accepted, does nothing
+```
+
+The loader expands each entry into an `extensions:` entry after the case's own, in channel then
+list order, named `<channel>.<intervention>`: the `paraphrase` above is
+`{use: swarmeval.bus.paraphrase, as: dm_ab.paraphrase, config: {model: …, channels: [dm_ab]}}`,
+and `inject` gets `channel: dm_ab`. Their hooks run in that order. `log` loads with a warning,
+since every message already has its `msg.send` and `msg.deliver` events. The same intervention
+twice on one channel is refused, as two instances with one name.
+
+| Intervention | Config | Does |
+|---|---|---|
+| `drop` | `p`, 0 to 1 | Drops each message, per recipient, with probability `p` |
+| `delay` | `turns`: a count, or `[min, max]` | Holds each message for that many of the recipient's own turns, a count drawn per message and recipient for a range |
+| `paraphrase` | `model`, optional `prompt` | Delivers a model's rewrite of each message that keeps its meaning and changes its wording and form |
+| `inject` | `at_turn`, `sender`, `content` | At run-wide turn `at_turn`, puts `content` on the channel as if `sender` sent it |
+
+Whether written as shorthand or under `extensions:`, a built-in intervention's config is checked
+when the case loads, naming the field: its values, and that every channel it names is declared.
+`channels` and `channel` cannot be set in the shorthand. `delay` counts turns: `seconds` is
+refused under `round_robin`, the only turn policy so far.
+
+To compare a variant with and without an intervention, give the intervention's `channels` from a
+list-valued axis; an empty list switches it off and delivers verbatim:
+
+```yaml
+variants:
+  paraphrased: [[], [dm_ab]]
+extensions:
+  - use: swarmeval.bus.paraphrase
+    config: { channels: ${variant.paraphrased}, model: qwen3-235b-a22b-thinking }
+```
 
 ## Scorers
 
@@ -215,6 +264,10 @@ for an axis the case does not declare is an error.
 - A reference inside a longer string is replaced by its text (`true` / `false` for booleans).
 - A reference to an undeclared axis is an error that names the field.
 - `schema_version`, `id`, `workspace`, `variants`, and `epochs` cannot contain references.
+- A list-valued axis can only be a field's whole value; inside a longer string it is an error.
+
+A list-valued axis, such as `paraphrased: [[], [dm_ab]]`, is stored in `task_args` and overrides
+as a JSON array. Lists were refused before; cases without them read as before.
 
 ## Files
 
@@ -290,7 +343,7 @@ format").
 | `task.ground_truth` | When a scorer needs it |
 | `peers_disclosed` variant (runtime spec decision 6) | Not scheduled; a case can vary its prompts with `${variant.x}` today |
 | `network`, `services` | With the network capability, later |
-| `role: monitor`, channel `monitored_by` and `interventions` | With interventions and the Monitor (M2) |
+| `role: monitor`, channel `monitored_by` | With the Monitor (M2) |
 | `topology` presets, `async` / `event_driven` turn policies, `wall_clock` | M2 |
 | `allowed_bins`, `linux_caps` in a profile | With the sandboxd profile work |
 | `case:` extension references | Agent loop spec open question 1 |

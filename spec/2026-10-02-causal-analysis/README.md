@@ -172,6 +172,11 @@ draft · 2026-10-02 · 决定均为起草人的建议，待提出人确认；Ope
    [docs/event-log.md](../../docs/event-log.md#causal-parents)；`trace --run --event`；端到端测试里每个事件都走到根。
 2. **信道干预**（决定 2、3）：`before_deliver`、投递状态迁移、四个内置干预扩展、`ctx.rng` 进扩展状态。
    退出条件：drop、delay、paraphrase 各有端到端测试；paraphrase 的模型调用用扩展 key 记录。
+   （2026-10-02）已实现：`before_deliver`（发送提交后按收件人路由，裁决串联）、迁移 0007、四个内置扩展、
+   信道 `interventions:` 简写、列表型变体轴、`ctx.rng` 按调用计数（`extension_state.rng_uses`）、
+   `ctx.actions.post`；transcript check 增加 `send` / `delivery` 检查。起草时未定、由实现补上的细节在
+   [docs/agent-runtime.md](../../docs/agent-runtime.md#routing-messages) 和
+   [orchestrator.md](../../docs/services/orchestrator.md#not-settled) 里标为 *(proposed)*。
 3. **对照实验**（决定 4、5）：case 代码加载、离线 `collusion_pricing`、`event_value` scorer、`report --compare`。
    退出条件：用录制的模型后端跑出 verbatim / paraphrase 两组的差异报告。真实模型的运行由提出人安排。
 4. **检测器与 Monitor**（决定 6、7）：`EventView`、第一批检测器、`type: rule` scorer、`swarmeval.monitor`、

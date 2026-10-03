@@ -7,10 +7,10 @@ writer of a run's events and state. Its place among the services is in
 
 **Status:** the M0 part is built: case loading, the Control API, the queue, a worker that drives
 each run from claim to export, the agent loop ([agent-runtime.md](../agent-runtime.md)), the
-Message Bus without interventions, canaries, and final-state scorers. Of M1, `web_request`,
+Message Bus, canaries, and final-state scorers. Of M1, `web_request`,
 several workers, reruns of interrupted runs, suites, per-sandbox canaries, and the isolation
-self-check are built. M2 adds interventions, fork, the online Monitor, and the async and
-event-driven turn policies. M3 adds leases, fencing, takeover, and pausing. Items marked
+self-check are built. Of M2, the causal chain and channel interventions are built; fork, the
+online Monitor, and the async and event-driven turn policies are not yet. M3 adds leases, fencing, takeover, and pausing. Items marked
 *(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ## Roles
@@ -294,14 +294,26 @@ sends with the `send_message` tool, naming a channel it is a member of; any othe
 error result the agent sees. The message goes to every other member. The send writes `msg.send`
 in the tool call's transaction, and the store opens one `deliveries` row per recipient with it.
 
-Delivery is pushed: at the start of a recipient's next turn, each waiting message is admitted as a
-user message (``Message from <sender> on channel `<channel>`:`` and the content), with a
-`msg.deliver` event whose parent is the send. The store closes the `deliveries` row in the same
-transaction. `msg.deliver` carries the content actually delivered, which differs from the
-original when an intervention applies. A message to a finished agent gives it another turn.
-Interventions (`log`, `drop`, `delay`, `paraphrase`, `inject`) arrive in M2.
-`paraphrase` calls model-gateway with a bus-owned key, so the rewrite is recorded like any other
-model call.
+Once the send has committed, the loop routes the message to each recipient through the
+`before_deliver` hook, whose verdict commits with its interventions and the row's new status:
+delivered as is or rewritten, held for some of the recipient's turns (`delayed`, `due_turn`), or
+dropped for good. The rules, and how a delay is counted, are in
+[agent-runtime.md](../agent-runtime.md#routing-messages).
+
+Delivery is pushed: at the start of a recipient's turn, each message due is admitted as a user
+message (``Message from <sender> on channel `<channel>`:`` and the content), with a `msg.deliver`
+event whose parent is the send, or the last intervention on it. The store closes the
+`deliveries` row in the same transaction. `msg.deliver` carries the content actually delivered,
+which differs from the original when a `before_deliver` rewrite applies. A message due for a
+finished agent gives it another turn.
+
+Interventions on channels are extensions: `swarmeval.bus.drop`, `swarmeval.bus.delay`,
+`swarmeval.bus.paraphrase`, and `swarmeval.bus.inject`
+([agent-runtime.md](../agent-runtime.md#built-in-extensions)), configured under `extensions:`
+or with a channel's `interventions:` ([case-format.md](../case-format.md#channel-interventions)).
+`log` is not an intervention: every message already has its `msg.send` and `msg.deliver`.
+`paraphrase` calls model-gateway with its own instance's key, so the rewrite is recorded like any
+other model call, under that instance.
 
 ### Budgets and limits
 
@@ -524,3 +536,8 @@ connection.
    `/etc/machine-id`, left out where a key path at `/etc` would hide it.
 9. The isolation self-check's details: `1.1.1.1:80` as the `connect` target, `/dev/shm` as the
    IPC-namespace probe, probes as root, and `unverified` not failing the run.
+10. Channel interventions: routing a message when its send commits; a hold counted from the
+    recipient's turns started at that moment; held mail not waking a finished agent until it is
+    due at its next turn; an injected message posted at the start of a run-wide turn, after the
+    current agent's mail was taken, and routed through `before_deliver` like any other; the
+    shorthand's instance names (`<channel>.<intervention>`) and its place after `extensions:`.

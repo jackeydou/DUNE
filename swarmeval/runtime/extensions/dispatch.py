@@ -321,7 +321,7 @@ class HookDispatcher:
         """Queued injections for `agent_id`, each with its intervention event."""
         return self._injections.pop(agent_id, [])
 
-    def take_posts(self) -> list["Post"]:
+    def take_posts(self) -> list[Post]:
         """Messages extensions posted on channels since the last call, in order."""
         posts, self._posts = self._posts, []
         return posts
