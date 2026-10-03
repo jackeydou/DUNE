@@ -104,8 +104,14 @@
   request's hash from the stored context, and normalizes the gateway's raw response again. The
   outcome is a `swarmeval.transcript_check` event naming every mismatching event; a mismatch
   is the spoofing signal and does not fail the run. New `InfoEvent` source, no schema bump.
+- `python -m swarmeval.analysis timeline --run ID`: one run's events in `seq` order as a
+  Markdown table with a lane per agent, narrowed by `--agent` and a `seq` range, and with
+  `--html` a self-contained page. Events render as the judge's one-line text, now shared in
+  `swarmeval.analysis.render`, which also describes score events.
 
 ### Changed
+- Missing exports raise `swarmeval.analysis.exports.ExportError` (was `JudgeError`), and the
+  analysis entry point turns it into an exit message.
 - A run whose summary cannot be written ends `failed`, with the reason in its error. Cancelled
   queued runs and runs interrupted by a worker restart get summaries too.
 - Event schema version 3: tool events from `web_request` carry `web`. Additive; version 2 events

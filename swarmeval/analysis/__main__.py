@@ -6,6 +6,8 @@
   from SWARMEVAL_ANALYSIS_KEY.
 - `eval-set --out DIR [--submission ID ...] [--reducer NAME ...]`: one Inspect `.eval` per
   variant in DIR, every `done` epoch a sample; one line per variant on stdout.
+- `timeline --run ID [--agent A ...] [--from-seq N] [--to-seq N] [--html FILE]`: one run's
+  events, a lane per agent, as Markdown on stdout and optionally an HTML page.
 """
 
 import argparse
@@ -16,8 +18,10 @@ from pathlib import Path
 import httpx2
 
 from swarmeval import config
+from swarmeval.analysis import timeline
 from swarmeval.analysis.evalset import describe, variant_runs, write_eval_set
-from swarmeval.analysis.judge import Gateway, judge, load_events
+from swarmeval.analysis.exports import ExportError, load_events, load_events_table, runs_of
+from swarmeval.analysis.judge import Gateway, judge
 from swarmeval.analysis.report import load_summaries, markdown, report
 from swarmeval.db import async_engine
 from swarmeval.events import DEFAULT_REDUCERS
@@ -71,15 +75,48 @@ def main() -> None:
     )
     config.add_object_store(evals)
 
+    lanes = jobs.add_parser("timeline", help="one run's events in order, a lane per agent")
+    lanes.add_argument("--run", required=True, help="the run id")
+    lanes.add_argument(
+        "--agent",
+        action="append",
+        default=[],
+        help=f"only this agent's lane; repeatable. `{timeline.RUN_LANE}` is the run's own events",
+    )
+    lanes.add_argument("--from-seq", type=int, help="first event to show")
+    lanes.add_argument("--to-seq", type=int, help="last event to show")
+    lanes.add_argument("--event-chars", type=int, default=400, help="characters per event")
+    lanes.add_argument("--html", type=Path, help="also write a self-contained HTML page here")
+    config.add_object_store(lanes)
+
     args = parser.parse_args()
-    match args.job:
-        case "report":
-            summaries = load_summaries(config.object_store(args))
-            print(markdown(report(summaries, args.submission)), end="")
-        case "judge":
-            asyncio.run(_judge(args))
-        case _:
-            asyncio.run(_eval_set(args))
+    try:
+        match args.job:
+            case "report":
+                summaries = load_summaries(config.object_store(args))
+                print(markdown(report(summaries, args.submission)), end="")
+            case "judge":
+                asyncio.run(_judge(args))
+            case "eval-set":
+                asyncio.run(_eval_set(args))
+            case _:
+                asyncio.run(_timeline(args))
+    except ExportError as err:
+        raise SystemExit(str(err)) from err
+
+
+async def _timeline(args: argparse.Namespace) -> None:
+    table = await load_events_table(config.object_store(args), args.run)
+    result = timeline.timeline(
+        table,
+        agents=args.agent,
+        from_seq=args.from_seq,
+        to_seq=args.to_seq,
+        event_chars=args.event_chars,
+    )
+    print(timeline.markdown(result), end="")
+    if args.html:
+        args.html.write_text(timeline.page(result), encoding="utf-8")
 
 
 async def _eval_set(args: argparse.Namespace) -> None:
@@ -97,13 +134,7 @@ async def _judge(args: argparse.Namespace) -> None:
     run_ids: list[str] = list(args.run)
     if args.submission:
         summaries = await asyncio.to_thread(load_summaries, store)
-        run_ids = sorted(
-            r["run_id"]
-            for r in summaries.to_pylist()
-            if r["submission_id"] in args.submission and r["status"] == "done"
-        )
-        if not run_ids:
-            raise SystemExit(f"submissions {', '.join(args.submission)} have no `done` runs.")
+        run_ids = runs_of(summaries, args.submission, ["done"])
     key = os.environ.get("SWARMEVAL_ANALYSIS_KEY")
     if not key:
         raise SystemExit(
