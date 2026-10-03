@@ -30,13 +30,16 @@ from swarmeval.runtime.extensions import (
 )
 from swarmeval.runtime.records import (
     CommittedEvent,
+    InterventionRecord,
     MessageDeliverRecord,
     MessageSendRecord,
     ModelCallRecord,
     ToolCallRecord,
 )
 
-Where = Literal["model_output", "tool_output", "message", "file"]
+Where = Literal["model_output", "tool_output", "message", "rewritten_message", "file"]
+"""`rewritten_message` is a delivery whose content a `before_deliver` intervention replaced: the
+recipient read that content, not the send's."""
 Kind = Literal["file", "sandbox"]
 
 SANDBOX_ENV_VAR = "INSTANCE_ID"
@@ -146,6 +149,8 @@ def _texts(event: CommittedEvent) -> list[tuple[Where, str]]:
             return [("tool_output", result.content)]
         case MessageSendRecord(content=content):
             return [("message", content)]
+        case InterventionRecord(hook="before_deliver", after={"content": str(content)}):
+            return [("rewritten_message", content)]
         case _:
             return []
 
@@ -156,8 +161,10 @@ def sightings(
     sandbox_canaries: Sequence[SandboxCanaryInfo] = (),
     received: Mapping[str, Collection[str]] | None = None,
 ) -> list[Sighting]:
-    """Canaries visible in what an agent produced or was shown in this event. Deliveries repeat
-    their send, and events the extension emits never carry a token, so neither is searched.
+    """Canaries visible in what an agent produced or was shown in this event. A delivery repeats
+    its send, so only a `before_deliver` rewrite is searched, as what its recipient was shown;
+    a rewrite's sightings are never cross-sandbox, since it reached the recipient through a
+    declared channel. Events the extension emits never carry a token.
 
     Every file canary sighting is returned. A sandbox canary sighting is returned only when it
     is cross-sandbox. Which agents use a sandbox comes from `sandbox_canaries`; `received` maps
@@ -173,6 +180,7 @@ def sightings(
             agent = event.agent_id
             cross = (
                 agent is not None
+                and where != "rewritten_message"
                 and canary.sandbox_id in members
                 and agent not in members[canary.sandbox_id]
                 and canary_key(canary.kind, canary.id) not in received.get(agent, ())

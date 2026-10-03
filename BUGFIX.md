@@ -1,5 +1,47 @@
 # Bug fixes
 
+## 2026-10-03 — A canary a delivery rewrite shows its recipient is missed
+
+**Symptom.** When a `before_deliver` hook replaced a message's content with text holding a
+canary, neither the canary extension nor the canary scorer saw it, though the recipient read it.
+**Root cause.** Canary search skipped deliveries on the assumption that a delivery repeats its
+`msg.send`, which stopped holding once `before_deliver` could rewrite content.
+**Fix.** Search the content of each `before_deliver` rewrite (`where: rewritten_message`); its
+sightings are never cross-sandbox, since the content came through a declared channel.
+`swarmeval/honeypot/canary.py`.
+**Guard.** `tests/honeypot/test_canary.py::test_a_token_a_delivery_rewrite_shows_its_recipient_is_a_hit`,
+`::test_a_sandbox_token_a_rewrite_carries_through_a_channel_is_not_a_crossing`.
+**Touches.** The cross-sandbox exemption for delivered tokens (`delivered`): a rewrite must not
+make a channel-carried sandbox token look like a crossing. Unchanged deliveries stay unsearched,
+so a send is not counted twice. Reported by Codex review on #12.
+
+## 2026-10-03 — `trace` stops at a missing parent as if it were the root
+
+**Symptom.** For a schema 5 export with an event whose `parent_id` was missing (truncated or
+edited export, or a writer regression), `trace` ended the chain there and showed that event as
+the run's root.
+**Root cause.** The walk stopped at any null `parent_id`, the right rule only for runs before
+schema 5, which have few parents.
+**Fix.** Under schema 5, a null parent on any event but the run's first raises `TraceError`.
+`swarmeval/analysis/trace.py`.
+**Guard.** `tests/analysis/test_trace.py::test_a_schema_5_event_with_no_parent_before_the_root_is_refused`,
+`::test_a_run_before_schema_5_may_end_its_chain_early`.
+**Touches.** The causal-parent rules in `docs/event-log.md#causal-parents`: a new event type that
+is a root besides the run's first event would now fail `trace`. Reported by Codex review on #12.
+
+## 2026-10-03 — A worker claims runs while it records a host fault
+
+**Symptom.** After a run failed the isolation self-check, a worker whose summary write was slow
+could still claim new runs on the unisolated host when another in-flight run freed its slot.
+**Root cause.** `Worker._execute` set the halt reason only after `_record` had written the run's
+status and summary, and the serving loop checks the halt reason before each claim.
+**Fix.** Set the halt reason as soon as `execute` returns a host fault, before recording.
+`swarmeval/worker/worker.py`.
+**Guard.** `tests/worker/test_multi_worker.py::test_a_slot_freed_while_a_host_fault_is_recorded_claims_nothing`.
+**Touches.** Completes 2026-10-02 (one unisolated host fails every run it claims). Anything that
+stops the worker claiming must take effect before the first `await` after the run's outcome.
+Reported by Codex review on #11.
+
 ## 2026-10-02 — The transcript check lists deliveries as interventions
 
 **Symptom.** A run with no extension had a `transcript_check` whose `interventions` named every
@@ -13,18 +55,6 @@ explained list, and a delivery is a source, not an intervention.
 old behavior; now asserts `interventions == ()`).
 **Touches.** The new `delivery` check adds `before_deliver` verdicts to the same list; anything
 that adds a source of context messages must decide whether it is an intervention.
-## 2026-10-03 — A worker claims runs while it records a host fault
-
-**Symptom.** After a run failed the isolation self-check, a worker whose summary write was slow
-could still claim new runs on the unisolated host when another in-flight run freed its slot.
-**Root cause.** `Worker._execute` set the halt reason only after `_record` had written the run's
-status and summary, and the serving loop checks the halt reason before each claim.
-**Fix.** Set the halt reason as soon as `execute` returns a host fault, before recording.
-`swarmeval/worker/worker.py`.
-**Guard.** `tests/worker/test_multi_worker.py::test_a_slot_freed_while_a_host_fault_is_recorded_claims_nothing`.
-**Touches.** Completes 2026-10-02 (one unisolated host fails every run it claims). Anything that
-stops the worker claiming must take effect before the first `await` after the run's outcome.
-Reported by Codex review on #11.
 
 ## 2026-10-02 — One unisolated host fails every run it claims
 

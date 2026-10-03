@@ -25,7 +25,10 @@ from pydantic import (
 
 from swarmeval.runtime.extensions import ExtensionUse
 
-SCHEMA_VERSIONS = frozenset({1})
+CASE_SCHEMA_VERSIONS = frozenset({1, 2})
+"""`case.yaml` versions read. Version 2 adds channel `interventions`, list values for variant
+axes, and the `cross_sandbox` scorer; version 1 cases read unchanged and refuse those."""
+ENV_SCHEMA_VERSIONS = frozenset({1})
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=63)]
 """Ids of cases, agents, channels, sandboxes, profiles, and variant axes. They end up in

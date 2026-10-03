@@ -96,3 +96,34 @@ def test_long_events_are_cut() -> None:
 
     (link,) = trace(long, "e1", event_chars=10).links
     assert link.text == 'x: "yyyyyy …[cut: 55 characters]'
+
+
+def versioned(payload: dict[str, Any], version: int) -> dict[str, Any]:
+    return {**payload, "metadata": {"swarmeval": {"schema_version": version}}}
+
+
+def test_a_schema_5_event_with_no_parent_before_the_root_is_refused() -> None:
+    truncated = pa.Table.from_pylist(
+        [
+            linked(1, None, None, versioned(START, 5)),
+            linked(2, None, "a", versioned(CALL, 5)),
+            linked(3, 2, "a", versioned(SEND, 5)),
+        ],
+        schema=EVENTS_SCHEMA,
+    )
+
+    with pytest.raises(TraceError, match=r"event e2 \(seq 2\) of run run_t has no parent"):
+        trace(truncated, "e3")
+
+
+def test_a_run_before_schema_5_may_end_its_chain_early() -> None:
+    legacy = pa.Table.from_pylist(
+        [
+            linked(1, None, None, versioned(START, 4)),
+            linked(2, None, "a", versioned(CALL, 4)),
+            linked(3, 2, "a", versioned(SEND, 4)),
+        ],
+        schema=EVENTS_SCHEMA,
+    )
+
+    assert [link.seq for link in trace(legacy, "e3").links] == [2, 3]

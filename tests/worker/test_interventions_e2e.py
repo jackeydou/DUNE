@@ -23,7 +23,7 @@ from tests.worker.conftest import Platform
 pytestmark = pytest.mark.docker
 
 CASE: dict[str, Any] = {
-    "schema_version": 1,
+    "schema_version": 2,
     "id": "interventions",
     "workspace": "ws_e2e",
     "swarm": {
