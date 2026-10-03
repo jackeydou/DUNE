@@ -149,6 +149,9 @@
   fields.
 
 ### Changed
+- The isolation self-check passes a peer's names to the DNS probe in two halves and scrubs them
+  from its output, so no probe event carries another sandbox's canary token.
+  `ProbeSandbox.names` holds (what, name) pairs.
 - Missing exports raise `swarmeval.analysis.exports.ExportError` (was `JudgeError`), and the
   analysis entry point turns it into an exit message.
 - model-gateway `4xx` answers (an unknown model, a refused request) end a run `failed`, not

@@ -416,6 +416,10 @@ be written, the check printed nothing) is logged as a warning and does not fail 
 *(proposed)*. Probe events are not agent behavior: the final-state scorers and the canary
 extension never read them.
 
+Like markers, a peer's names reach the check script in two halves, and are scrubbed from what
+the script prints: the hostname is the peer's [sandbox canary](#sandbox-canaries), which must not
+appear in another sandbox's `/proc` or in its `isolation_probe` events.
+
 If any probe gets through, the worker commits a `failed` lifecycle event and the run ends
 `failed`, with an error naming each sandbox pair (or `network`), the probe, and what it saw. With
 `--sandbox-network per-sandbox` every sandbox has an interface besides `lo`, so `interfaces`

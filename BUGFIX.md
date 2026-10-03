@@ -1,5 +1,18 @@
 # Bug fixes
 
+## 2026-10-02 — The DNS probe puts a peer's canary token in another sandbox
+
+**Symptom.** Sandbox A's isolation `check` script carried sandbox B's hostname, which is B's
+sandbox canary token, on its command line, and its `isolation_probe` event stored it, so the token
+was in A's `/proc` and in A's events where an offline scan would read it as crossing sandboxes.
+**Root cause.** `probe_dns` took each peer name whole, and printed the names in its results.
+**Fix.** Names are passed in two halves with a label, joined inside the script, and scrubbed from
+what it prints. `swarmeval/worker/probes.py`.
+**Guard.** `tests/worker/test_probes.py::test_no_probe_event_carries_another_sandboxs_canary_token`;
+the live tests in `tests/worker/test_probes_live.py` check stored events too.
+**Touches.** The marker halves rule in the same module (the `/proc` scan must not find its own
+command line). Anything else that passes one sandbox's identity into another must split it too.
+
 ## 2026-10-02 — A worker stopped while recording a run leaves it without a summary
 
 **Symptom.** Stopping a worker right after a run's final status was written, but before its
