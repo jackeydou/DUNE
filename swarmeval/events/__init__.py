@@ -29,8 +29,16 @@ from swarmeval.events.store import (
     PostgresRunStore,
     RunNotFoundError,
 )
+from swarmeval.events.variant import (
+    DEFAULT_REDUCERS,
+    LeftOut,
+    VariantLogError,
+    read_eval,
+    variant_log,
+)
 
 __all__ = [
+    "DEFAULT_REDUCERS",
     "EVENTS_SCHEMA",
     "NOTIFY_CHANNEL",
     "SCHEMA_VERSION",
@@ -38,11 +46,13 @@ __all__ = [
     "ChainError",
     "ChainRow",
     "FencedError",
+    "LeftOut",
     "ObjectStore",
     "PostgresRunStore",
     "RunHeader",
     "RunNotFoundError",
     "StoredRun",
+    "VariantLogError",
     "assemble",
     "events_key",
     "export_events",
@@ -52,9 +62,11 @@ __all__ = [
     "genesis",
     "link",
     "load_run",
+    "read_eval",
     "summary_key",
     "to_event",
     "to_inspect_message",
+    "variant_log",
     "verify",
     "write_eval",
 ]

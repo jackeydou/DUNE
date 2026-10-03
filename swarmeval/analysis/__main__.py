@@ -4,18 +4,23 @@
 - `judge --question Q --model M (--run ID ... | --submission ID ...)`: one LLM judge verdict per
   run, stored in `analysis.judge_verdicts`; one line per run on stdout. The gateway key comes
   from SWARMEVAL_ANALYSIS_KEY.
+- `eval-set --out DIR [--submission ID ...] [--reducer NAME ...]`: one Inspect `.eval` per
+  variant in DIR, every `done` epoch a sample; one line per variant on stdout.
 """
 
 import argparse
 import asyncio
 import os
+from pathlib import Path
 
 import httpx2
 
 from swarmeval import config
+from swarmeval.analysis.evalset import describe, variant_runs, write_eval_set
 from swarmeval.analysis.judge import Gateway, judge, load_events
 from swarmeval.analysis.report import load_summaries, markdown, report
 from swarmeval.db import async_engine
+from swarmeval.events import DEFAULT_REDUCERS
 
 
 def main() -> None:
@@ -49,12 +54,42 @@ def main() -> None:
     config.add_object_store(ask)
     config.add_database(ask)
 
+    evals = jobs.add_parser("eval-set", help="one Inspect .eval per variant, epochs as samples")
+    evals.add_argument("--out", type=Path, required=True, help="local directory for the logs")
+    evals.add_argument(
+        "--submission",
+        action="append",
+        default=[],
+        help="only runs from this submission; repeatable. Default: every run in the bucket",
+    )
+    evals.add_argument(
+        "--reducer",
+        action="append",
+        default=[],
+        help="Inspect epoch reducer (mean, median, max, at_least_<k>, ...); repeatable. "
+        f"Default: {', '.join(DEFAULT_REDUCERS)}",
+    )
+    config.add_object_store(evals)
+
     args = parser.parse_args()
-    if args.job == "report":
-        summaries = load_summaries(config.object_store(args))
-        print(markdown(report(summaries, args.submission)), end="")
-    else:
-        asyncio.run(_judge(args))
+    match args.job:
+        case "report":
+            summaries = load_summaries(config.object_store(args))
+            print(markdown(report(summaries, args.submission)), end="")
+        case "judge":
+            asyncio.run(_judge(args))
+        case _:
+            asyncio.run(_eval_set(args))
+
+
+async def _eval_set(args: argparse.Namespace) -> None:
+    store = config.object_store(args)
+    summaries = await asyncio.to_thread(load_summaries, store)
+    variants = variant_runs(summaries, args.submission)
+    if not variants:
+        raise SystemExit("no runs match; check --submission and the bucket.")
+    reducers = tuple(args.reducer) or DEFAULT_REDUCERS
+    print(describe(await write_eval_set(store, variants, args.out, reducers)), end="")
 
 
 async def _judge(args: argparse.Namespace) -> None:

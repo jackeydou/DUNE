@@ -7,8 +7,8 @@ and how it leaves the database. Its code is `swarmeval/events/`, inside the
 [architecture.md](architecture.md#event-flow).
 
 **Status:** the tables, the record-to-event conversion, the hash chain, the Postgres `RunStore`,
-and the per-run `.eval` export are built (`swarmeval/db/`, `swarmeval/events/`). Parquet and the
-run summary table arrive in M1. Items marked *(proposed)* are implementation details the specs
+the per-run `.eval`, Parquet, and run summary exports, and the per-variant `.eval` assembly are
+built (`swarmeval/db/`, `swarmeval/events/`). Items marked *(proposed)* are implementation details the specs
 leave open. They are collected under [Not settled](#not-settled).
 
 ## Data model
@@ -65,7 +65,9 @@ actually got, `network_stealth`, and the recovery fidelity.
 Concept mapping: a case is a Task. A variant is one `EvalLog` (`eval.model` + `eval.task_args`).
 A run (variant × epoch) is one `EvalSample` with `sample.epoch`. A suite is an eval-set. An agent
 is a `SpanBeginEvent` / `SpanEndEvent` pair with `type="agent"`. This mapping lets Inspect's epoch
-reducers and `stderr` work on our epochs directly.
+reducers work on our epochs directly. Inspect's metrics run after the reducer, across samples, and
+a variant has one sample, so the spread over epochs comes from metrics declared over unreduced
+scores (see [the per-variant `.eval`](#the-per-variant-eval)).
 
 ### Versioning
 
@@ -178,8 +180,9 @@ At run end the worker writes to the export bucket, which is created with object 
 | `summaries/<run_id>.parquet` | One row per run: submission, case and its hash, variant and `task_args` (JSON, sorted keys), epoch, status and error, isolation, times, and each scorer's last score. Written for every run that reaches a final status, copying the status `control.runs` holds: by the worker once it has finished a run (a cancel that lands meanwhile wins), by the Control API when it cancels a queued run, and by a worker marking its old runs `interrupted` at start. If the worker cannot write one, the run is `failed` and says why; at start, the worker does not start. Reports read only these | Built |
 
 Code: `swarmeval.events.export_events`, `export_summary`, and the schemas `EVENTS_SCHEMA` and
-`SUMMARY_SCHEMA`. Object paths are *(proposed)*. From M1, one `.eval` per variant is assembled once all its epochs
-finish.
+`SUMMARY_SCHEMA`. Object paths are *(proposed)*. The per-variant `.eval` is not in the bucket: the
+analysis `eval-set` job assembles it from these per-run logs into a local directory
+([below](#the-per-variant-eval)).
 
 How a run becomes a `.eval` (`swarmeval.events.export_run`):
 
@@ -198,7 +201,35 @@ How a run becomes a `.eval` (`swarmeval.events.export_run`):
    values, epoch, agent models). `eval.model` is the first agent's model; every agent's model is
    in `eval.metadata.swarmeval.models`. A run whose last lifecycle event is `failed` has status
    `error`.
-6. Write the log with `inspect_ai` to a scratch file and upload it with `pyarrow.fs`. Which service assembles it is [not settled](#not-settled).
+6. Write the log with `inspect_ai` to a scratch file and upload it with `pyarrow.fs`.
+
+### The per-variant `.eval`
+
+Assembled by the analysis `eval-set` job ([analysis](services/analysis.md#capabilities)), not the
+control plane: it already reads every epoch, and the worker's per-run logs stay the only objects
+written to the bucket. `swarmeval.events.variant_log` takes the per-run logs of one submission's
+case revision (`case_sha256`) and variant:
+
+1. Only runs that ended `done` become samples, one per epoch, each the run's own sample
+   (`sample.epoch`, `sample.uuid` = run id). Runs that ended otherwise are listed in
+   `eval.metadata.swarmeval.left_out` with their epoch and status, as the report lists them
+   (runtime spec Q6). Two runs of one epoch, or runs whose task, `task_args`, models, or
+   workspace differ, are refused.
+2. The header is the first run's, with `eval.run_id` = submission id,
+   `eval.config.epochs_reducer` = the job's reducers (default `mean`, runtime spec decision 11),
+   `eval.metadata.swarmeval` adding `submission_id`, `case_sha256`, and `runs` (epoch → run id),
+   and one `eval.scorers` entry per scorer declaring its metrics.
+3. `results` and `reductions` are computed by Inspect (`inspect_ai.log.recompute_metrics`) from
+   that header. Per scorer: one score per reducer, with Inspect's `mean` of the reduced value (the
+   trigger rate under `mean`); and one score with no reducer holding `epoch_stderr` and
+   `epoch_ci_wilson` (`lower`, `upper`), Inspect's `stderr` and `ci_wilson` declared over
+   unreduced scores, so each epoch is one observation, as in the report. Those two metrics are
+   registered by `swarmeval.events` as `swarmeval/epoch_stderr` and
+   `swarmeval/epoch_ci_wilson`; viewing the log needs nothing, recomputing it needs `swarmeval`
+   importable.
+
+A reducer is chosen per job, not per scorer: Inspect keeps one `epochs_reducer` list per log, and
+`case.yaml` has no field for it.
 
 The rows in `runs` are the evidence original. Exports are derived from them, and audit, replay,
 and spoofing checks use the database. Cleanup of old runs, and whether Parquet then becomes the
@@ -209,8 +240,10 @@ archive original, is *(open, runtime spec Q3)*.
 1. JCS over `payload` as the hashed form, and the genesis value.
 2. Blob key layout, and upload before commit.
 3. Export object paths.
-4. Which service assembles the per-variant `.eval` in M1: the control plane, when a variant's last
-   epoch finishes, or the analysis batch job, which already reads all epochs.
+4. ~~Which service assembles the per-variant `.eval` in M1: the control plane, when a variant's
+   last epoch finishes, or the analysis batch job, which already reads all epochs.~~ Settled
+   (2026-10-02): the analysis `eval-set` job, writing to a local directory
+   ([The per-variant `.eval`](#the-per-variant-eval)).
 5. File changes and surviving processes ride in the `ToolEvent`'s `metadata.swarmeval.exec`,
    one record per event. The runtime spec (decision 3) describes them as their own `fs.*` /
    `proc.*` events. Splitting them out needs event ids assigned before commit, so a child can
