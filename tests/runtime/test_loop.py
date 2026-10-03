@@ -1,11 +1,13 @@
 from dataclasses import replace
 
 import pytest
+from pydantic import ValidationError
 
 from swarmeval.runtime import Limits, RunConfigError
 from swarmeval.runtime.messages import AssistantMessage, ToolMessage
 from swarmeval.runtime.ports import AgentCaller
 from swarmeval.runtime.records import Exec, ExecResult, ToolCallRecord, WebExchange, WebRequest
+from swarmeval.runtime.tools import WebRequestArgs
 from tests.runtime.fakes import FakeWeb, agent, call, harness, reply
 
 
@@ -230,3 +232,8 @@ async def test_web_request_headers_with_control_characters_are_invalid_arguments
 def test_web_request_needs_a_web_client() -> None:
     with pytest.raises(RunConfigError, match="web client"):
         harness((agent(tools=("web_request",)),), {"a": []})
+
+
+def test_web_request_refuses_a_host_header_of_its_own() -> None:
+    with pytest.raises(ValidationError, match="`Host` is set from the URL"):
+        WebRequestArgs.model_validate({"url": "http://example.com/", "headers": {"HOST": "admin"}})

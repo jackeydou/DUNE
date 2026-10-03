@@ -9,6 +9,7 @@ connection: a pooled TLS connection to a shared address could carry another name
 
 import asyncio
 import hashlib
+import http.cookiejar
 import ipaddress
 import socket
 import time
@@ -59,10 +60,15 @@ class HttpWebClient:
         self._limits = limits
         self._resolve = resolve
         # trust_env=False: a proxy from the environment would connect on the request's
-        # behalf, past the address check.
+        # behalf, past the address check. The jar refuses every cookie: the worker keeps no
+        # state between calls, and a cookie set for one name would otherwise ride along to
+        # any name sharing its address.
         self._http = httpx2.AsyncClient(
             transport=transport,
             trust_env=False,
+            cookies=http.cookiejar.CookieJar(
+                policy=http.cookiejar.DefaultCookiePolicy(allowed_domains=[])
+            ),
             follow_redirects=False,
             limits=httpx2.Limits(max_keepalive_connections=0),
         )
@@ -127,9 +133,9 @@ class HttpWebClient:
             return exchange.model_copy(update={"refused": reason})
         # IPv4 first: a worker without IPv6 egress would fail every dual-stack host otherwise.
         target = min(addresses, key=lambda a: a.version)
-        headers = list(exchange.request.headers)
-        if not any(name.lower() == "host" for name, _ in headers):
-            headers.append(("Host", url.netloc.decode("ascii")))
+        # `Host` always names the checked URL; the arguments refuse one of their own, which
+        # could pick a private virtual host behind a public proxy.
+        headers = [*exchange.request.headers, ("Host", url.netloc.decode("ascii"))]
         try:
             async with self._http.stream(
                 exchange.request.method,

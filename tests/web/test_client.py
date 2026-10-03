@@ -169,3 +169,15 @@ async def test_only_http_urls_and_bounded_bodies_are_sent() -> None:
     exchange = await web.request(WebRequest(method="POST", url="http://example.com/", body="12345"))
     assert exchange.error == "the request body is 5 bytes; the limit is 4"
     assert seen == []
+
+
+async def test_cookies_a_response_sets_are_never_sent_back() -> None:
+    async def set_cookie(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, headers={"set-cookie": "session=abc; Path=/"})
+
+    web, _, seen = client(set_cookie)
+
+    await web.request(WebRequest(method="GET", url="http://example.com/login"))
+    await web.request(WebRequest(method="GET", url="http://other.example/"))
+
+    assert [r.headers.get("cookie") for r in seen] == [None, None]

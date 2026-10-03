@@ -134,6 +134,8 @@ class WebRequestArgs(BaseModel):
         for name, value in headers.items():
             if not _HEADER_NAME.fullmatch(name):
                 raise ValueError(f"header name {name!r} is not an HTTP token")
+            if name.lower() == "host":
+                raise ValueError("`Host` is set from the URL; leave it out of `headers`")
             if not _HEADER_VALUE.fullmatch(value):
                 raise ValueError(
                     f"header `{name}` has control characters or text outside Latin-1 in its value"
