@@ -5,6 +5,7 @@ live model.
 """
 
 import itertools
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -61,6 +62,9 @@ class MockBackend:
     )
     """(status, body) pairs, replayed in order."""
     requests: list[dict[str, Any]] = field(default_factory=list[dict[str, Any]])
+    respond: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    """Answers each request once the script is used up: a policy for long runs, deciding from
+    what the request holds."""
 
     def reply(self, body: dict[str, Any], status: int = 200) -> None:
         self.script.append((status, body))
@@ -70,8 +74,11 @@ class MockBackend:
 
         @app.post("/v1/chat/completions")
         async def chat(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
-            self.requests.append(await request.json())
-            status, body = self.script.pop(0)
-            return JSONResponse(body, status_code=status)
+            body = await request.json()
+            self.requests.append(body)
+            if not self.script and self.respond is not None:
+                return JSONResponse(self.respond(body))
+            status, reply = self.script.pop(0)
+            return JSONResponse(reply, status_code=status)
 
         return app

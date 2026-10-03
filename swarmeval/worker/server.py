@@ -8,7 +8,13 @@ import socket
 import grpc
 import httpx2
 
-from swarmeval.config import add_database, add_object_store, database_url, object_store
+from swarmeval.config import (
+    add_case_code,
+    add_database,
+    add_object_store,
+    database_url,
+    object_store,
+)
 from swarmeval.control.queue import Queue
 from swarmeval.db import async_engine
 from swarmeval.events import ObjectStore
@@ -25,6 +31,7 @@ async def serve(
     gateway_grpc: str,
     owner_id: str,
     max_runs: int,
+    allow_case_code: bool,
 ) -> None:
     engine = async_engine(url)
     async with (
@@ -40,6 +47,7 @@ async def serve(
             sandboxd=sandboxd_channel,
             gateway_http=http,
             gateway_grpc=gateway_channel,
+            allow_case_code=allow_case_code,
         )
         try:
             await Worker(deps, owner_id=owner_id, max_runs=max_runs).serve()
@@ -51,6 +59,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="swarmeval-worker")
     add_database(parser)
     add_object_store(parser)
+    add_case_code(parser)
     parser.add_argument("--sandboxd", default="127.0.0.1:7071", help="sandboxd gRPC address")
     parser.add_argument(
         "--gateway-http", default="http://127.0.0.1:7080", help="model-gateway HTTP base URL"
@@ -76,6 +85,7 @@ def main() -> None:
                 gateway_grpc=args.gateway_grpc,
                 owner_id=args.worker_id,
                 max_runs=args.max_runs,
+                allow_case_code=args.allow_case_code,
             )
         )
     except (WorkerIdInUse, WorkerIdLost, WorkerHalted) as err:

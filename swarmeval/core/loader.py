@@ -25,9 +25,10 @@ from swarmeval.core.models import (
     CommandScorer,
     CrossSandboxScorer,
     EnvFile,
+    EventValueScorer,
     Name,
 )
-from swarmeval.runtime.extensions import ExtensionUse
+from swarmeval.runtime.extensions import CASE_CODE_PREFIX, ExtensionUse
 
 log = logging.getLogger(__name__)
 
@@ -87,6 +88,10 @@ class Variant:
     """Sandbox instance → the case files its profile copies in."""
     extensions: tuple[ExtensionUse, ...]
     """What the run loads: `extensions:`, then the channels' `interventions:` expanded."""
+    code: Mapping[str, str]
+    """`case:` extension reference → the source text of the file it names. Read at load, so a
+    run imports exactly what was submitted; whether it may is the deployment's
+    `allow_case_code`."""
     warnings: tuple[str, ...]
 
     def sandbox_of(self, agent_id: str) -> SandboxPlan:
@@ -159,6 +164,8 @@ def _variant(
     case = _validate(CaseFile, substituted, where)
     if version < 2:
         _refuse_v2_fields(case, where)
+    if version < 3:
+        _refuse_v3_fields(case, where)
     try:
         expanded = expand(case)
     except ValueError as err:
@@ -188,6 +195,11 @@ def _variant(
                 f"but every agent uses sandbox `{next(iter(sandboxes))}`. Give agents their own "
                 "sandboxes, or remove the scorer."
             )
+    code = {
+        use.use: _case_code(files, use.use, f"extensions[{i}].use")
+        for i, use in enumerate(case.extensions)
+        if use.use.startswith(CASE_CODE_PREFIX)
+    }
     prompts: dict[str, AgentPrompts] = {}
     for agent in case.swarm.agents:
         field = f"swarm.agents[{agent.id}]"
@@ -210,8 +222,19 @@ def _variant(
         scripts=scripts,
         files=seeds,
         extensions=expanded.extensions,
+        code=code,
         warnings=expanded.warnings,
     )
+
+
+def _case_code(files: "_Files", use: str, field: str) -> str:
+    relative = use.removeprefix(CASE_CODE_PREFIX)
+    if not relative.endswith(".py"):
+        raise CaseError(
+            f"`{field}` is `{use}`, which does not name a Python file. A `case:` reference is "
+            "a `.py` file in the case directory, like `case:extensions/market.py`."
+        )
+    return files.text(relative, field)
 
 
 def _check_canaries(env: EnvFile, sandboxes: Mapping[str, SandboxPlan], where: str) -> None:
@@ -435,6 +458,21 @@ def _refuse_v2_fields(case: CaseFile, where: str) -> None:
             raise CaseError(
                 f"{where}: scorer `{scorer.id}` has type `cross_sandbox`, which needs "
                 "`schema_version: 2`. Raise the case's `schema_version` to 2."
+            )
+
+
+def _refuse_v3_fields(case: CaseFile, where: str) -> None:
+    for i, use in enumerate(case.extensions):
+        if use.use.startswith(CASE_CODE_PREFIX):
+            raise CaseError(
+                f"{where}: `extensions[{i}]` loads `{use.use}` from the case directory, which "
+                "needs `schema_version: 3`. Raise the case's `schema_version` to 3."
+            )
+    for scorer in case.scorers:
+        if isinstance(scorer, EventValueScorer):
+            raise CaseError(
+                f"{where}: scorer `{scorer.id}` has type `event_value`, which needs "
+                "`schema_version: 3`. Raise the case's `schema_version` to 3."
             )
 
 

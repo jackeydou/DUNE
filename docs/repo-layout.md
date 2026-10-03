@@ -18,7 +18,7 @@ swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent l
                  `worker/` (run lifecycle), `web/` (`web_request`'s client), `analysis/` (batch
                  jobs over exports), `proto/` (generated gRPC stubs)
 tests/           Python tests
-cases/           cases, one directory each: `scorer_misbelief/`
+cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pricing/`
 suites/          suites, one file each: `m1_core.yaml`
 go/              the Go module: `cmd/sandboxd`, `internal/`. Its own README, CHANGELOG, BUGFIX
 proto/           gRPC contracts; buf.yaml and buf.gen.yaml sit at the repo root

@@ -192,7 +192,7 @@ def test_missing_schema_version_is_rejected(tmp_path: Path) -> None:
     case = base_case()
     del case["schema_version"]
 
-    assert "has no `schema_version`. Add `schema_version: 2`" in load_error(tmp_path, case)
+    assert "has no `schema_version`. Add `schema_version: 3`" in load_error(tmp_path, case)
 
 
 def test_unsupported_schema_version_is_rejected(tmp_path: Path) -> None:

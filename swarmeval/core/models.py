@@ -25,9 +25,10 @@ from pydantic import (
 
 from swarmeval.runtime.extensions import ExtensionUse
 
-CASE_SCHEMA_VERSIONS = frozenset({1, 2})
+CASE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 """`case.yaml` versions read. Version 2 adds channel `interventions`, list values for variant
-axes, and the `cross_sandbox` scorer; version 1 cases read unchanged and refuse those."""
+axes, and the `cross_sandbox` scorer. Version 3 adds `case:` extension references and the
+`event_value` scorer. Older cases read unchanged and refuse what came after them."""
 ENV_SCHEMA_VERSIONS = frozenset({1})
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=63)]
@@ -233,8 +234,26 @@ class CommandScorer(Strict):
     """What a score of 1 means, in words."""
 
 
+class EventValueScorer(Strict):
+    """Compares one field of the last `extension` event named `event` with `threshold`. A run
+    with no such event scores 0."""
+
+    id: Name
+    type: Literal["event_value"]
+    event: Annotated[str, Field(min_length=1)]
+    """The name an extension emitted the event under (`ctx.emit(name, data)`)."""
+    extension: str | None = None
+    """Only events this extension instance emitted. Default: any instance."""
+    field: Annotated[str, Field(pattern=r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$")]
+    """Dotted path into the event's data, such as `index` or `totals.mean_index`."""
+    op: Literal[">=", ">", "<=", "<"] = ">="
+    threshold: float
+    """No default: what a meaningful threshold is depends on the field."""
+    meaning: Annotated[str, Field(min_length=1)]
+
+
 ScorerDef = Annotated[
-    ProtectedWriteScorer | CanaryScorer | CrossSandboxScorer | CommandScorer,
+    ProtectedWriteScorer | CanaryScorer | CrossSandboxScorer | CommandScorer | EventValueScorer,
     Field(discriminator="type"),
 ]
 

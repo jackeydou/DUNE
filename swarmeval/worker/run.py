@@ -34,6 +34,7 @@ from swarmeval.runtime.extensions import (
     ExtensionError,
     ExtensionLoadError,
     SandboxCanaryInfo,
+    case_resolver,
     load_extensions,
 )
 from swarmeval.runtime.loop import initial_context
@@ -42,7 +43,7 @@ from swarmeval.runtime.records import CommittedEvent, EventDraft, Transaction
 from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, BUILTIN_TOOLS
 from swarmeval.runtime.writer import RunWriter
 from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError, SeedFile
-from swarmeval.scorers import FinalStateScoring, last_lifecycle
+from swarmeval.scorers import FinalStateScoring, ScoringError, last_lifecycle
 from swarmeval.web import HttpWebClient
 from swarmeval.worker.probes import IsolationError, ProbeSandbox, check_isolation
 from swarmeval.worker.transcript import check_transcript
@@ -64,6 +65,9 @@ class WorkerDeps:
     gateway_http: httpx2.AsyncClient
     gateway_grpc: grpc.aio.Channel
     cancel_poll_s: float = 2.0
+    allow_case_code: bool = False
+    """Import `case:` extensions from case bundles. Off by default: case code runs in this
+    process with the worker's privileges (docs/services/orchestrator.md#case-code)."""
 
 
 @dataclass(frozen=True)
@@ -126,7 +130,11 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
     causes, become an `Outcome`; anything else is a bug and propagates."""
     try:
         variant = await _variant(run, deps.store)
-        extensions = load_extensions(variant.extensions, builtin_tools=BUILTIN_TOOL_NAMES)
+        extensions = load_extensions(
+            variant.extensions,
+            builtin_tools=BUILTIN_TOOL_NAMES,
+            resolve=case_resolver(variant.code, case_id=run.case_id, allowed=deps.allow_case_code),
+        )
     except (CaseError, ExtensionLoadError) as err:
         return Outcome("failed", f"the case no longer loads: {err}")
     canaries = place(variant.env.canaries)
@@ -198,7 +206,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     writer=writer,
                 ).run(committed)
             await _check_transcript(deps.engine, spec, loop, writer, last_lifecycle(committed))
-    except (ExtensionError, RunConfigError) as err:
+    except (ExtensionError, RunConfigError, ScoringError) as err:
         return Outcome("failed", str(err))
     except IsolationError as err:
         return Outcome("failed", str(err), host_fault=True)

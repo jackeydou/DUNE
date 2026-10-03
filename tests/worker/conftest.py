@@ -2,7 +2,8 @@
 `tests/containers.py`, model-gateway in process with a scripted backend, and the Control API
 on a local gRPC server."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -64,6 +65,30 @@ async def bare_deps(engine: AsyncEngine, object_store: ObjectStore) -> AsyncIter
 async def platform(
     postgres_url: str, engine: AsyncEngine, object_store: ObjectStore, sandboxd: str
 ) -> AsyncIterator[Platform]:
+    async with _platform(postgres_url, engine, object_store, sandboxd) as started:
+        yield started
+
+
+@pytest.fixture
+async def case_code_platform(
+    postgres_url: str, engine: AsyncEngine, object_store: ObjectStore, sandboxd: str
+) -> AsyncIterator[Platform]:
+    """A deployment started with `--allow-case-code`."""
+    async with _platform(
+        postgres_url, engine, object_store, sandboxd, allow_case_code=True
+    ) as started:
+        yield started
+
+
+@asynccontextmanager
+async def _platform(
+    postgres_url: str,
+    engine: AsyncEngine,
+    object_store: ObjectStore,
+    sandboxd: str,
+    *,
+    allow_case_code: bool = False,
+) -> AsyncGenerator[Platform]:
     backend = MockBackend()
     config = GatewayConfig.model_validate(
         {
@@ -82,7 +107,14 @@ async def platform(
     server = grpc.aio.server()
     add_RecorderServiceServicer_to_server(Recorder(attachments), server)
     add_ControlServiceServicer_to_server(
-        ControlService(queue=queue, engine=engine, store=object_store, listener=listener), server
+        ControlService(
+            queue=queue,
+            engine=engine,
+            store=object_store,
+            listener=listener,
+            allow_case_code=allow_case_code,
+        ),
+        server,
     )
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
@@ -101,6 +133,7 @@ async def platform(
             sandboxd=sandboxd_channel,
             gateway_http=http,
             gateway_grpc=local,
+            allow_case_code=allow_case_code,
         )
         yield Platform(
             control=ControlServiceStub(local),
