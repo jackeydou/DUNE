@@ -5,14 +5,18 @@ Every verdict is a `ScoreRecord` with `1 = triggered`, committed through the run
 the events it rests on named in `event_ids`.
 """
 
-from collections.abc import Mapping, Sequence
+import operator
+from collections.abc import Callable, Mapping, Sequence
 from fnmatch import fnmatch
 from typing import Protocol
+
+from pydantic import JsonValue
 
 from swarmeval.core.models import (
     CanaryScorer,
     CommandScorer,
     CrossSandboxScorer,
+    EventValueScorer,
     ProtectedWriteScorer,
     ScorerDef,
 )
@@ -23,6 +27,7 @@ from swarmeval.runtime.records import (
     EventDraft,
     Exec,
     ExecResult,
+    ExtensionEmitRecord,
     FinalDiffRecord,
     FsChange,
     LifecycleRecord,
@@ -36,6 +41,18 @@ from swarmeval.sandbox import FileContent
 
 FILE_SCAN_BYTES = 1 << 20
 """How much of each file the run wrote the canary scorer reads."""
+
+_OPS: dict[str, Callable[[float, float], bool]] = {
+    ">=": operator.ge,
+    ">": operator.gt,
+    "<=": operator.le,
+    "<": operator.lt,
+}
+
+
+class ScoringError(Exception):
+    """A scorer cannot decide: what it reads is not there in the form the case declared. The
+    case or the extension that emitted the event is wrong; the run fails."""
 
 
 class ScoringSandboxes(Protocol):
@@ -94,6 +111,8 @@ class FinalStateScoring:
                     record = await self._canary(scorer, seen)
                 case CrossSandboxScorer():
                     record = self._cross_sandbox(scorer, seen)
+                case EventValueScorer():
+                    record = _event_value(scorer, seen)
                 case CommandScorer():
                     # Recorded, but not added to `seen`: what a scoring script does to the
                     # sandbox is not the agents' behavior, and must not feed later scorers.
@@ -231,6 +250,54 @@ class FinalStateScoring:
             explanation=f"the script {outcome}" + (f": {output}" if output else ""),
             event_ids=(event.event_id,),
         )
+
+
+def _event_value(scorer: EventValueScorer, events: Sequence[CommittedEvent]) -> ScoreRecord:
+    """Only the last matching event counts: an extension that wants a run-level value emits it
+    as a running figure (a mean so far, a total)."""
+    last = next(
+        (
+            e
+            for e in reversed(events)
+            if isinstance(e.record, ExtensionEmitRecord)
+            and e.record.name == scorer.event
+            and (scorer.extension is None or e.extension == scorer.extension)
+        ),
+        None,
+    )
+    if last is None:
+        return ScoreRecord(
+            scorer=scorer.id,
+            value=0,
+            meaning=scorer.meaning,
+            explanation=f"no `{scorer.event}` event was emitted",
+        )
+    assert isinstance(last.record, ExtensionEmitRecord), "selected by its record type"
+    value = _field(last.record.data, scorer.field)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ScoringError(
+            f"scorer `{scorer.id}`: field `{scorer.field}` of `{scorer.event}` event "
+            f"{last.event_id} (from `{last.extension}`) is {value!r}, not a number. Fix the "
+            "scorer's `field`, or the extension that emits the event."
+        )
+    triggered = _OPS[scorer.op](value, scorer.threshold)
+    return ScoreRecord(
+        scorer=scorer.id,
+        value=1 if triggered else 0,
+        meaning=scorer.meaning,
+        explanation=f"`{scorer.field}` of the last `{scorer.event}` is {value:g}, "
+        f"{'' if triggered else 'not '}{scorer.op} {scorer.threshold:g}",
+        event_ids=(last.event_id,),
+    )
+
+
+def _field(data: JsonValue, path: str) -> JsonValue:
+    """`None` stands for a missing key, which the caller reports as not a number."""
+    for key in path.split("."):
+        if not isinstance(data, dict) or key not in data:
+            return None
+        data = data[key]
+    return data
 
 
 def _crossing(sighting: Sighting) -> str:

@@ -1,6 +1,9 @@
 """Loading the extensions a case asks for: resolve, validate config, run setup."""
 
-from collections.abc import Callable, Collection, Sequence
+import hashlib
+import sys
+import types
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import Any
@@ -15,6 +18,10 @@ from swarmeval.runtime.extensions.api import (
 )
 
 ENTRY_POINT_GROUP = "swarmeval.extensions"
+CASE_CODE_PREFIX = "case:"
+"""An extension reference to a Python file in the case directory, such as
+`case:extensions/market.py`."""
+_CASE_MODULES = "swarmeval_case_code"
 
 
 class ExtensionLoadError(Exception):
@@ -54,11 +61,10 @@ class LoadedExtension:
 
 
 def resolve_entry_point(name: str) -> Extension[Any, Any]:
-    if name.startswith("case:"):
+    if name.startswith(CASE_CODE_PREFIX):
         raise ExtensionLoadError(
-            f"extension `{name}`: loading code from a case directory is not supported yet "
-            "(agent loop spec, open question 1). Install it as a package with a "
-            f"`{ENTRY_POINT_GROUP}` entry point instead."
+            f"extension `{name}` is code from a case directory, which only `case_resolver`, "
+            "given the case's code, resolves."
         )
     found = entry_points(group=ENTRY_POINT_GROUP, name=name)
     if not found:
@@ -76,6 +82,61 @@ def resolve_entry_point(name: str) -> Extension[Any, Any]:
             "Point it at a setup function decorated with `@extension`."
         )
     return loaded  # pyright: ignore[reportUnknownVariableType]
+
+
+def case_resolver(
+    code: Mapping[str, str], *, case_id: str, allowed: bool
+) -> Callable[[str], Extension[Any, Any]]:
+    """Resolves `case:` references from `code` (the loaded variant's `code`), and everything else
+    from entry points. Case code runs in the worker's process with the worker's privileges, so
+    it is imported only where the deployment sets `allow_case_code`."""
+
+    def resolve(name: str) -> Extension[Any, Any]:
+        if not name.startswith(CASE_CODE_PREFIX):
+            return resolve_entry_point(name)
+        if not allowed:
+            raise ExtensionLoadError(
+                f"case `{case_id}` loads extension `{name}` from its own directory, and this "
+                "deployment does not run case code: it runs inside the worker with the worker's "
+                "privileges. Start the control plane and the workers with `--allow-case-code` "
+                "to run it, or install the extension as a package."
+            )
+        return _import_case_code(name, code[name], case_id)
+
+    return resolve
+
+
+def _import_case_code(name: str, source: str, case_id: str) -> Extension[Any, Any]:
+    """One module per distinct source text, so a module imported for an earlier run of the same
+    case is reused, and two cases with the same file name do not collide."""
+    module_name = f"{_CASE_MODULES}.m{hashlib.sha256(source.encode()).hexdigest()[:24]}"
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = types.ModuleType(module_name)
+        filename = f"<case {case_id}>/{name.removeprefix(CASE_CODE_PREFIX)}"
+        module.__file__ = filename
+        # Registered before running, as importlib does, so pydantic can resolve the module's
+        # annotations while its models are built.
+        sys.modules[module_name] = module
+        try:
+            exec(compile(source, filename, "exec"), module.__dict__)
+        except Exception as err:
+            del sys.modules[module_name]
+            raise ExtensionLoadError(
+                f"case `{case_id}`: importing extension `{name}` raised "
+                f"{type(err).__name__}: {err}. Fix the file in the case directory."
+            ) from err
+    found: list[Extension[Any, Any]] = [
+        v  # pyright: ignore[reportUnknownVariableType]
+        for v in vars(module).values()
+        if isinstance(v, Extension)
+    ]
+    if len(found) != 1:
+        raise ExtensionLoadError(
+            f"case `{case_id}`: `{name}` defines {len(found)} extensions. A `case:` file defines "
+            "exactly one setup function decorated with `@extension`."
+        )
+    return found[0]
 
 
 def load_extensions(

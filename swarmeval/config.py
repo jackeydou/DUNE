@@ -57,3 +57,14 @@ def object_store(args: argparse.Namespace) -> ObjectStore:
         scheme=args.s3_scheme,
         region=args.s3_region,
     )
+
+
+def add_case_code(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--allow-case-code",
+        action="store_true",
+        default=os.environ.get("SWARMEVAL_ALLOW_CASE_CODE") == "1",
+        help="accept and run cases that load extensions from their own directory (`case:`). "
+        "That code runs inside the worker with the worker's privileges. Off by default "
+        "(env SWARMEVAL_ALLOW_CASE_CODE=1)",
+    )

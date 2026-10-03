@@ -174,14 +174,22 @@ Register it under the `swarmeval.extensions` entry point group:
 "acme.protect_tests" = "acme_ext.protect_tests:setup"
 ```
 
+Or keep it with one case: a `.py` file in the case directory, listed as
+`use: case:extensions/protect_tests.py` ([case-format.md](case-format.md#case-extensions)). Such
+a file defines exactly one `@extension`, and runs only in a deployment started with
+`--allow-case-code` ([orchestrator.md](services/orchestrator.md#case-code)).
+
 `load_extensions` takes the case's `extensions:` entries (`ExtensionUse`: `use`, optional `as`,
 `config`), followed by its channels' `interventions:` expanded into the same form
 (`Variant.extensions`, [case-format.md](case-format.md#channel-interventions)). It resolves them,
-checks `api_version`, validates each config, and runs setup. It refuses the following:
+checks `api_version`, validates each config, and runs setup. The worker resolves with
+`case_resolver(variant.code, case_id=..., allowed=...)`: `case:` references from the variant's
+code, the rest from entry points. It refuses the following:
 
 - The same instance listed twice without `as:`.
 - Two tools with the same name.
-- `case:` references to code in a case directory (spec open question 1).
+- A `case:` reference where case code is not allowed, or whose file fails to import or defines
+  no extension or several.
 
 Hooks run in the order the extensions are listed, and within one extension in registration
 order.

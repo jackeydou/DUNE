@@ -32,10 +32,12 @@ from swarmeval.runtime.extensions.api import (
     extension,
 )
 from swarmeval.runtime.extensions.registry import (
+    CASE_CODE_PREFIX,
     ENTRY_POINT_GROUP,
     ExtensionLoadError,
     ExtensionUse,
     LoadedExtension,
+    case_resolver,
     load_extensions,
 )
 from swarmeval.runtime.messages import (
@@ -51,6 +53,7 @@ from swarmeval.runtime.records import CommittedEvent, Exec, ExecResult, ToolResu
 
 __all__ = [
     "API_VERSION",
+    "CASE_CODE_PREFIX",
     "ENTRY_POINT_GROUP",
     "AgentInfo",
     "Allow",
@@ -93,6 +96,7 @@ __all__ = [
     "TurnDecision",
     "TurnInfo",
     "UserMessage",
+    "case_resolver",
     "extension",
     "load_extensions",
 ]

@@ -146,12 +146,19 @@ def _load(bundle: bytes, overrides: Mapping[str, Sequence[AxisValue]]) -> Loaded
 
 class ControlService(ControlServiceServicer):
     def __init__(
-        self, *, queue: Queue, engine: AsyncEngine, store: ObjectStore, listener: EventListener
+        self,
+        *,
+        queue: Queue,
+        engine: AsyncEngine,
+        store: ObjectStore,
+        listener: EventListener,
+        allow_case_code: bool = False,
     ) -> None:
         self._queue = queue
         self._engine = engine
         self._store = store
         self._listener = listener
+        self._allow_case_code = allow_case_code
 
     async def SubmitRuns(
         self, request: pb.SubmitRunsRequest, context: Context
@@ -169,6 +176,15 @@ class ControlService(ControlServiceServicer):
             loaded = await asyncio.to_thread(_load, request.case_bundle, overrides)
         except CaseError as err:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err))
+        code = sorted({use for v in loaded.variants for use in v.code})
+        if code and not self._allow_case_code:
+            await context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                f"case `{loaded.id}` loads extensions from its own directory "
+                f"({', '.join(code)}), and this deployment does not run case code: it would run "
+                "inside the workers with their privileges. Start the control plane and the "
+                "workers with `--allow-case-code` to accept it.",
+            )
         sha256 = bundle_hash(request.case_bundle)
         await asyncio.to_thread(self._store.put, bundle_key(sha256), request.case_bundle)
         submission_id = secrets.token_hex(4)

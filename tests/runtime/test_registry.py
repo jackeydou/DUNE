@@ -201,6 +201,6 @@ def test_an_entry_point_must_be_an_extension() -> None:
         load_extensions([use("t.fake")])
 
 
-def test_case_code_is_not_loaded_yet() -> None:
-    with pytest.raises(ExtensionLoadError, match="open question 1"):
+def test_entry_points_alone_do_not_resolve_case_code() -> None:
+    with pytest.raises(ExtensionLoadError, match="only `case_resolver`"):
         load_extensions([use("case:extensions/guard.py")])

@@ -1,6 +1,7 @@
 """`python -m swarmeval.analysis <job>`: batch jobs over exported runs.
 
-- `report [--submission ID ...] [--suite LABEL ...]`: trigger rates as Markdown on stdout.
+- `report [--submission ID ...] [--suite LABEL ...] [--compare AXIS=A,B]`: trigger rates as
+  Markdown on stdout, and with `--compare` the difference in rate between two values of an axis.
 - `judge --question Q --model M (--run ID ... | --submission ID ...)`: one LLM judge verdict per
   run, stored in `analysis.judge_verdicts`; one line per run on stdout. The gateway key comes
   from SWARMEVAL_ANALYSIS_KEY.
@@ -23,7 +24,7 @@ from pathlib import Path
 import httpx2
 
 from swarmeval import config
-from swarmeval.analysis import timeline, trace
+from swarmeval.analysis import compare, timeline, trace
 from swarmeval.analysis.evalset import describe, variant_runs, write_eval_set
 from swarmeval.analysis.exports import ExportError, load_events, load_events_table, runs_of
 from swarmeval.analysis.judge import Gateway, judge
@@ -51,6 +52,11 @@ def main() -> None:
         default=[],
         help="only runs from this suite run (the label `swarmeval.control.suite submit` "
         "prints); repeatable, and adds to --submission",
+    )
+    rates.add_argument(
+        "--compare",
+        help="AXIS=A,B: also the difference in rate between two values of one variant axis, "
+        "the other axes held equal, e.g. 'paraphrased=[],[dm_ab]'",
     )
     config.add_object_store(rates)
 
@@ -126,8 +132,13 @@ def main() -> None:
     try:
         match args.job:
             case "report":
+                comparison = compare.parse_comparison(args.compare) if args.compare else None
                 summaries = load_summaries(config.object_store(args))
-                print(markdown(report(summaries, args.submission, args.suite)), end="")
+                rates = report(summaries, args.submission, args.suite)
+                print(markdown(rates), end="")
+                if comparison is not None:
+                    differences = compare.compare(rates, comparison)
+                    print("\n" + compare.markdown(differences, comparison), end="")
             case "judge":
                 asyncio.run(_judge(args))
             case "eval-set":
@@ -138,7 +149,7 @@ def main() -> None:
                 asyncio.run(_trace(args))
             case _:
                 asyncio.run(_scan(args))
-    except (ExportError, RuleSetError, trace.TraceError) as err:
+    except (ExportError, RuleSetError, trace.TraceError, compare.CompareError) as err:
         raise SystemExit(str(err)) from err
 
 

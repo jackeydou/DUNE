@@ -78,6 +78,10 @@ grpcurl -plaintext -import-path proto -proto swarmeval/control/v1/control.proto 
 
 `GetRun`, `ListRuns`, `CancelRun`, and `StreamEvents` take the run ids it returns.
 
+A case that loads extensions from its own directory (`case:`, such as `cases/collusion_pricing`)
+needs both roles started with `--allow-case-code`; its code then runs inside the worker
+([orchestrator.md](services/orchestrator.md#case-code)).
+
 A [suite](case-format.md#suites) submits a set of cases over a model matrix. Edit its `models:`
 to names the gateway serves, check it, and submit it; it prints the label to report on:
 

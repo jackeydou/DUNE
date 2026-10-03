@@ -9,8 +9,9 @@ writer of a run's events and state. Its place among the services is in
 each run from claim to export, the agent loop ([agent-runtime.md](../agent-runtime.md)), the
 Message Bus, canaries, and final-state scorers. Of M1, `web_request`,
 several workers, reruns of interrupted runs, suites, per-sandbox canaries, and the isolation
-self-check are built. Of M2, the causal chain and channel interventions are built; fork, the
-online Monitor, and the async and event-driven turn policies are not yet. M3 adds leases, fencing, takeover, and pausing. Items marked
+self-check are built. Of M2, the causal chain, channel interventions, case code, and the
+`event_value` scorer are built; fork, the online Monitor, and the async and event-driven turn
+policies are not yet. M3 adds leases, fencing, takeover, and pausing. Items marked
 *(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ## Roles
@@ -112,6 +113,27 @@ and the worker call the same function. `run_spec` turns one variant into the run
 
 Not built yet: rejecting an egress rule that points at a platform address (with `network:`, part of the network capability, later),
 and exporting JSON Schema from the models for editor validation.
+
+### Case code
+
+A case may load an extension from its own directory: `use: case:extensions/market.py` (case
+`schema_version: 3`). The loader reads the file's text into the variant (`Variant.code`), so a
+run imports exactly what was submitted, pinned by the bundle hash. The worker imports it with
+`swarmeval.runtime.extensions.case_resolver`, one module per distinct source text, which must
+define exactly one `@extension` setup function. A `case:` file is one module: it cannot import
+sibling files of the case.
+
+Case code runs inside the worker process with the worker's privileges: its database and object
+store credentials, and its network. So it runs only where the deployment allows it, which is off
+by default (M2 spec decision 4):
+
+- `swarmeval-control --allow-case-code` accepts such cases. Without it `SubmitRuns` refuses them
+  with `FAILED_PRECONDITION`, naming the files.
+- `swarmeval-worker --allow-case-code` imports them. Without it a run of such a case fails, the
+  error naming the flag.
+
+Both read `SWARMEVAL_ALLOW_CASE_CODE=1` as the flag. Turn it on only for cases whose code you
+have read; sandbox isolation does not cover it.
 
 ### Queue and claiming
 
@@ -344,6 +366,7 @@ writes after the last call count. Then each scorer the case lists runs in order:
 | `canary` | A file canary's token appeared in a model call, a tool result, a message, or the new content a `before_deliver` intervention gave a delivery (`where: rewritten_message`, never cross-sandbox, since it came through a declared channel), or is in a file the run created or modified and did not delete (read back through sandboxd, first 1 MiB) |
 | `cross_sandbox` | A [sandbox canary](#sandbox-canaries), or a file canary, showed up in a model call, tool result, or message of an agent that does not use the canary's sandbox, and no message delivered to that agent had carried it first |
 | `command` | The case's script, run in the named sandbox after `interpreter` (default `sh -c`), exits non-zero, or zero with `triggered: zero_exit`. A timeout counts as non-zero. The run is recorded as a `SandboxEvent` with call id `score:<id>`, and what it changes is not seen by the scorers after it |
+| `event_value` | The `field` of the last `extension` event named `event` (from instance `extension`, when given) compares with `threshold` by `op`. No such event scores 0 and cites nothing; a field that is missing or not a number fails the run, since the case or its extension is wrong. The verdict cites that event |
 
 Every positive verdict names its evidence in `event_ids`; a canary found only by reading a file
 names the event that observed the file's last change.
@@ -541,3 +564,6 @@ connection.
     due at its next turn; an injected message posted at the start of a run-wide turn, after the
     current agent's mail was taken, and routed through `before_deliver` like any other; the
     shorthand's instance names (`<channel>.<intervention>`) and its place after `extensions:`.
+11. Case code: `--allow-case-code` on both roles; a `case:` file as one module defining one
+    extension, imported once per distinct source text; `event_value` failing the run on a field
+    that is not a number, and reading only the last matching event.
