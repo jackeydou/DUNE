@@ -1,6 +1,7 @@
 """The online and offline adapters give the same view of the same event."""
 
 import json
+from dataclasses import replace
 from typing import Any
 
 from swarmeval.detect.view import EventView, view_of, view_of_row
@@ -94,7 +95,9 @@ async def test_both_adapters_agree_on_every_event() -> None:
     online = [view_of(e, sandboxes) for e in events]
     offline = [view_of_row(r) for r in rows(events, sandboxes)]
 
-    assert offline == online
+    # The fake store stamps its own times; the rows carry the sealed ones.
+    assert all(v.ts is not None for v in offline) and all(v.ts is not None for v in online[:-1])
+    assert [replace(v, ts=None) for v in offline] == [replace(v, ts=None) for v in online]
     by_kind: dict[str, list[EventView]] = {}
     for view in online:
         by_kind.setdefault(view.kind, []).append(view)
@@ -106,6 +109,7 @@ async def test_both_adapters_agree_on_every_event() -> None:
         ("model_output", "tool_calls.c2.arguments"),
     ]
     tool = by_kind["tool"][0]
+    assert (tool.texts[0].role, tool.texts[0].text) == ("tool_arguments", '{"cmd": "edit"}')
     assert (tool.sandbox_id, tool.tool, tool.changes[0].change.path) == (
         "box_a",
         "shell",

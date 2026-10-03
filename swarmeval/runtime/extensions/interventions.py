@@ -47,7 +47,10 @@ def delivery_intervention(instance_id: str, envelope: Envelope, decision: BaseMo
         action=str(decision.model_dump()["kind"]),
         target_event_id=envelope.send_event_id,
         before_sha256=sha256_json(envelope.content),
-        after={"recipient": envelope.recipient, **decision.model_dump(mode="json")},
+        after={
+            "recipient": envelope.recipient,
+            **decision.model_dump(mode="json", exclude_none=True),
+        },
     )
     return EventDraft(
         record=record,

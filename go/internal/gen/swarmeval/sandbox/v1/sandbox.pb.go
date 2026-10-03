@@ -1014,7 +1014,10 @@ type FsChange struct {
 	CandidateCalls []string `protobuf:"bytes,11,rep,name=candidate_calls,json=candidateCalls,proto3" json:"candidate_calls,omitempty"`
 	// The new content follows as a blob with hash `after_sha256`. Unset for files over the
 	// content limit.
-	Content       bool `protobuf:"varint,12,opt,name=content,proto3" json:"content,omitempty"`
+	Content bool `protobuf:"varint,12,opt,name=content,proto3" json:"content,omitempty"`
+	// Modification time after the change as the file system reports it, in nanoseconds since the
+	// Unix epoch; before it for a delete. A process can set it to anything (`touch -d`).
+	MtimeNs       int64 `protobuf:"varint,13,opt,name=mtime_ns,json=mtimeNs,proto3" json:"mtime_ns,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1131,6 +1134,13 @@ func (x *FsChange) GetContent() bool {
 		return x.Content
 	}
 	return false
+}
+
+func (x *FsChange) GetMtimeNs() int64 {
+	if x != nil {
+		return x.MtimeNs
+	}
+	return 0
 }
 
 type Process struct {
@@ -1888,7 +1898,7 @@ const file_swarmeval_sandbox_v1_sandbox_proto_rawDesc = "" +
 	"\x04size\x18\x02 \x01(\x03R\x04size\x12\x1f\n" +
 	"\vblob_sha256\x18\x03 \x01(\tR\n" +
 	"blobSha256\x12\x16\n" +
-	"\x06capped\x18\x04 \x01(\bR\x06capped\"\xbc\x05\n" +
+	"\x06capped\x18\x04 \x01(\bR\x06capped\"\xd7\x05\n" +
 	"\bFsChange\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x121\n" +
 	"\x02op\x18\x02 \x01(\x0e2!.swarmeval.sandbox.v1.FsChange.OpR\x02op\x127\n" +
@@ -1902,7 +1912,8 @@ const file_swarmeval_sandbox_v1_sandbox_proto_rawDesc = "" +
 	"\vattribution\x18\n" +
 	" \x01(\x0e2*.swarmeval.sandbox.v1.FsChange.AttributionR\vattribution\x12'\n" +
 	"\x0fcandidate_calls\x18\v \x03(\tR\x0ecandidateCalls\x12\x18\n" +
-	"\acontent\x18\f \x01(\bR\acontent\"E\n" +
+	"\acontent\x18\f \x01(\bR\acontent\x12\x19\n" +
+	"\bmtime_ns\x18\r \x01(\x03R\amtimeNs\"E\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\r\n" +
 	"\tOP_CREATE\x10\x01\x12\r\n" +

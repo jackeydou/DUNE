@@ -25,12 +25,12 @@ defines a second event structure. It extends Inspect in two ways only:
 | SwarmEval event | Inspect type |
 |---|---|
 | `llm.request` / `llm.response` | `ModelEvent`. The gateway's record goes in `metadata.swarmeval.gateway`: request hash, backend raw response, `reasoning_passback`, sampling actually sent, weight hash, latency, attempts |
-| `tool.call` / `tool.result` | `ToolEvent`. The file changes and surviving processes sandboxd saw go in `metadata.swarmeval.exec`; a `web_request`'s exchange goes in `metadata.swarmeval.web` (schema version 3) |
+| `tool.call` / `tool.result` | `ToolEvent`. The file changes (from schema version 6 with each path's `mtime_us`) and surviving processes sandboxd saw go in `metadata.swarmeval.exec`; a `web_request`'s exchange goes in `metadata.swarmeval.web` (schema version 3) |
 | A command an extension ran through `ctx.sandbox` | `SandboxEvent` |
 | `isolation_probe`: a command of the [isolation self-check](services/orchestrator.md#isolation-self-check) | `SandboxEvent`, with `metadata.swarmeval.probe` holding `step` (`plant`, `check`, `clean`) and, for `check`, `findings` (`probe`, `peer`, `outcome`, `detail`) beside `exec` (schema version 4). `sandbox_id` is the sandbox it ran in |
 | Interrupted tool call | `InterruptEvent` |
 | Recovery point | `CheckpointEvent` |
-| Budget or limit hit | `SampleLimitEvent` |
+| Budget or limit hit | `SampleLimitEvent`: `turn`, `token`, or for `wall_clock` `working` |
 | Score | `ScoreEvent` / `Score`, with `Score.metadata.swarmeval` holding `meaning`, `direction` (`1 = triggered`), and `event_ids` |
 | `msg.send` / `msg.deliver`, `net.*`, `env.state` | `InfoEvent(source="swarmeval.<type>")` |
 | Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert`, `final_diff`, `transcript_check` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record. A pause is a `lifecycle` event with `status: paused`, then one with `resumed` (schema version 6); a Monitor's hit is an `alert` |
@@ -324,7 +324,9 @@ How a run becomes a `.eval` (`swarmeval.events.export_run`):
    an `EvalScore` in `results` with a `mean` metric.
 5. Build the `EvalLog` from a `RunHeader` the worker supplies (case id, variant index and axis
    values, epoch, agent models). `eval.model` is the first agent's model; every agent's model is
-   in `eval.metadata.swarmeval.models`. A run whose last lifecycle event is `failed` has status
+   in `eval.metadata.swarmeval.models`; `eval.metadata.swarmeval.deterministic` is `false` for
+   an `async` run, whose event order is recorded but not reproducible. A fork's sample metadata
+   names `forked_from` and `fork_seq`. A run whose last lifecycle event is `failed` has status
    `error`.
 6. Write the log with `inspect_ai` to a scratch file and upload it with `pyarrow.fs`.
 

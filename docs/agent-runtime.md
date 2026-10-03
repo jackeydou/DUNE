@@ -15,7 +15,8 @@ spec describes but the code does not do.
 `RunLoop` runs one run: a fresh one, or a fork, given a `ForkStart` (a checkpoint of another run,
 the agents' contexts there, and edits; [forks](services/orchestrator.md#forks)). At the start of
 every run-wide turn, once the observers have caught up, it commits a checkpoint
-([event-log.md](event-log.md#checkpoints)). Agents take turns in `round_robin` order. A turn is one model call
+([event-log.md](event-log.md#checkpoints)). How agents take turns is the run's
+[turn policy](#turn-policies); by default `round_robin`. A turn is one model call
 plus every tool call it makes:
 
 1. `before_turn` gate. Messages due on the Message Bus, then queued injections and `Inject`
@@ -41,6 +42,31 @@ A stop or a pause takes effect at the hook point where it is seen: before each t
 first waits for the observers, commits `lifecycle` `paused`, waits on the run's `Pauser` until a
 person resumes the run, and commits `resumed`; a stop requested meanwhile then takes effect. Nothing after that point runs, including
 the remaining tool calls of the same response. A tool call already executing finishes.
+
+### Turn policies
+
+| Policy | Who steps | Ends when |
+|---|---|---|
+| `round_robin` | Every agent that is not finished, one turn each, in case order, round after round | No agent is left unfinished, with no mail due to wake one |
+| `event_driven` | The same agents in the same order, but an agent that steps goes on, turn after turn, until it answers without a tool call; then the next | As `round_robin` |
+| `async` | Every agent in its own task, as fast as its model answers. An agent that answered without a tool call waits until a message is due for it | Every agent is waiting, or has used up its own `max_turns`, and no message is due or held by time; or a run-wide limit, a stop, or a failure ends it for all |
+
+Under `async`:
+
+- `max_turns` is each agent's own; one that reaches it stops with a `limit` event naming it,
+  and the run ends `limit` once the others are done. `max_tokens` and `wall_clock` end the run
+  for all.
+- `before_deliver` may hold a message for `Delay(seconds=…)` as well as for turns
+  (`swarmeval.bus.delay` with `seconds`); a waiting recipient is woken when it comes due.
+- A hook point waits for the observers to have processed the events committed when the agent
+  reached it, not for them to go quiet, since other agents keep committing.
+- A pause, by any agent's hook, holds every agent at its next hook point until the run resumes.
+- Agents that share a sandbox have their commands run one at a time by sandboxd.
+- No checkpoints are committed, so an `async` run cannot be forked, and the order of events is
+  recorded but not reproducible: the `.eval` says `deterministic: false`.
+
+`wall_clock` (any policy) is checked before every turn, with paused time left out, and ends the
+run with a `limit` event (`limit: wall_clock`).
 
 ### Routing messages
 
@@ -247,8 +273,8 @@ The kinds combine differently:
   handlers still run and see the total in `delayed_turns`; a `Drop` ends the chain. Each change
   is an `intervention` (`hook` `before_deliver`, `action` `deliver`, `drop`, or `delay`) whose
   parent and `target_event_id` are the `msg.send` and whose `after` is the verdict with
-  `recipient`. `Delay` counts the recipient's own turns; delays in seconds wait for the `async`
-  turn policy.
+  `recipient`. `Delay` counts the recipient's own turns, or under `async` seconds (`Delay(seconds=…)`;
+  under the other policies that verdict fails the run).
 - **Gate** hooks stop at the first decision that is not the default (`Proceed` / `Allow`). Later
   gates are not called.
 - **Observe** hooks all run.
@@ -303,8 +329,6 @@ The timeout is the loop's `hook_timeout_s` (default 30 s) unless the extension d
 | Spec item | State |
 |---|---|
 | Resume and takeover | Forks are built; recovering a run in place after a worker failure is M3. The `awaiting_admit` status exists, and the gateway path is to write it when that path is built. A fresh `RunLoop` still refuses a run that already has context |
-| `Delay` in seconds | With the `async` turn policy |
 | `read_messages`, LLM monitor agents (`role: monitor`) | After M2 (M2 spec open question 4). Channel members get messages pushed at their next turn |
 | `Pause` as a gate decision | `ctx.actions.pause` exists; a `before_turn` / `before_tool_call` `Pause` decision does not |
-| `async` and `event_driven` turn policies, `wall_clock` limit | Only `round_robin`, `max_turns`, and `max_tokens` exist |
 | Pausing on infrastructure failure | A failing model client or sandbox raises and ends the run |

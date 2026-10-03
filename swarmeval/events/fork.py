@@ -70,8 +70,9 @@ async def point_at(engine: AsyncEngine, run_id: str, seq: int, what: str = "") -
         if row is None:
             raise ForkPointError(
                 f"run `{run_id}` has no turn boundary before {what or f'seq {seq + 1}'}: it "
-                "comes before the first turn, or the run was recorded before forks were "
-                "possible. Fork at a later event."
+                "comes before the first turn, the run's turn policy is `async`, which takes no "
+                "checkpoints, or the run was recorded before forks were possible. Fork at a "
+                "later event of a `round_robin` or `event_driven` run."
             )
         checkpoint = Checkpoint.model_validate(row.state)
         if checkpoint.spawned:

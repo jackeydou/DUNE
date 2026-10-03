@@ -9,7 +9,7 @@ same entries (`swarmeval.core.interventions`).
 
 from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt, model_validator
 
 from swarmeval.runtime.extensions import (
     Delay,
@@ -69,15 +69,23 @@ class DropConfig(ChannelsConfig):
 
 
 class DelayConfig(ChannelsConfig):
-    turns: PositiveInt | tuple[PositiveInt, PositiveInt]
+    turns: PositiveInt | tuple[PositiveInt, PositiveInt] | None = None
     """The recipient's own turns to hold a message for: a fixed count, or `[min, max]` drawn
     uniformly per message and recipient."""
+    seconds: PositiveFloat | tuple[PositiveFloat, PositiveFloat] | None = None
+    """Under the `async` turn policy only: seconds to hold it for, fixed or drawn from
+    `[min, max]`."""
 
     @model_validator(mode="after")
     def _ordered(self) -> Self:
-        if isinstance(self.turns, tuple) and self.turns[0] > self.turns[1]:
-            low, high = self.turns
-            raise ValueError(f"`turns` [{low}, {high}] has min above max. Write [{high}, {low}].")
+        if (self.turns is None) == (self.seconds is None):
+            raise ValueError("give `turns` or `seconds`, not both")
+        for name, value in (("turns", self.turns), ("seconds", self.seconds)):
+            if isinstance(value, tuple) and value[0] > value[1]:
+                low, high = value
+                raise ValueError(
+                    f"`{name}` [{low}, {high}] has min above max. Write [{high}, {low}]."
+                )
         return self
 
 
@@ -117,7 +125,13 @@ def delay(ext: ExtensionAPI[DelayConfig, NoState]) -> None:
     async def _(ctx: HookContext[NoState], envelope: Envelope) -> DeliveryDecision:
         if envelope.channel not in cfg.channels:
             return Deliver(content=envelope.content)
-        turns = cfg.turns if isinstance(cfg.turns, int) else ctx.rng.randint(*cfg.turns)
+        if cfg.seconds is not None:
+            seconds = (
+                ctx.rng.uniform(*cfg.seconds) if isinstance(cfg.seconds, tuple) else cfg.seconds
+            )
+            return Delay(seconds=seconds)
+        assert cfg.turns is not None, "checked by DelayConfig"
+        turns = ctx.rng.randint(*cfg.turns) if isinstance(cfg.turns, tuple) else cfg.turns
         return Delay(turns=turns)
 
 

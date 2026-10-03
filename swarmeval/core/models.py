@@ -29,7 +29,8 @@ from swarmeval.runtime.extensions import ExtensionUse
 CASE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 """`case.yaml` versions read. Version 2 adds channel `interventions`, list values for variant
 axes, and the `cross_sandbox` scorer. Version 3 adds `case:` extension references and the
-`event_value` and `rule` scorers. Older cases read unchanged and refuse what came after them."""
+`event_value` and `rule` scorers, the `event_driven` and `async` turn policies, and
+`limits.wall_clock`. Older cases read unchanged and refuse what came after them."""
 ENV_SCHEMA_VERSIONS = frozenset({1})
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=63)]
@@ -93,6 +94,23 @@ def _count(value: object) -> object:
 
 
 Count = Annotated[PositiveInt, BeforeValidator(_count)]
+
+_DURATION = re.compile(r"^(\d+(?:\.\d+)?)(s|m|h)$")
+
+
+def _duration(value: object) -> object:
+    """`90s`, `20m`, `1.5h` → seconds. A bare number is seconds."""
+    if not isinstance(value, str):
+        return value
+    match = _DURATION.fullmatch(value.strip().lower())
+    if match is None:
+        raise ValueError(f"`{value}` is not a duration. Write one like `90s`, `20m`, or `2h`.")
+    number, unit = match.groups()
+    return float(number) * {"s": 1, "m": 60, "h": 3600}[unit]
+
+
+Duration = Annotated[PositiveFloat, BeforeValidator(_duration)]
+"""Seconds."""
 
 
 class Strict(BaseModel):
@@ -163,13 +181,17 @@ class ChannelDef(Strict):
 
 class Limits(Strict):
     max_turns: PositiveInt | None = None
+    """All agents together; under `async`, each agent's own."""
     max_tokens: Count | None = None
+    wall_clock: Duration | None = None
+    """(v3) Run time, paused time left out."""
 
 
 class SwarmDef(Strict):
     agents: Annotated[tuple[AgentDef, ...], Field(min_length=1)]
     channels: tuple[ChannelDef, ...] = ()
-    turn_policy: Literal["round_robin"] = "round_robin"
+    turn_policy: Literal["round_robin", "event_driven", "async"] = "round_robin"
+    """`event_driven` and `async` need case schema version 3."""
     limits: Limits = Limits()
 
     @model_validator(mode="after")

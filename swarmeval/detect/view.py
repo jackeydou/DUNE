@@ -9,6 +9,7 @@ offline analysis does. Both give the same view of the same event.
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import JsonValue
@@ -28,14 +29,18 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
 )
 
-TextRole = Literal["model_output", "tool_output", "message", "rewritten_message", "delivered"]
+TextRole = Literal[
+    "model_output", "tool_arguments", "tool_output", "message", "rewritten_message", "delivered"
+]
 """`model_output`: a model call's content, reasoning, and tool call arguments. `message`: what a
 sender put on a channel. `rewritten_message`: a delivery's content a `before_deliver`
 intervention replaced, as its recipient read it. `delivered`: a delivery's content, which
-repeats its send unless rewritten."""
+repeats its send unless rewritten. `tool_arguments`: what a tool call ran with, which the model
+call that made it already holds."""
 
 TEXT_ROLES: tuple[TextRole, ...] = (
     "model_output",
+    "tool_arguments",
     "tool_output",
     "message",
     "rewritten_message",
@@ -78,6 +83,8 @@ class EventView:
     sender: str | None = None
     recipients: tuple[str, ...] = ()
     """A send's recipients; the one recipient of a delivery or a delivery rewrite."""
+    ts: datetime | None = None
+    """When the event was sealed."""
 
     def texts_in(self, roles: Sequence[TextRole]) -> list[Text]:
         return [t for t in self.texts if t.role in roles]
@@ -92,6 +99,7 @@ def view_of(event: CommittedEvent, sandboxes: Mapping[str, str | None]) -> Event
         agent_id=event.agent_id,
         extension=event.extension,
         sandbox_id=None,
+        ts=event.ts,
     )
     match event.record:
         case ModelCallRecord(response=response):
@@ -105,7 +113,11 @@ def view_of(event: CommittedEvent, sandboxes: Mapping[str, str | None]) -> Event
             return replace(head, texts=tuple(texts))
         case ToolCallRecord(call=call, result=result, exec_result=exec_result):
             sandbox = sandboxes.get(event.agent_id) if event.agent_id else None
-            texts = (Text("tool_output", "result", result.content),)
+            ran = event.record.executed_arguments or call.arguments
+            texts = (
+                Text("tool_arguments", "arguments", ran),
+                Text("tool_output", "result", result.content),
+            )
             if exec_result is None:
                 return replace(head, texts=texts, tool=call.name)
             return replace(
@@ -187,13 +199,18 @@ def view_of_row(row: Mapping[str, object]) -> EventView:
         agent_id=agent,
         extension=ours.get("extension"),
         sandbox_id=None,
+        ts=_ts(row.get("ts")),
     )
     data: dict[str, Any] = payload.get("data") or {}
     match kind:
         case "model":
             return replace(head, texts=tuple(_model_texts(payload, ours)))
         case "tool":
-            texts = (Text("tool_output", "result", str(payload.get("result", ""))),)
+            ran = ours.get("executed_arguments") or ours.get("raw_arguments", "")
+            texts = (
+                Text("tool_arguments", "arguments", str(ran)),
+                Text("tool_output", "result", str(payload.get("result", ""))),
+            )
             exec_: dict[str, Any] | None = ours.get("exec")
             if exec_ is None:
                 return replace(head, texts=texts, tool=payload["function"])
@@ -280,6 +297,12 @@ def _stored_changes(sandbox: str | None, exec_: dict[str, Any]) -> tuple[Change,
 
 def _processes(exec_: dict[str, Any]) -> tuple[ProcessInfo, ...]:
     return tuple(ProcessInfo.model_validate(p) for p in exec_.get("processes", ()))
+
+
+def _ts(value: object) -> datetime | None:
+    """`events.parquet` and `runs.events` both hold timezone-aware timestamps."""
+    assert value is None or isinstance(value, datetime), "rows type ts as a timestamp"
+    return value
 
 
 def _str_or_none(value: object) -> str | None:

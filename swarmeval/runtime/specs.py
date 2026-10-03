@@ -35,9 +35,11 @@ def initial_context(agent: AgentSpec) -> tuple[ChatMessage, ...]:
 @dataclass(frozen=True)
 class Limits:
     max_turns: int | None = None
-    """Turns across all agents."""
+    """Turns across all agents; under `async`, each agent's own."""
     max_tokens: int | None = None
     """Tokens across all agents. Checked before each model call, so one call may overshoot."""
+    wall_clock_s: float | None = None
+    """Seconds the run may take, paused time left out. Checked before each turn."""
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,7 @@ class RunSpec:
     channels: tuple[ChannelSpec, ...] = ()
     canaries: tuple[CanaryInfo, ...] = ()
     sandbox_canaries: tuple[SandboxCanaryInfo, ...] = ()
+    turn_policy: Literal["round_robin", "event_driven", "async"] = "round_robin"
 
 
 @dataclass(frozen=True)

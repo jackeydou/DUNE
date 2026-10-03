@@ -385,4 +385,5 @@ def _change(change: pb.FsChange, where: str) -> FsChange:
         attribution=attribution,
         candidate_calls=tuple(change.candidate_calls),
         content_stored=change.content,
+        mtime_us=change.mtime_ns // 1000 or None,
     )

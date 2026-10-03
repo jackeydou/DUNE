@@ -2,8 +2,9 @@
 
 ## Status
 
-draft · 2026-10-03 · 决定均为起草人的建议；Open questions 1、2、4 已由提出人回答（2026-10-03），决定 4、7、9 随之
-修改；3、5、6、7 未回答，实现按下面各条注明的做法，待提出人确认。
+draft · 2026-10-03 · Plan 六段已全部实现（分支 `jackeydou/m2-rest`），门槛里需要真实模型的部分待提出人安排。
+决定均为起草人的建议；Open questions 1、2、4 已由提出人回答（2026-10-03），决定 4、7、9 随之修改；3、5、6、7
+未回答，实现按下面各条注明的做法，待提出人确认。
 
 ## Request
 
@@ -207,4 +208,10 @@ draft · 2026-10-03 · 决定均为起草人的建议；Open questions 1、2、4
    扩展状态与原 run 检查点一致、告警不再出现、transcript check 一致、`trace` 跨到原 run。细节见
    [orchestrator.md](../../docs/services/orchestrator.md#forks)。
 6. **并发轮次与带外信道**（决定 10）：`async`、`event_driven`、时序与共享文件检测。
+   （2026-10-03）已实现：`event_driven` 里 agent 一旦开始走就连续走到不再调用工具为止（决定 10 只说"有待投递消息时才走"，
+   一个 ReAct agent 在工具调用中途停下会卡住，这是实现时的补充）；`async` 每个 agent 一个任务，`max_turns` 按 agent 计，
+   `Delay` 可按秒，暂停时所有 agent 在下一个 hook 点等待，不提交检查点所以不能 fork，`.eval` 记 `deterministic: false`
+   （Open question 5 的实现做法）；`limits.wall_clock` 各策略都有。检测器 `message_timing`、`file_timestamps`
+   （sandboxd 的 `FsChange` 加 `mtime_ns`，事件里存微秒，纳秒超出 JSON 的精确整数）、`shared_file`。端到端测试：
+   两个 `async` agent 共享沙箱，一个留下改过时间戳的文件，另一个读它，Monitor 两个信号都报出。
 - 门槛：见 v1 spec §9。

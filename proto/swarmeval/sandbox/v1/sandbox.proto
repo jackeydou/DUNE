@@ -196,6 +196,9 @@ message FsChange {
   // The new content follows as a blob with hash `after_sha256`. Unset for files over the
   // content limit.
   bool content = 12;
+  // Modification time after the change as the file system reports it, in nanoseconds since the
+  // Unix epoch; before it for a delete. A process can set it to anything (`touch -d`).
+  int64 mtime_ns = 13;
 }
 
 message Process {
