@@ -172,8 +172,18 @@ class ContextHost(Protocol):
         """A run-unique id for a command the instance runs through `ctx.sandbox`."""
         ...
 
-    def request_stop(self, instance_id: str, reason: str) -> None: ...
-    def queue_inject(self, instance_id: str, agent_id: str, message: UserMessage) -> None: ...
+    def request_stop(self, instance_id: str, reason: str, event_id: str) -> None:
+        """`event_id` is the stop's intervention event, the parent of the run's last lifecycle
+        event."""
+        ...
+
+    def queue_inject(
+        self, instance_id: str, agent_id: str, message: UserMessage, event_id: str
+    ) -> None:
+        """`event_id` is the injection's intervention event, recorded as the cause of what the
+        agent does after reading it."""
+        ...
+
     def spawn(self, ctx: "HookContext[Any]", coro: Coroutine[Any, Any, None]) -> None: ...
 
 
@@ -185,22 +195,27 @@ class StateCell[S: BaseModel]:
 class ExtensionModel:
     """Model calls go through model-gateway under this instance's key and are recorded."""
 
-    def __init__(self, host: ContextHost, instance_id: str) -> None:
+    def __init__(self, host: ContextHost, instance_id: str, trigger_id: str | None) -> None:
         self._host = host
         self._instance_id = instance_id
+        self._trigger_id = trigger_id
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
+        """The call's record names the event that triggered the hook as its parent."""
         caller = ExtensionCaller(self._instance_id)
-        recorded = await self._host.model_client.generate(caller, request)
+        recorded = await self._host.model_client.generate(
+            caller, request, parent_id=self._trigger_id
+        )
         return recorded.response
 
 
 class ExtensionSandbox:
     """Commands run through sandboxd; their record is attributed to this instance."""
 
-    def __init__(self, host: ContextHost, instance_id: str) -> None:
+    def __init__(self, host: ContextHost, instance_id: str, trigger_id: str | None) -> None:
         self._host = host
         self._instance_id = instance_id
+        self._trigger_id = trigger_id
 
     async def exec(self, sandbox_id: str, command: Exec, os_user: str | None = None) -> ExecResult:
         call_id = self._host.sandbox_call_id(self._instance_id)
@@ -208,13 +223,17 @@ class ExtensionSandbox:
             sandbox_id, os_user, command, call_id=call_id
         )
         record = SandboxExecRecord(sandbox_id=sandbox_id, command=command, result=result)
-        draft = EventDraft(record=record, extension=self._instance_id)
+        draft = EventDraft(record=record, extension=self._instance_id, parent_id=self._trigger_id)
         await self._host.writer.commit(Transaction(events=[draft]))
         return result
 
 
 class Actions:
-    """Requests that take effect at the loop's next hook point."""
+    """Requests that take effect at the loop's next hook point.
+
+    Each action is recorded as an event. `cause` names the event that led to it, such as an
+    alert this hook just raised; without it, the event that triggered the hook is the cause
+    (`ctx.trigger_id`)."""
 
     def __init__(self, ctx: "HookContext[Any]") -> None:
         self._ctx = ctx
@@ -225,25 +244,35 @@ class Actions:
         *,
         severity: Literal["low", "medium", "high"],
         event_ids: tuple[str, ...] | list[str] = (),
-    ) -> None:
+    ) -> str:
+        """Records an `alert`. Its parent is the last of `event_ids`, or the triggering event
+        when there are none. Returns the alert's event id, to pass as another action's
+        `cause`."""
         record = AlertRecord(message=message, severity=severity, event_ids=tuple(event_ids))
-        self._ctx.pending.events.append(self._ctx.draft(record))
+        draft = self._ctx.draft(record, parent_id=event_ids[-1] if event_ids else None)
+        self._ctx.pending.events.append(draft)
+        return draft.event_id
 
-    def stop(self, reason: str) -> None:
+    def stop(self, reason: str, *, cause: str | None = None) -> None:
         """Stops the run at the next hook point. Running tool calls finish first."""
-        self._ctx.pending.events.append(self._ctx.intervention("stop", {"reason": reason}))
-        self._ctx.host.request_stop(self._ctx.instance_id, reason)
+        draft = self._ctx.intervention("stop", {"reason": reason}, cause=cause)
+        self._ctx.pending.events.append(draft)
+        self._ctx.host.request_stop(self._ctx.instance_id, reason, draft.event_id)
 
-    def inject(self, agent_id: str, content: str) -> None:
+    def inject(self, agent_id: str, content: str, *, cause: str | None = None) -> None:
         """Queues a user message for `agent_id`, admitted at its next `before_turn`."""
         if agent_id not in self._ctx.host.agent_ids():
             raise ExtensionDefinitionError(
                 f"extension `{self._ctx.instance_id}` injected into unknown agent `{agent_id}`. "
                 f"Agents in this run: {', '.join(self._ctx.host.agent_ids())}."
             )
-        record = self._ctx.intervention("inject", {"agent_id": agent_id, "content": content})
-        self._ctx.pending.events.append(record)
-        self._ctx.host.queue_inject(self._ctx.instance_id, agent_id, UserMessage(content=content))
+        draft = self._ctx.intervention(
+            "inject", {"agent_id": agent_id, "content": content}, cause=cause
+        )
+        self._ctx.pending.events.append(draft)
+        self._ctx.host.queue_inject(
+            self._ctx.instance_id, agent_id, UserMessage(content=content), draft.event_id
+        )
 
 
 class HookContext[S: BaseModel]:
@@ -259,6 +288,7 @@ class HookContext[S: BaseModel]:
         agent: AgentInfo | None,
         state: StateCell[S],
         rng: random.Random,
+        trigger_id: str | None,
     ) -> None:
         self.host = host
         self.instance_id = instance_id
@@ -266,8 +296,11 @@ class HookContext[S: BaseModel]:
         self.run = run
         self.agent = agent
         self.rng = rng
-        self.model = ExtensionModel(host, instance_id)
-        self.sandbox = ExtensionSandbox(host, instance_id)
+        self.trigger_id = trigger_id
+        """The event that caused this call: the parent of what the call records unless an
+        action names its own `cause` (docs/event-log.md#causal-parents)."""
+        self.model = ExtensionModel(host, instance_id, trigger_id)
+        self.sandbox = ExtensionSandbox(host, instance_id, trigger_id)
         self.actions = Actions(self)
         self.pending = Transaction()
         self._state = state
@@ -289,18 +322,22 @@ class HookContext[S: BaseModel]:
         the run at the next hook point."""
         self.host.spawn(self, coro)
 
-    def draft(self, record: Record) -> EventDraft:
+    def draft(self, record: Record, *, parent_id: str | None = None) -> EventDraft:
+        """An event this call records, parented to `parent_id` or else the triggering event."""
         return EventDraft(
             record=record,
             agent_id=self.agent.id if self.agent else None,
             extension=self.instance_id,
+            parent_id=parent_id or self.trigger_id,
         )
 
-    def intervention(self, action: str, after: JsonValue) -> EventDraft:
+    def intervention(
+        self, action: str, after: JsonValue, *, cause: str | None = None
+    ) -> EventDraft:
         record = InterventionRecord(
             hook=self.hook, action=action, target_event_id=None, before_sha256=None, after=after
         )
-        return self.draft(record)
+        return self.draft(record, parent_id=cause)
 
 
 # Hook handler signatures, one per hook name.

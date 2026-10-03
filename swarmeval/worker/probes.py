@@ -261,7 +261,8 @@ async def check_isolation(
             "check sandboxd's --sandbox-network and --runtime."
         )
         record = LifecycleRecord(status="failed", reason="isolation self-check", error=message)
-        await writer.commit(Transaction(events=[EventDraft(record=record)]))
+        draft = EventDraft(record=record, parent_id=writer.last_event_id)
+        await writer.commit(Transaction(events=[draft]))
         raise IsolationError(message)
     return findings
 
@@ -292,18 +293,19 @@ async def _commit(
     writer: RunWriter,
     findings: Mapping[str, tuple[ProbeFinding, ...]] | None = None,
 ) -> None:
-    drafts = [
-        EventDraft(
-            record=IsolationProbeRecord(
-                sandbox_id=sandbox,
-                step=step,
-                command=commands[sandbox],
-                result=results[sandbox],
-                findings=(findings or {}).get(sandbox, ()),
-            )
+    """Each probe event's parent is the one before it, so the self-check is one chain from the
+    run's first event; the first has none."""
+    drafts: list[EventDraft] = []
+    for sandbox in sorted(commands):
+        record = IsolationProbeRecord(
+            sandbox_id=sandbox,
+            step=step,
+            command=commands[sandbox],
+            result=results[sandbox],
+            findings=(findings or {}).get(sandbox, ()),
         )
-        for sandbox in sorted(commands)
-    ]
+        parent = drafts[-1].event_id if drafts else writer.last_event_id
+        drafts.append(EventDraft(record=record, parent_id=parent))
     await writer.commit(Transaction(events=drafts))
 
 

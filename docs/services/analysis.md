@@ -7,8 +7,8 @@ of the Control API behind [edge](edge.md), not part of it. Its place among the s
 
 **Status:** built as batch jobs (`swarmeval.analysis`): `report`, trigger rates per case,
 variant, and scorer from run summaries; `judge`, an LLM judge whose verdicts cite events;
-`eval-set`, one Inspect `.eval` per variant; `timeline`, one run's events laned by agent; and
-`scan`, rule sets over decoded payloads. Event-rule scorers are not built yet. Analysis is built
+`eval-set`, one Inspect `.eval` per variant; `timeline`, one run's events laned by agent;
+`scan`, rule sets over decoded payloads; and `trace`, one event's causal chain. Event-rule scorers are not built yet. Analysis is built
 here rather than on Docent or inspect-scout
 ([trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 9); `.eval`
 stays the format for exchanging runs with those tools. M4 turns analysis into a gRPC service
@@ -42,6 +42,7 @@ Files a person reads, such as per-variant `.eval` logs, go to a local directory 
 | LLM judge | Asks a question about a run, or a `seq` range of it, through [model-gateway](model-gateway.md) with the analysis key. The judge reads the run's `events.parquet` rendered one line per event, `[event_id] #seq agent …`, with line breaks inside an event escaped so run content cannot pose as another event, each cut at 2,000 characters; score events are left out so scorers do not lead it, isolation self-check events show their findings and not their scripts, and a transcript over 400,000 characters is refused rather than cut. It answers through a `verdict` tool: `yes`, `no`, or `unclear`, an explanation, and the event ids it rests on. The verdict is rejected when it cites an event it was not shown, when a `yes` cites nothing, or when the model does not call `verdict` exactly once. Every call is stored, accepted or rejected, with its request and response; NUL in the response is replaced with U+FFFD first, since `jsonb` refuses it. Built as the `judge` job |
 | Reports | Trigger rate per case revision (`case_sha256`, shown as `case@hash`), variant, and scorer over `done` runs: epochs, mean, stderr, and a 95% Wilson interval, which, unlike mean ± 1.96·stderr, does not collapse to a point when no epoch or every epoch triggered. Runs that ended otherwise are listed per status and left out. Per variant it also lists the epochs requested (summed over submissions), `done`, replaced by a [rerun](orchestrator.md#reruns), and missing, so a variant that used up its reruns shows its gap. Built as the `report` job. Grouping by risk category, isolation level, fidelity, and `reasoning_visibility` is not built |
 | Single-run timeline | One run's `events.parquet` in `seq` order, as a Markdown table with one column (lane) per agent and one, `-`, for events no agent caused; each event fills its own lane's cell, as the same one-line text the judge reads (pipes escaped), with its id and seconds since the run's first event. Every event is shown, scores included. Narrowed by lane (`--agent`, repeatable) and `seq` range; times stay relative to the run's start. `--html` also writes the table as one self-contained page (no scripts, no external resources, run content HTML-escaped). Built as the `timeline` job |
+| Causal trace | One event's chain of causes: from the event, follow `parent_id` ([event-log.md](../event-log.md#causal-parents)) to the run's first event, and print the chain root first, one line per event, `[event_id] #seq agent …`, as the judge reads it. Read from the run's `events.parquet`. A parent missing from the run, or a chain that loops, is refused, since the worker writes neither. Events of runs before event schema version 5 have few parents, so their chains stop early. Built as the `trace` job; the viewer's causal graph is M4 |
 | Per-variant `.eval` | One Inspect log per submission, case revision, and variant, every `done` epoch a sample, with `results` and `reductions` computed by Inspect from the reducers (default `mean`) and metrics the header declares: per reducer, `mean` of the reduced value; over epochs, `epoch_stderr` and `epoch_ci_wilson`. Runs that ended otherwise are listed in `eval.metadata.swarmeval.left_out`. Read from each run's `sample.eval`, written to a local directory, and opened with `inspect view`. Built as the `eval-set` job; the assembly is in [event-log.md](../event-log.md#the-per-variant-eval). A case scorer cannot pick its own reducer: Inspect has one reducer list per log |
 
 Each capability is a job: `python -m swarmeval.analysis <job>`, with the object store flags the
@@ -90,6 +91,14 @@ uv run python -m swarmeval.analysis scan --rules rules.yaml --submission fb47ae6
 
 It prints one line per run with its matches per rule. `--submission` scans every exported run
 of it, `done` or `cancelled`.
+
+```bash
+uv run python -m swarmeval.analysis trace --run RUN_ID --event EVENT_ID \
+  --s3-endpoint 127.0.0.1:9000 --s3-scheme http
+```
+
+It prints the chain from the run's first event down to `EVENT_ID`; `--event-chars` (default 400)
+sets where each event is cut. Event ids are in the timeline.
 
 ## Rule sets
 

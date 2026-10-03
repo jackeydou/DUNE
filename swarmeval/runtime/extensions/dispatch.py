@@ -62,12 +62,17 @@ class GateOutcome[D]:
     decision: D
     decided_by: str | None
     txn: Transaction
+    intervention_id: str | None = None
+    """The event recording a decision that is not the default."""
 
 
 @dataclass
 class TransformOutcome[T]:
     value: T
     txn: Transaction
+    intervention_id: str | None = None
+    """The event recording the last change, when a hook changed the value: what the agent is
+    then shown comes from it."""
 
 
 class _Instance:
@@ -124,7 +129,9 @@ class HookDispatcher:
             self._instances.append(_Instance(loaded, state, seed, default_timeout_s))
 
         self.stop_reason: str | None = None
-        self._injections: dict[str, list[UserMessage]] = {}
+        self.stop_cause: str | None = None
+        """The intervention event of the stop that `stop_reason` describes."""
+        self._injections: dict[str, list[tuple[UserMessage, str]]] = {}
         self._spawned: dict[asyncio.Task[None], _Instance] = {}
         self._failure: ExtensionError | None = None
         self._queue: asyncio.Queue[CommittedEvent] = asyncio.Queue()
@@ -158,12 +165,15 @@ class HookDispatcher:
         self._sandbox_calls[instance_id] = n
         return f"ext:{instance_id}:{n}"
 
-    def request_stop(self, instance_id: str, reason: str) -> None:
+    def request_stop(self, instance_id: str, reason: str, event_id: str) -> None:
         if self.stop_reason is None:
             self.stop_reason = f"{instance_id}: {reason}"
+            self.stop_cause = event_id
 
-    def queue_inject(self, instance_id: str, agent_id: str, message: UserMessage) -> None:
-        self._injections.setdefault(agent_id, []).append(message)
+    def queue_inject(
+        self, instance_id: str, agent_id: str, message: UserMessage, event_id: str
+    ) -> None:
+        self._injections.setdefault(agent_id, []).append((message, event_id))
 
     def spawn(self, ctx: HookContext[Any], coro: Coroutine[Any, Any, None]) -> None:
         instance = self._instance(ctx.instance_id)
@@ -233,40 +243,50 @@ class HookDispatcher:
         if self._failure is None:
             self._failure = err
 
-    def take_injections(self, agent_id: str) -> list[UserMessage]:
+    def take_injections(self, agent_id: str) -> list[tuple[UserMessage, str]]:
+        """Queued injections for `agent_id`, each with its intervention event."""
         return self._injections.pop(agent_id, [])
 
     # Hooks
 
     async def observe(
-        self, hook: Literal["on_run_start", "after_turn", "on_run_end"], agent: AgentInfo | None
+        self,
+        hook: Literal["on_run_start", "after_turn", "on_run_end"],
+        agent: AgentInfo | None,
+        trigger_id: str,
     ) -> None:
         await self.barrier()
         txn = Transaction()
         for instance, handler in self._handlers(hook):
-            _, effects = await self._call(instance, hook, agent, handler)
+            _, effects = await self._call(instance, hook, agent, trigger_id, handler)
             txn.extend(effects)
         await self._writer.commit(txn)
 
-    async def before_turn(self, agent: AgentInfo, turn: int) -> GateOutcome[TurnDecision]:
+    async def before_turn(
+        self, agent: AgentInfo, turn: int, trigger_id: str
+    ) -> GateOutcome[TurnDecision]:
         await self.barrier()
         return await self._gate(
             "before_turn",
             agent,
             TurnInfo(turn=turn),
             None,
+            trigger_id,
             Proceed(),
             (Proceed, Skip, Inject, Stop),
         )
 
     async def compact_context(
-        self, agent: AgentInfo, messages: tuple[ChatMessage, ...]
+        self, agent: AgentInfo, messages: tuple[ChatMessage, ...], trigger_id: str
     ) -> TransformOutcome[tuple[ChatMessage, ...] | None]:
         await self.barrier()
         txn = Transaction()
         current = messages
+        changed: str | None = None
         for instance, handler in self._handlers("compact_context"):
-            result, effects = await self._call(instance, "compact_context", agent, handler, current)
+            result, effects = await self._call(
+                instance, "compact_context", agent, trigger_id, handler, current
+            )
             txn.extend(effects)
             if result is None:
                 continue
@@ -285,18 +305,20 @@ class HookDispatcher:
                     "return None to keep the current context.",
                 )
             if new != current:
-                txn.events.append(
-                    self._intervention(instance, "compact_context", "compact", None, current, new)
+                draft = self._intervention(
+                    instance, "compact_context", "compact", None, trigger_id, current, new
                 )
+                txn.events.append(draft)
+                changed = draft.event_id
                 current = new
-        return TransformOutcome(None if current is messages else current, txn)
+        return TransformOutcome(None if current is messages else current, txn, changed)
 
     async def before_model_request(
-        self, agent: AgentInfo, options: RequestOptions
+        self, agent: AgentInfo, options: RequestOptions, trigger_id: str
     ) -> TransformOutcome[RequestOptions]:
         await self.barrier()
         outcome = await self._transform(
-            "before_model_request", agent, options, None, RequestOptions
+            "before_model_request", agent, options, None, trigger_id, RequestOptions
         )
         extra = set(outcome.value.tools) - set(options.tools)
         if extra:
@@ -313,7 +335,12 @@ class HookDispatcher:
     ) -> TransformOutcome[AssistantMessage]:
         await self.barrier()
         return await self._transform(
-            "after_model_response", agent, message, target_event_id, AssistantMessage
+            "after_model_response",
+            agent,
+            message,
+            target_event_id,
+            target_event_id,
+            AssistantMessage,
         )
 
     async def before_tool_call(
@@ -321,7 +348,13 @@ class HookDispatcher:
     ) -> GateOutcome[ToolDecision]:
         await self.barrier()
         return await self._gate(
-            "before_tool_call", agent, call, target_event_id, Allow(), (Allow, Rewrite, Block)
+            "before_tool_call",
+            agent,
+            call,
+            target_event_id,
+            target_event_id,
+            Allow(),
+            (Allow, Rewrite, Block),
         )
 
     async def after_tool_result(
@@ -329,13 +362,16 @@ class HookDispatcher:
     ) -> TransformOutcome[ToolResult]:
         await self.barrier()
         return await self._transform(
-            "after_tool_result", agent, result, target_event_id, ToolResult
+            "after_tool_result", agent, result, target_event_id, target_event_id, ToolResult
         )
 
     async def run_worker_tool(
-        self, tool: WorkerTool, agent: AgentInfo, args: BaseModel
+        self, tool: WorkerTool, agent: AgentInfo, args: BaseModel, trigger_id: str
     ) -> tuple[str, Transaction]:
-        result, txn = await self._call(self._instance(tool.owner), "tool", agent, tool.run, args)
+        """`trigger_id` is the model event that called the tool."""
+        result, txn = await self._call(
+            self._instance(tool.owner), "tool", agent, trigger_id, tool.run, args
+        )
         if not isinstance(result, str):
             raise ExtensionError(
                 tool.owner, "tool", f"tool `{tool.name}` returned {type(result).__name__}, not str."
@@ -351,7 +387,7 @@ class HookDispatcher:
         return [(i, h) for i in self._instances for h in i.handlers(hook)]
 
     def _context(
-        self, instance: _Instance, site: CallSite, agent: AgentInfo | None
+        self, instance: _Instance, site: CallSite, agent: AgentInfo | None, trigger_id: str | None
     ) -> HookContext[Any]:
         return HookContext(
             host=self,
@@ -361,6 +397,7 @@ class HookDispatcher:
             agent=agent,
             state=instance.state,
             rng=instance.rng,
+            trigger_id=trigger_id,
         )
 
     async def _call(
@@ -368,10 +405,11 @@ class HookDispatcher:
         instance: _Instance,
         site: CallSite,
         agent: AgentInfo | None,
+        trigger_id: str | None,
         handler: Callable[..., Awaitable[Any]],
         *payload: Any,
     ) -> tuple[Any, Transaction]:
-        ctx = self._context(instance, site, agent)
+        ctx = self._context(instance, site, agent, trigger_id)
         try:
             async with asyncio.timeout(instance.timeout_s):
                 result = await handler(ctx, *payload)
@@ -399,11 +437,13 @@ class HookDispatcher:
         agent: AgentInfo,
         value: T,
         target_event_id: str | None,
+        trigger_id: str,
         expected: type[T],
     ) -> TransformOutcome[T]:
         txn = Transaction()
+        changed: str | None = None
         for instance, handler in self._handlers(hook):
-            result, effects = await self._call(instance, hook, agent, handler, value)
+            result, effects = await self._call(instance, hook, agent, trigger_id, handler, value)
             txn.extend(effects)
             if not isinstance(result, expected):
                 raise ExtensionError(
@@ -413,11 +453,13 @@ class HookDispatcher:
                     "the input unchanged if there is nothing to change.",
                 )
             if result != value:
-                txn.events.append(
-                    self._intervention(instance, hook, "rewrite", target_event_id, value, result)
+                draft = self._intervention(
+                    instance, hook, "rewrite", target_event_id, trigger_id, value, result
                 )
+                txn.events.append(draft)
+                changed = draft.event_id
                 value = result
-        return TransformOutcome(value, txn)
+        return TransformOutcome(value, txn, changed)
 
     async def _gate[D: BaseModel](
         self,
@@ -425,12 +467,15 @@ class HookDispatcher:
         agent: AgentInfo,
         payload: BaseModel,
         target_event_id: str | None,
+        trigger_id: str,
         default: D,
         allowed: tuple[type[BaseModel], ...],
     ) -> GateOutcome[D]:
         txn = Transaction()
         for instance, handler in self._handlers(hook):
-            decision, effects = await self._call(instance, hook, agent, handler, payload)
+            decision, effects = await self._call(
+                instance, hook, agent, trigger_id, handler, payload
+            )
             txn.extend(effects)
             if not isinstance(decision, allowed):
                 raise ExtensionError(
@@ -441,10 +486,11 @@ class HookDispatcher:
                 )
             if type(decision) is not type(default):
                 action = str(decision.model_dump()["kind"])
-                txn.events.append(
-                    self._intervention(instance, hook, action, target_event_id, payload, decision)
+                draft = self._intervention(
+                    instance, hook, action, target_event_id, trigger_id, payload, decision
                 )
-                return GateOutcome(cast(D, decision), instance.id, txn)
+                txn.events.append(draft)
+                return GateOutcome(cast(D, decision), instance.id, txn, draft.event_id)
         return GateOutcome(default, None, txn)
 
     def _intervention(
@@ -453,9 +499,11 @@ class HookDispatcher:
         hook: HookName,
         action: str,
         target_event_id: str | None,
+        trigger_id: str,
         before: BaseModel | Sequence[BaseModel],
         after: BaseModel | Sequence[BaseModel],
     ) -> EventDraft:
+        """Parented to the hook's trigger, which is the target itself when there is one."""
         record = InterventionRecord(
             hook=hook,
             action=action,
@@ -463,7 +511,7 @@ class HookDispatcher:
             before_sha256=sha256_json(_dump(before)),
             after=_dump(after),
         )
-        return EventDraft(record=record, extension=instance.id, parent_id=target_event_id)
+        return EventDraft(record=record, extension=instance.id, parent_id=trigger_id)
 
     def _last_changer(self, hook: HookName, txn: Transaction) -> str:
         changers = [
@@ -488,7 +536,9 @@ class HookDispatcher:
                     for instance, handler in self._handlers("on_event"):
                         if event.extension == instance.id:
                             continue
-                        _, txn = await self._call(instance, "on_event", agent, handler, event)
+                        _, txn = await self._call(
+                            instance, "on_event", agent, event.event_id, handler, event
+                        )
                         await self._writer.commit(txn)
             except ExtensionError as err:
                 self._failure = err

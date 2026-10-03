@@ -42,7 +42,7 @@ from swarmeval.runtime.records import CommittedEvent, EventDraft, Transaction
 from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, BUILTIN_TOOLS
 from swarmeval.runtime.writer import RunWriter
 from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError, SeedFile
-from swarmeval.scorers import FinalStateScoring
+from swarmeval.scorers import FinalStateScoring, last_lifecycle
 from swarmeval.web import HttpWebClient
 from swarmeval.worker.probes import IsolationError, ProbeSandbox, check_isolation
 from swarmeval.worker.transcript import check_transcript
@@ -197,7 +197,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     sandboxes=sandboxes,
                     writer=writer,
                 ).run(committed)
-            await _check_transcript(deps.engine, spec, loop, writer)
+            await _check_transcript(deps.engine, spec, loop, writer, last_lifecycle(committed))
     except (ExtensionError, RunConfigError) as err:
         return Outcome("failed", str(err))
     except IsolationError as err:
@@ -212,16 +212,18 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
 
 
 async def _check_transcript(
-    engine: AsyncEngine, spec: RunSpec, loop: RunLoop, writer: RunWriter
+    engine: AsyncEngine, spec: RunSpec, loop: RunLoop, writer: RunWriter, end: str
 ) -> None:
     """Commits the transcript check as the run's last event before export, so the exports
-    carry it. A mismatch is a finding about the run, not a failure of it."""
+    carry it. A mismatch is a finding about the run, not a failure of it. Its parent is the
+    last event a mismatch names, or else `end`, the loop's last lifecycle event."""
     check = check_transcript(
         await load_transcript(engine, spec.run_id),
         prompts={a.id: initial_context(a) for a in spec.agents},
         tools=loop.tool_schemas(),
     )
-    await writer.commit(Transaction(events=[EventDraft(record=check)]))
+    parent = check.event_ids[-1] if check.event_ids else end
+    await writer.commit(Transaction(events=[EventDraft(record=check, parent_id=parent)]))
     if not check.consistent:
         log.warning(
             "run %s: the transcript check found %d mismatches, naming events %s",

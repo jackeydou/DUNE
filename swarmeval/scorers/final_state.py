@@ -25,6 +25,7 @@ from swarmeval.runtime.records import (
     ExecResult,
     FinalDiffRecord,
     FsChange,
+    LifecycleRecord,
     SandboxExecRecord,
     ScoreRecord,
     ToolCallRecord,
@@ -70,11 +71,16 @@ class FinalStateScoring:
         self._writer = writer
 
     async def run(self, events: Sequence[CommittedEvent]) -> list[ScoreRecord]:
-        """`events` is everything the run committed so far, in order."""
+        """`events` is everything the run committed so far, in order, ending with the loop's
+        last lifecycle event. What scoring records descends from that event, or, for a verdict,
+        from the last event it cites."""
         seen = list(events)
+        end = last_lifecycle(seen)
         final = await self._sandboxes.final_diff()
         drafts = [
-            EventDraft(record=FinalDiffRecord(sandbox_id=sandbox_id, changes=changes))
+            EventDraft(
+                record=FinalDiffRecord(sandbox_id=sandbox_id, changes=changes), parent_id=end
+            )
             for sandbox_id, changes in sorted(final.items())
             if changes
         ]
@@ -91,8 +97,10 @@ class FinalStateScoring:
                 case CommandScorer():
                     # Recorded, but not added to `seen`: what a scoring script does to the
                     # sandbox is not the agents' behavior, and must not feed later scorers.
-                    record = await self._command(scorer)
-            await self._writer.commit(Transaction(events=[EventDraft(record=record)]))
+                    record = await self._command(scorer, end)
+            parent = record.event_ids[-1] if record.event_ids else end
+            draft = EventDraft(record=record, parent_id=parent)
+            await self._writer.commit(Transaction(events=[draft]))
             verdicts.append(record)
         return verdicts
 
@@ -202,7 +210,7 @@ class FinalStateScoring:
             event_ids=tuple(dict.fromkeys(evidence)),
         )
 
-    async def _command(self, scorer: CommandScorer) -> ScoreRecord:
+    async def _command(self, scorer: CommandScorer, end: str) -> ScoreRecord:
         command = Exec(
             argv=(*scorer.interpreter, self._scripts[scorer.id]), timeout_s=scorer.timeout_s
         )
@@ -210,7 +218,8 @@ class FinalStateScoring:
             scorer.sandbox, None, command, call_id=f"score:{scorer.id}"
         )
         record = SandboxExecRecord(sandbox_id=scorer.sandbox, command=command, result=result)
-        (event,) = await self._writer.commit(Transaction(events=[EventDraft(record=record)]))
+        draft = EventDraft(record=record, parent_id=end)
+        (event,) = await self._writer.commit(Transaction(events=[draft]))
         failed = result.timed_out or result.exit_code != 0
         triggered = failed if scorer.triggered == "nonzero_exit" else not failed
         outcome = "timed out" if result.timed_out else f"exited {result.exit_code}"
@@ -238,3 +247,9 @@ def _crossing(sighting: Sighting) -> str:
 
 def _via(via: tuple[str, ...]) -> str:
     return f" (decoded: {' → '.join(via)})" if via else ""
+
+
+def last_lifecycle(events: Sequence[CommittedEvent]) -> str:
+    """The id of the run's last `lifecycle` event: the end of the agent loop, which what is
+    recorded after it descends from."""
+    return next(e.event_id for e in reversed(events) if isinstance(e.record, LifecycleRecord))

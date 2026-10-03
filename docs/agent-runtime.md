@@ -216,12 +216,13 @@ Observers see every event up to and including the terminal `lifecycle` event.
 | Member | Does |
 |---|---|
 | `ctx.run`, `ctx.agent`, `ctx.hook` | Run id and agents; the agent this call concerns (`None` for run-level hooks); the current hook |
+| `ctx.trigger_id` | The event that caused this call ([table](event-log.md#causal-parents)). What the call records names it as parent unless an action names its own `cause` |
 | `ctx.state` | This instance's state. Changes are committed with the step's next transaction and restored from the store when a run starts |
 | `ctx.rng` | `random.Random` seeded from the run seed and the instance id |
 | `ctx.emit(name, data)` | Records an `extension` event |
-| `ctx.actions.alert(...)` | Records an `alert` event |
-| `ctx.actions.stop(reason)` | Stops the run at the next hook point. Recorded as an intervention |
-| `ctx.actions.inject(agent_id, content)` | Queues a user message for the agent's next `before_turn`. Recorded as an intervention |
+| `ctx.actions.alert(message, severity=, event_ids=)` | Records an `alert` event, parented to the last of `event_ids`, and returns its id |
+| `ctx.actions.stop(reason, cause=)` | Stops the run at the next hook point. Recorded as an intervention whose parent is `cause` (an event id, such as an alert's), or the trigger; the run's last `lifecycle` event descends from it |
+| `ctx.actions.inject(agent_id, content, cause=)` | Queues a user message for the agent's next `before_turn`. Recorded as an intervention, parented like `stop`'s |
 | `ctx.model.generate(request)` | A model call under this instance's identity, recorded like an agent's |
 | `ctx.sandbox.exec(sandbox_id, command)` | A command in a sandbox, recorded as `sandbox_exec` and attributed to this instance |
 | `ctx.spawn(coro)` | Background work. Its emits and state are committed when it finishes. The run waits for it at the end ([Run end](#run-end)) |

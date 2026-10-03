@@ -69,7 +69,7 @@ class FakeStore:
         for draft in txn.events:
             seq = len(self.events) + 1
             event = CommittedEvent(
-                event_id=f"evt_{seq}",
+                event_id=draft.event_id,
                 seq=seq,
                 agent_id=draft.agent_id,
                 extension=draft.extension,
@@ -164,7 +164,9 @@ class ScriptedModel:
         default_factory=list[tuple[Caller, ModelRequest]]
     )
 
-    async def generate(self, caller: Caller, request: ModelRequest) -> RecordedResponse:
+    async def generate(
+        self, caller: Caller, request: ModelRequest, *, parent_id: str | None
+    ) -> RecordedResponse:
         self.requests.append((caller, request))
         key = caller.agent_id if isinstance(caller, AgentCaller) else caller.instance_id
         response = self.scripts[key].pop(0)
@@ -181,6 +183,7 @@ class ScriptedModel:
             record=record,
             agent_id=caller.agent_id if isinstance(caller, AgentCaller) else None,
             extension=caller.instance_id if isinstance(caller, ExtensionCaller) else None,
+            parent_id=parent_id,
         )
         (event,) = await self.writer.commit(Transaction(events=[draft]))
         return RecordedResponse(response=response, event=event)

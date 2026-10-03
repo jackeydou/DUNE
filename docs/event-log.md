@@ -43,11 +43,14 @@ One record is one event. The conversion is `swarmeval.events.convert.to_event`.
 |---|---|
 | `schema_version` | Version of the SwarmEval extension. The full log version is the pinned Inspect version plus this |
 | `seq` | Run-wide sequence number, assigned by the run's worker |
-| `parent_id` | Causal parent event |
+| `parent_id` | The event that directly caused this one ([Causal parents](#causal-parents)). `null` only on the run's first event |
 | `source` | `model-gateway`, `sandboxd`, or `orchestrator`; `net-gateway` with the network capability (later) |
 | `agent_id`, `sandbox_id` | Attribution. Network events carry `sandbox_id`, because policy applies per sandbox |
 | `workspace` | Organizational field, required from the first version |
 | `extension` | Instance id of the extension that caused the event, if any |
+
+Event ids are UUIDs the worker fixes when it builds an event, before it commits, so events
+committed together can name each other as parents. The id becomes the Inspect event's `uuid`.
 
 The hash chain is not in the payload, because the hash covers the payload. It lives in the
 `prev_hash` / `hash` columns and is added to `metadata.swarmeval` on export.
@@ -69,6 +72,47 @@ is a `SpanBeginEvent` / `SpanEndEvent` pair with `type="agent"`. This mapping le
 reducers work on our epochs directly. Inspect's metrics run after the reducer, across samples, and
 a variant has one sample, so the spread over epochs comes from metrics declared over unreduced
 scores (see [the per-variant `.eval`](#the-per-variant-eval)).
+
+### Causal parents
+
+`parent_id` points to the event that directly caused this one, so any event can be traced back
+along its parents to the run's first event, the run's root (M2 spec decision 1). The analysis
+`trace` job prints such a chain ([analysis](services/analysis.md#capabilities)). An event has one
+parent; when several things fed into it, the parent is the last one, and the rest is in the
+`messages` table and the model call's `gen` / `len`.
+
+| Event | `parent_id` |
+|---|---|
+| The run's first event | `null`. It is the self-check's first `isolation_probe` event, or `lifecycle` `started` in a run without a self-check |
+| `isolation_probe` | The probe event before it, in commit order |
+| `lifecycle` `started` | The event before it: the self-check's last probe |
+| An agent's `ModelEvent` | The last event whose content was admitted into the agent's context before the request: a tool result (`ToolEvent`), a `msg.deliver`, an injection's `intervention`, a `before_turn` `Inject`, an `after_model_response` / `after_tool_result` rewrite (instead of the event it rewrote), a `compact_context` compaction, or `lifecycle` `started` for the generation it admitted. After a response with no tool calls and no new input, the agent's own previous `ModelEvent` |
+| `ToolEvent` | The `ModelEvent` that made the call |
+| `msg.send` | The `ModelEvent` that called `send_message` |
+| `msg.deliver` | Its `msg.send` |
+| `intervention` from a hook's return value | The hook's trigger (below): for a rewrite or a gate decision, the event it changed or decided on |
+| `intervention` from an action (`stop`, `inject`) | The action's `cause`: an event the extension names, such as an alert it just raised; without one, the hook's trigger |
+| `alert` | The last of its `event_ids`; with none, the hook's trigger |
+| `extension` (`ctx.emit`), an extension's `SandboxEvent`, an extension's own `ModelEvent` | The hook's trigger |
+| `limit` | `lifecycle` `started` |
+| `lifecycle` `finished`, `stopped`, `limit` | The event that ended the run: the `limit` event, or the intervention that stopped it (a `before_turn` `Stop`, or `ctx.actions.stop`). Otherwise, as for a cancel or a finish, `started` |
+| `lifecycle` `failed` | `started`. After a failed self-check, the last probe |
+| `final_diff`, a scoring script's `SandboxEvent` | The run's last `lifecycle` event |
+| `score`, `transcript_check` | The last event in its `event_ids`; with none, the run's last `lifecycle` event |
+
+A hook's trigger is the event that caused the call, given to the hook as `ctx.trigger_id`:
+
+| Hook | Trigger |
+|---|---|
+| `on_event` | The committed event |
+| `after_model_response`, `before_tool_call`, a worker tool | The `ModelEvent` |
+| `after_tool_result` | The `ToolEvent` |
+| `before_turn`, `compact_context`, `before_model_request`, `after_turn` | The agent's last admitted event, the parent its next model call would get |
+| `on_run_start`, `on_run_end` | `lifecycle` `started` |
+
+Events written before schema version 5 have a parent only where the first rows of the first table
+say (`ToolEvent`, `msg.deliver`, and interventions on a model or tool event). The trace of such an
+event stops at the first event without one.
 
 ### Versioning
 
@@ -278,5 +322,9 @@ archive original, is *(open, runtime spec Q3)*.
    ([The per-variant `.eval`](#the-per-variant-eval)).
 5. File changes and surviving processes ride in the `ToolEvent`'s `metadata.swarmeval.exec`,
    one record per event. The runtime spec (decision 3) describes them as their own `fs.*` /
-   `proc.*` events. Splitting them out needs event ids assigned before commit, so a child can
-   name its `ToolEvent` as parent within one transaction.
+   `proc.*` events. Event ids are now fixed before commit, so a child could name its `ToolEvent`
+   as parent within one transaction; the split itself is not done.
+6. *(proposed)* The parents the M2 spec's table (decision 1) leaves open: the self-check's probes
+   form one chain from the run's first event, run-level events descend from `lifecycle`
+   `started` or the run's last `lifecycle` event, and a hook's trigger for the hooks that concern
+   no single event is as in [Causal parents](#causal-parents).
