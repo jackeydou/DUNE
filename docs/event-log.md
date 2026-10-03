@@ -97,7 +97,7 @@ parent; when several things fed into it, the parent is the last one, and the res
 | `limit` | `lifecycle` `started` |
 | `lifecycle` `finished`, `stopped`, `limit` | The event that ended the run: the `limit` event, or the intervention that stopped it (a `before_turn` `Stop`, or `ctx.actions.stop`). Otherwise, as for a cancel or a finish, `started` |
 | `lifecycle` `failed` | `started`. After a failed self-check, the last probe |
-| A fork's first event | Its source's event at `fork_seq`, as `<source run>:<event id>` |
+| A fork's first event (schema version 7) | Its source's event at `fork_seq`, as `<source run>:<event id>` |
 | What a fork carries over from its source (an agent's next model call, a carried delivery, a queued injection) | The source event it named there, as `<source run>:<event id>` |
 | A fork's `intervention` (`hook: fork`) | The fork's `lifecycle` `started` |
 | `lifecycle` `paused` | The `pause` intervention that asked for it (`ctx.actions.pause`), whose own parent is the Monitor's `alert` when a Monitor paused |
@@ -184,7 +184,8 @@ Checkpoint`) holds the run-wide `turn` count, `round`, the agents left in the cu
 `round_robin` round, `tokens_used`, per agent its `gen`, `len`, own `turn`, `finished`, and
 `last_input` (the parent of its next model call), every extension instance's state and
 `rng_uses`, the routed mail not yet delivered (send, content after `before_deliver`, `due_turn`,
-parent), and the injections and posts extensions queued. Messages are not copied: `gen` and `len`
+parent), the injections and posts extensions queued, and how many `ctx.spawn` tasks were still
+running (a fork refuses a checkpoint with any). Messages are not copied: `gen` and `len`
 locate them in `messages`, which is append only.
 
 Derived results, such as later rule matches and judge verdicts, go to separate tables and never

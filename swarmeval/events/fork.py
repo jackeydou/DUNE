@@ -74,6 +74,12 @@ async def point_at(engine: AsyncEngine, run_id: str, seq: int, what: str = "") -
                 "possible. Fork at a later event."
             )
         checkpoint = Checkpoint.model_validate(row.state)
+        if checkpoint.spawned:
+            raise ForkPointError(
+                f"run `{run_id}` had {checkpoint.spawned} piece(s) of extension background work "
+                f"(`ctx.spawn`) running at the start of the turn holding {what or f'seq {seq + 1}'}"
+                ", which a fork cannot carry over. Fork at another event."
+            )
         contexts: dict[str, tuple[ChatMessage, ...]] = {}
         for agent_id, agent in checkpoint.agents.items():
             stored = await conn.execute(

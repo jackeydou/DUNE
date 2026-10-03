@@ -72,7 +72,7 @@ proposed)*. Messages may be up to 64 MiB, for case bundles.
 | `GetRun`, `ListRuns` | Status, variant and its values, epoch, the run it [reruns](#reruns), owner, isolation level, error, timestamps. `ListRuns` filters by submission, suite label, case, and status, newest first | Built. Fidelity arrives with recovery (M3) |
 | `CancelRun` | Marks cancelled. A queued run never starts; a running one stops at its owner's next hook point, is not scored, and is still exported. A finished run is `FAILED_PRECONDITION` | Built |
 | `ResumeRun` | A run paused for a person (a Monitor's `pause`) goes on from the hook point where it stopped. A run that is not paused is `FAILED_PRECONDITION` | Built |
-| `ForkRun` | A new run that goes on from a finished run's state at the start of the turn an event happened in, with edits: replace a message's text, delete a user message, or replace an undelivered message's content ([forks](#forks)). Returns the fork, `<source>.f<n>`, queued. An unknown run or event is `NOT_FOUND`; a run still going, an event before the first turn, a run recorded before forks were possible, or an edit that does not fit is `FAILED_PRECONDITION`; a malformed edit is `INVALID_ARGUMENT` | Built |
+| `ForkRun` | A new run that goes on from a finished run's state at the start of the turn an event happened in, with edits: replace a message's text, delete a user message, or replace an undelivered message's content ([forks](#forks)). Returns the fork, `<source>.f<n>`, queued. Only a run that ended `done` or `cancelled` (an exported one) can be forked. An unknown run or event is `NOT_FOUND`; any other source run, an event before the first turn, a turn that began with extension background work (`ctx.spawn`) still running, a run recorded before forks were possible, or an edit that does not fit is `FAILED_PRECONDITION`; a malformed edit is `INVALID_ARGUMENT` | Built |
 | `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent | Built |
 | Case CRUD | Read and write `case.yaml` / `env.yaml` for the console | M4 |
 
@@ -383,7 +383,10 @@ The statistical detectors read `message` by default.
 A fork is a new run that goes on from a finished run's state at a turn boundary, with edits, to
 ask what would have happened otherwise (M2 spec decisions 8 and 9). `ForkRun(run_id,
 at_event_id, edits)` picks the start of the turn `at_event_id` happened in: the last
-[checkpoint](../event-log.md#checkpoints) before the event. The loop commits one at the start of
+[checkpoint](../event-log.md#checkpoints) before the event. The source must have ended `done` or
+`cancelled`, so its export exists for `trace` to follow. A checkpoint taken while an
+extension's `ctx.spawn` work was still running is refused: a fork cannot carry a coroutine
+over. The loop commits one at the start of
 every run-wide turn, once the observers have caught up, so no agent is mid-step there. The
 control plane checks the edits against the checkpoint and the contexts it locates, and queues
 `<source>.f<n>` with the source's case revision, overrides, variant, and epoch, so the same seed,

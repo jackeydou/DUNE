@@ -332,6 +332,7 @@ class RunLoop:
             extensions=d.snapshots(),
             mail=self._bus.snapshot(),
             queued=d.queued(),
+            spawned=d.spawned_running(),
         )
         await self._writer.commit(Transaction(checkpoint=checkpoint))
 

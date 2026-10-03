@@ -277,10 +277,12 @@ class ControlService(ControlServiceServicer):
             source = await self._queue.get(request.run_id)
         except RunNotFound as err:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(err))
-        if source.status not in FINISHED:
+        if source.status not in ("done", "cancelled"):
             await context.abort(
                 grpc.StatusCode.FAILED_PRECONDITION,
-                f"run `{source.run_id}` is `{source.status}`; fork a run once it has finished.",
+                f"run `{source.run_id}` is `{source.status}`. Only a run that ended `done` or "
+                "`cancelled` can be forked: those are exported, so a fork's trace can follow "
+                "its parents into the source.",
             )
         try:
             edits = [edit_of(e) for e in request.edits]
