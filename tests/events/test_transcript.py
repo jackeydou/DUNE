@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.db import messages
 from swarmeval.events.transcript import load_transcript
-from swarmeval.runtime.loop import initial_context
+from swarmeval.runtime.specs import initial_context
 from swarmeval.runtime.tools import SHELL, tool_schema
 from swarmeval.worker.transcript import check_transcript
 from tests.events.test_store import run_loop, store_for

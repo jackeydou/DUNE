@@ -4,6 +4,7 @@ import pytest
 from pydantic import JsonValue
 
 from swarmeval.events import ChainError, ChainRow, genesis, link, verify
+from swarmeval.events.chain import ChainStart
 
 
 def chain(run_id: str, payloads: list[JsonValue]) -> list[ChainRow]:
@@ -49,3 +50,15 @@ def test_a_missing_event_is_detected() -> None:
 def test_rows_from_another_run_do_not_verify() -> None:
     with pytest.raises(ChainError, match="seq 1 has prev_hash"):
         verify("run_2", chain("run_1", [{"n": 1}]))
+
+
+def test_a_forks_chain_starts_after_its_source_head() -> None:
+    start = ChainStart(seq=7, hash=b"\x01" * 32)
+    payload: JsonValue = {"a": 1}
+    row = ChainRow(seq=8, prev_hash=start.hash, hash=link(start.hash, 8, payload), payload=payload)
+
+    assert verify("fork", [row], start) == 1
+    with pytest.raises(ChainError, match="expected seq 8"):
+        verify(
+            "fork", [ChainRow(seq=1, prev_hash=start.hash, hash=row.hash, payload=payload)], start
+        )

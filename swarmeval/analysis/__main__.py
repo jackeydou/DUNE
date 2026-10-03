@@ -29,7 +29,13 @@ from swarmeval import config
 from swarmeval.analysis import compare, timeline, trace
 from swarmeval.analysis.detect import DetectorSetError, detect_rows, load_detectors
 from swarmeval.analysis.evalset import describe, variant_runs, write_eval_set
-from swarmeval.analysis.exports import ExportError, load_events, load_events_table, runs_of
+from swarmeval.analysis.exports import (
+    ExportError,
+    load_events,
+    load_events_table,
+    read_events_table,
+    runs_of,
+)
 from swarmeval.analysis.judge import Gateway, judge
 from swarmeval.analysis.report import load_summaries, markdown, report
 from swarmeval.analysis.scan import scan_events, store_scan
@@ -216,8 +222,18 @@ async def _detect(args: argparse.Namespace) -> None:
 
 
 async def _trace(args: argparse.Namespace) -> None:
-    table = await load_events_table(config.object_store(args), args.run)
-    print(trace.text(trace.trace(table, args.event, event_chars=args.event_chars)), end="")
+    store = config.object_store(args)
+    table = await load_events_table(store, args.run)
+
+    def chain() -> trace.Trace:
+        return trace.trace(
+            table,
+            args.event,
+            event_chars=args.event_chars,
+            load=lambda run_id: read_events_table(store, run_id),
+        )
+
+    print(trace.text(await asyncio.to_thread(chain)), end="")
 
 
 async def _timeline(args: argparse.Namespace) -> None:

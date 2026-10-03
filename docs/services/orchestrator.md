@@ -11,8 +11,8 @@ Message Bus, canaries, and final-state scorers. Of M1, `web_request`,
 several workers, reruns of interrupted runs, suites, per-sandbox canaries, and the isolation
 self-check are built. Of M2, the causal chain, channel interventions, case code, and the
 `event_value` scorer are built; fork, the online Monitor, and the async and event-driven turn
-policies are not yet. The online Monitor, the `rule` scorer, pauses, and `ResumeRun` are
-built. M3 adds leases, fencing, takeover, and pausing. Items marked
+policies are not yet. The online Monitor, the `rule` scorer, pauses, `ResumeRun`, and forks
+(`ForkRun`) are built. M3 adds leases, fencing, takeover, and pausing. Items marked
 *(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ## Roles
@@ -72,6 +72,7 @@ proposed)*. Messages may be up to 64 MiB, for case bundles.
 | `GetRun`, `ListRuns` | Status, variant and its values, epoch, the run it [reruns](#reruns), owner, isolation level, error, timestamps. `ListRuns` filters by submission, suite label, case, and status, newest first | Built. Fidelity arrives with recovery (M3) |
 | `CancelRun` | Marks cancelled. A queued run never starts; a running one stops at its owner's next hook point, is not scored, and is still exported. A finished run is `FAILED_PRECONDITION` | Built |
 | `ResumeRun` | A run paused for a person (a Monitor's `pause`) goes on from the hook point where it stopped. A run that is not paused is `FAILED_PRECONDITION` | Built |
+| `ForkRun` | A new run that goes on from a finished run's state at the start of the turn an event happened in, with edits: replace a message's text, delete a user message, or replace an undelivered message's content ([forks](#forks)). Returns the fork, `<source>.f<n>`, queued. An unknown run or event is `NOT_FOUND`; a run still going, an event before the first turn, a run recorded before forks were possible, or an edit that does not fit is `FAILED_PRECONDITION`; a malformed edit is `INVALID_ARGUMENT` | Built |
 | `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent | Built |
 | Case CRUD | Read and write `case.yaml` / `env.yaml` for the console | M4 |
 
@@ -377,6 +378,43 @@ arguments), `tool_output`, `message` (what a sender sent), `rewritten_message` (
 `before_deliver` intervention replaced), and `delivered` (a delivery as the recipient read it).
 The statistical detectors read `message` by default.
 
+### Forks
+
+A fork is a new run that goes on from a finished run's state at a turn boundary, with edits, to
+ask what would have happened otherwise (M2 spec decisions 8 and 9). `ForkRun(run_id,
+at_event_id, edits)` picks the start of the turn `at_event_id` happened in: the last
+[checkpoint](../event-log.md#checkpoints) before the event. The loop commits one at the start of
+every run-wide turn, once the observers have caught up, so no agent is mid-step there. The
+control plane checks the edits against the checkpoint and the contexts it locates, and queues
+`<source>.f<n>` with the source's case revision, overrides, variant, and epoch, so the same seed,
+with `forked_from`, `fork_seq` (the checkpoint's seq), and `fork_edits`.
+
+The worker then:
+
+1. Reads the checkpoint, and writes every source event id in it as `<source>:<event id>`.
+2. Plants the source's canary tokens (`runs.canaries`) in sandboxes built from the image and seed
+   files, as for any run.
+3. Restores each sandbox, before its first command, from the recorded file changes of the
+   source (and, for a fork of a fork, its sources) up to the fork point, through sandboxd's
+   `RestoreFiles`: for every path its last change, a deletion, a directory, or a file whose
+   content is in the blob store. A file sandboxd stored by hash only (over 1 MiB), a symlink, or
+   anything else cannot come back, and makes the fork `fs_partial` instead of `fs_restored`,
+   recorded as the run's `fidelity`. Background processes never come back, and no fork claims
+   to be exact.
+4. Runs the isolation self-check, then starts the loop from the checkpoint: the source's contexts
+   are copied at their generation numbers, agent, extension, and mail state is restored, and the
+   round in progress goes on. Its chain links into the source's
+   ([hash chain](../event-log.md#hash-chain)).
+5. Applies the edits, each an `intervention` with `hook: fork` parented to the fork's `started`:
+   message edits give the agent a new generation (`edit_context`, like a compaction), and a
+   delivery edit replaces what a carried message will deliver (`deliver`). Then `on_resume`
+   runs with `fork: true` and the fidelity.
+
+A fork is scored like any run, on its own events and its final state; what its source did before
+the fork point is not scored again. Reports list forks apart from the rates, with their source
+and fidelity ([analysis](analysis.md#capabilities)). An interrupted fork gets no rerun. `trace`
+follows a fork's parents into its source's export.
+
 ### Pauses
 
 A `pause` action (`ctx.actions.pause`, which the Monitor uses) takes effect at the loop's next
@@ -609,3 +647,8 @@ connection.
     hit, and injecting nothing for an event no agent caused; a pause polling the row at the
     cancel poll interval. The detectors' definitions: the invisible characters `zero_width`
     counts, `acrostic` needing named `words`, and what makes a number formatted.
+13. Forks: the fork point as the start of the turn the event happened in; `<source>.f<n>` ids
+    and the source's epoch; edits limited to replacing a message's text, deleting a user message,
+    and replacing an undelivered message; scoring a fork on its own events only; no rerun for an
+    interrupted fork; ownership not restored, and file content restored only up to sandboxd's
+    1 MiB content limit.

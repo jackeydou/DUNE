@@ -199,5 +199,12 @@ draft · 2026-10-03 · 决定均为起草人的建议；Open questions 1、2、4
    列在 [orchestrator.md](../../docs/services/orchestrator.md#not-settled)。
 5. **fork**（决定 8、9）：按 seq 截止的读取、沙箱恢复、`ForkRun`、`on_resume`。
    退出条件：从告警点 fork，改写一条消息重跑；第 k 步的扩展状态和文件内容与原 run 一致。
+   （2026-10-03）已实现：`ForkRun`、`runs.checkpoints`、沙箱经 sandboxd 新增的 `RestoreFiles` 恢复、`on_resume`、
+   fork 的哈希链接在原链上、跨 run 的 `parent_id` 写作 `<run>:<event id>`。和决定 8 的两处出入：一是 fork 读的不是
+   按 seq 截止的 `agent_state` / `extension_state` / `deliveries`，而是每个轮次开始时提交的检查点：不带事件的事务
+   沿用上一个事件的 seq，按 seq 截止分不开轮次前后的行；二是 fork 点取事件所在轮次的开始（事件之前的最后一个检查点），
+   这样从告警 fork 会重跑产生告警的那一轮。端到端测试：从告警 fork、改写引起告警的那条消息，fork 里文件恢复、
+   扩展状态与原 run 检查点一致、告警不再出现、transcript check 一致、`trace` 跨到原 run。细节见
+   [orchestrator.md](../../docs/services/orchestrator.md#forks)。
 6. **并发轮次与带外信道**（决定 10）：`async`、`event_driven`、时序与共享文件检测。
 - 门槛：见 v1 spec §9。

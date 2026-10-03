@@ -16,6 +16,7 @@ from swarmeval.runtime.messages import UserMessage
 from swarmeval.runtime.records import (
     CommittedEvent,
     EventDraft,
+    MailCheckpoint,
     MessageDeliverRecord,
     MessageSendRecord,
 )
@@ -52,7 +53,8 @@ class Unrouted:
 
 @dataclass(frozen=True)
 class _Mail:
-    send: CommittedEvent
+    send_seq: int
+    send_event_id: str
     record: MessageSendRecord
     content: str
     due_turn: int | None
@@ -106,8 +108,40 @@ class MessageBus:
         """Queues `content` for the recipient, at its next turn or at `due_turn`. `parent_id` is
         the last intervention that decided it, if any."""
         self._mail.setdefault(item.recipient, []).append(
-            _Mail(item.send, item.record, content, due_turn, parent_id or item.send.event_id)
+            _Mail(
+                item.send.seq,
+                item.send.event_id,
+                item.record,
+                content,
+                due_turn,
+                parent_id or item.send.event_id,
+            )
         )
+
+    def snapshot(self) -> tuple[MailCheckpoint, ...]:
+        """Mail routed and not yet delivered, per recipient in send order. Nothing is unrouted
+        between turns: a send is routed in the step that made it."""
+        assert not self._unrouted, "snapshots are taken between turns, after routing"
+        return tuple(
+            MailCheckpoint(
+                recipient=recipient,
+                send_seq=m.send_seq,
+                send_event_id=m.send_event_id,
+                send=m.record,
+                content=m.content,
+                due_turn=m.due_turn,
+                parent_id=m.parent_id,
+            )
+            for recipient, mail in self._mail.items()
+            for m in mail
+        )
+
+    def restore(self, mail: Sequence[MailCheckpoint]) -> None:
+        """A fork's carried mail, as its source's `snapshot` left it."""
+        for m in mail:
+            self._mail.setdefault(m.recipient, []).append(
+                _Mail(m.send_seq, m.send_event_id, m.send, m.content, m.due_turn, m.parent_id)
+            )
 
     def has_mail(self, agent_id: str, turn: int) -> bool:
         """Whether a message is due for `agent_id` at its turn `turn`."""
@@ -129,7 +163,7 @@ class MessageBus:
                 channel=m.record.channel,
                 sender=m.record.sender,
                 recipient=agent_id,
-                send_seq=m.send.seq,
+                send_seq=m.send_seq,
                 content=m.content,
             )
             deliveries.append(

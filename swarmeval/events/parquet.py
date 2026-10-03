@@ -52,6 +52,9 @@ SUMMARY_SCHEMA = pa.schema(
         ("epochs", pa.int32()),
         ("replaces", pa.string()),
         ("replaced_by", pa.string()),
+        ("forked_from", pa.string()),
+        ("fork_seq", pa.int64()),
+        ("fidelity", pa.string()),
         ("status", pa.string()),
         ("error", pa.string()),
         ("isolation", pa.string()),
@@ -62,7 +65,8 @@ SUMMARY_SCHEMA = pa.schema(
 )
 """`task_args` is the variant's axis values as JSON text with sorted keys, so equal variants
 compare equal. `epochs` is how many the submission asked for per variant; `replaces` and
-`replaced_by` link an interrupted run and its rerun; `suite` is the submission's suite label.
+`replaced_by` link an interrupted run and its rerun; `suite` is the submission's suite label;
+`forked_from`, `fork_seq`, and `fidelity` mark a fork, which reports keep apart from epochs.
 `scores` holds each scorer's last score. Summaries written before a column existed read it as
 null."""
 
@@ -134,6 +138,9 @@ async def export_summary(engine: AsyncEngine, run_id: str, store: ObjectStore) -
                         run_specs.c.epoch,
                         run_specs.c.epochs,
                         run_specs.c.replaces,
+                        run_specs.c.forked_from,
+                        run_specs.c.fork_seq,
+                        control_runs.c.fidelity,
                         control_runs.c.workspace,
                         control_runs.c.isolation,
                         control_runs.c.started_at,

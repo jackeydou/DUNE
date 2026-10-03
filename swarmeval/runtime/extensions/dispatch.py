@@ -7,13 +7,11 @@ to commit with the step it belongs to; observer effects are committed here.
 """
 
 import asyncio
-import hashlib
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, JsonValue
-from pydantic_core import to_json
+from pydantic import BaseModel
 
 from swarmeval.runtime.extensions.api import (
     AgentInfo,
@@ -28,6 +26,7 @@ from swarmeval.runtime.extensions.api import (
     HookContext,
     Inject,
     Proceed,
+    ResumeInfo,
     Rewrite,
     RunInfo,
     Skip,
@@ -37,6 +36,10 @@ from swarmeval.runtime.extensions.api import (
     TurnInfo,
 )
 from swarmeval.runtime.extensions.instances import Draws, Instance
+from swarmeval.runtime.extensions.interventions import (
+    delivery_intervention,
+    intervention,
+)
 from swarmeval.runtime.extensions.registry import LoadedExtension
 from swarmeval.runtime.messages import (
     AssistantMessage,
@@ -48,10 +51,11 @@ from swarmeval.runtime.messages import (
 from swarmeval.runtime.ports import ModelClient, SandboxExecutor
 from swarmeval.runtime.records import (
     CommittedEvent,
-    EventDraft,
+    ExtensionCheckpoint,
     ExtensionSnapshot,
     HookName,
     InterventionRecord,
+    QueuedCheckpoint,
     ToolResult,
     Transaction,
 )
@@ -109,16 +113,6 @@ class TransformOutcome[T]:
     intervention_id: str | None = None
     """The event recording the last change, when a hook changed the value: what the agent is
     then shown comes from it."""
-
-
-def sha256_json(value: JsonValue) -> str:
-    return hashlib.sha256(to_json(value)).hexdigest()
-
-
-def _dump(value: BaseModel | Sequence[BaseModel]) -> JsonValue:
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
-    return [item.model_dump(mode="json") for item in value]
 
 
 class HookDispatcher:
@@ -282,6 +276,54 @@ class HookDispatcher:
         pauses, self._pauses = self._pauses, []
         return pauses[0] if pauses else None
 
+    def snapshots(self) -> dict[str, ExtensionCheckpoint]:
+        """Every instance's state now, which between turns is what was committed."""
+        return {
+            i.id: ExtensionCheckpoint(
+                state=i.state.value.model_dump(mode="json"), rng_uses=i.rng_uses
+            )
+            for i in self._instances
+        }
+
+    def queued(self) -> tuple[QueuedCheckpoint, ...]:
+        """Injections and posts extensions asked for that the loop has not taken yet."""
+        injections = [
+            QueuedCheckpoint(event_id=event_id, content=m.content, agent_id=agent)
+            for agent, items in self._injections.items()
+            for m, event_id in items
+        ]
+        posts = [
+            QueuedCheckpoint(
+                instance_id=p.instance_id,
+                event_id=p.event_id,
+                content=p.content,
+                channel=p.channel,
+                sender=p.sender,
+            )
+            for p in self._posts
+        ]
+        return (*injections, *posts)
+
+    def restore_queued(self, items: Sequence[QueuedCheckpoint]) -> None:
+        for item in items:
+            if item.agent_id is not None:
+                message = UserMessage(content=item.content)
+                self._injections.setdefault(item.agent_id, []).append((message, item.event_id))
+            else:
+                assert item.channel and item.sender and item.instance_id, "a queued post"
+                self._posts.append(
+                    Post(item.instance_id, item.channel, item.sender, item.content, item.event_id)
+                )
+
+    async def resume(self, info: ResumeInfo, trigger_id: str) -> None:
+        """`on_resume`, observed by every handler, before the run's first turn."""
+        await self.barrier()
+        txn = Transaction()
+        for instance, handler in self._handlers("on_resume"):
+            _, effects = await self._call(instance, "on_resume", None, trigger_id, handler, info)
+            txn.extend(effects)
+        await self._writer.commit(txn)
+
     def take_posts(self) -> list[Post]:
         """Messages extensions posted on channels since the last call, in order."""
         posts, self._posts = self._posts, []
@@ -345,8 +387,8 @@ class HookDispatcher:
                     "return None to keep the current context.",
                 )
             if new != current:
-                draft = self._intervention(
-                    instance, "compact_context", "compact", None, trigger_id, current, new
+                draft = intervention(
+                    instance.id, "compact_context", "compact", None, trigger_id, current, new
                 )
                 txn.events.append(draft)
                 changed = draft.event_id
@@ -435,7 +477,7 @@ class HookDispatcher:
                         "before_deliver",
                         f"returned {type(decision).__name__}; return Deliver, Drop, or Delay.",
                     )
-            draft = self._delivery_intervention(instance, envelope, decision)
+            draft = delivery_intervention(instance.id, envelope, decision)
             txn.events.append(draft)
             last = draft.event_id
             if changed is None:
@@ -530,8 +572,8 @@ class HookDispatcher:
                     "the input unchanged if there is nothing to change.",
                 )
             if result != value:
-                draft = self._intervention(
-                    instance, hook, "rewrite", target_event_id, trigger_id, value, result
+                draft = intervention(
+                    instance.id, hook, "rewrite", target_event_id, trigger_id, value, result
                 )
                 txn.events.append(draft)
                 changed = draft.event_id
@@ -563,49 +605,12 @@ class HookDispatcher:
                 )
             if type(decision) is not type(default):
                 action = str(decision.model_dump()["kind"])
-                draft = self._intervention(
-                    instance, hook, action, target_event_id, trigger_id, payload, decision
+                draft = intervention(
+                    instance.id, hook, action, target_event_id, trigger_id, payload, decision
                 )
                 txn.events.append(draft)
                 return GateOutcome(cast(D, decision), instance.id, txn, draft.event_id)
         return GateOutcome(default, None, txn)
-
-    def _intervention(
-        self,
-        instance: Instance,
-        hook: HookName,
-        action: str,
-        target_event_id: str | None,
-        trigger_id: str,
-        before: BaseModel | Sequence[BaseModel],
-        after: BaseModel | Sequence[BaseModel],
-    ) -> EventDraft:
-        """Parented to the hook's trigger, which is the target itself when there is one."""
-        record = InterventionRecord(
-            hook=hook,
-            action=action,
-            target_event_id=target_event_id,
-            before_sha256=sha256_json(_dump(before)),
-            after=_dump(after),
-        )
-        return EventDraft(record=record, extension=instance.id, parent_id=trigger_id)
-
-    def _delivery_intervention(
-        self, instance: Instance, envelope: Envelope, decision: BaseModel
-    ) -> EventDraft:
-        record = InterventionRecord(
-            hook="before_deliver",
-            action=str(decision.model_dump()["kind"]),
-            target_event_id=envelope.send_event_id,
-            before_sha256=sha256_json(envelope.content),
-            after={"recipient": envelope.recipient, **decision.model_dump(mode="json")},
-        )
-        return EventDraft(
-            record=record,
-            agent_id=envelope.recipient,
-            extension=instance.id,
-            parent_id=envelope.send_event_id,
-        )
 
     def _last_changer(self, hook: HookName, txn: Transaction) -> str:
         changers = [

@@ -593,6 +593,81 @@ class BlobChunk(_message.Message):
 Global___BlobChunk: _TypeAlias = BlobChunk  # noqa: Y015
 
 @_typing.final
+class RestoreFilesRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RUN_ID_FIELD_NUMBER: _builtins.int
+    SANDBOX_ID_FIELD_NUMBER: _builtins.int
+    REMOVE_FIELD_NUMBER: _builtins.int
+    DIRS_FIELD_NUMBER: _builtins.int
+    FILES_FIELD_NUMBER: _builtins.int
+    run_id: _builtins.str
+    sandbox_id: _builtins.str
+    @_builtins.property
+    def remove(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Absolute, clean, and strictly inside a key path. One that does not exist is skipped."""
+
+    @_builtins.property
+    def dirs(self) -> _containers.RepeatedCompositeFieldContainer[Global___RestoreDir]: ...
+    @_builtins.property
+    def files(self) -> _containers.RepeatedCompositeFieldContainer[Global___SeedFile]: ...
+    def __init__(
+        self,
+        *,
+        run_id: _builtins.str = ...,
+        sandbox_id: _builtins.str = ...,
+        remove: _abc.Iterable[_builtins.str] | None = ...,
+        dirs: _abc.Iterable[Global___RestoreDir] | None = ...,
+        files: _abc.Iterable[Global___SeedFile] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["dirs", b"dirs", "files", b"files", "remove", b"remove", "run_id", b"run_id", "sandbox_id", b"sandbox_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreFilesRequest: _TypeAlias = RestoreFilesRequest  # noqa: Y015
+
+@_typing.final
+class RestoreDir(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PATH_FIELD_NUMBER: _builtins.int
+    MODE_FIELD_NUMBER: _builtins.int
+    path: _builtins.str
+    """Absolute, clean, and strictly inside a key path."""
+    mode: _builtins.int
+    """Permission bits; zero means 0755."""
+    def __init__(
+        self,
+        *,
+        path: _builtins.str = ...,
+        mode: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["mode", b"mode", "path", b"path"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreDir: _TypeAlias = RestoreDir  # noqa: Y015
+
+@_typing.final
+class RestoreFilesResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreFilesResponse: _TypeAlias = RestoreFilesResponse  # noqa: Y015
+
+@_typing.final
 class ReadFileRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 

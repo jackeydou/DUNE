@@ -43,8 +43,8 @@ from pydantic import JsonValue, TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from swarmeval.db import control_runs, events, messages
-from swarmeval.events.chain import ChainRow, verify
+from swarmeval.db import control_runs, events, messages, run_specs
+from swarmeval.events.chain import ChainRow, ChainStart, verify
 from swarmeval.events.convert import SCHEMA_VERSION, to_inspect_message
 from swarmeval.runtime.messages import ChatMessage
 from swarmeval.runtime.records import LifecycleRecord
@@ -77,6 +77,9 @@ class StoredRun:
     events: Sequence[ChainRow]
     messages: Mapping[tuple[str, int], Sequence[ChatMessage]]
     """`(agent_id, gen)` to that generation's messages, in `idx` order."""
+    forked_from: str | None = None
+    chain_start: ChainStart | None = None
+    """For a fork: where its chain links into its source's."""
 
 
 @dataclass(frozen=True)
@@ -136,7 +139,32 @@ async def load_run(engine: AsyncEngine, run_id: str) -> StoredRun:
         by_gen: dict[tuple[str, int], list[ChatMessage]] = defaultdict(list)
         for agent_id, gen, message in stored:
             by_gen[(agent_id, gen)].append(_MESSAGE.validate_python(message))
-    return StoredRun(workspace=workspace, events=chain, messages=by_gen)
+        spec = (
+            await conn.execute(
+                select(run_specs.c.forked_from, run_specs.c.fork_seq).where(
+                    run_specs.c.run_id == run_id
+                )
+            )
+        ).one_or_none()
+        forked_from = spec.forked_from if spec is not None else None
+        start: ChainStart | None = None
+        if spec is not None and spec.forked_from is not None:
+            fork_seq: int = spec.fork_seq
+            digest = (
+                await conn.execute(
+                    select(events.c.hash).where(
+                        events.c.run_id == forked_from, events.c.seq == fork_seq
+                    )
+                )
+            ).scalar_one()
+            start = ChainStart(seq=fork_seq, hash=bytes(digest))
+    return StoredRun(
+        workspace=workspace,
+        events=chain,
+        messages=by_gen,
+        forked_from=forked_from,
+        chain_start=start,
+    )
 
 
 def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
@@ -146,7 +174,7 @@ def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
             f"run {header.run_id} has no events, so there is nothing to export. Export runs "
             "after the run has started."
         )
-    verify(header.run_id, run.events)
+    verify(header.run_id, run.events, run.chain_start)
     stored = [_restore(row, run) for row in run.events]
     sample_events = _with_agent_spans(stored, tuple(header.models))
     first, last = stored[0].timestamp, stored[-1].timestamp
@@ -166,7 +194,17 @@ def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
         error=error,
         limit=_limit(stored),
         scores=scores or None,
-        metadata={"swarmeval": {"schema_version": SCHEMA_VERSION, "run_id": header.run_id}},
+        metadata={
+            "swarmeval": {
+                "schema_version": SCHEMA_VERSION,
+                "run_id": header.run_id,
+                **(
+                    {"forked_from": run.forked_from, "fork_seq": run.chain_start.seq}
+                    if run.forked_from is not None and run.chain_start is not None
+                    else {}
+                ),
+            }
+        },
     )
     spec = EvalSpec(
         run_id=header.run_id,

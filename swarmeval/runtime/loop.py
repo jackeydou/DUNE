@@ -7,112 +7,71 @@ See docs/agent-runtime.md.
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
 from typing import Literal
 
-from swarmeval.gateway.bus import ChannelSpec, MessageBus
+from swarmeval.gateway.bus import MessageBus
+from swarmeval.runtime.execute import Execution, ToolRunner
 from swarmeval.runtime.extensions.api import (
     AgentInfo,
     Block,
-    CanaryInfo,
     ChannelInfo,
     Envelope,
     ExtensionError,
     Inject,
+    ResumeInfo,
     Rewrite,
     RunInfo,
-    SandboxCanaryInfo,
     Skip,
     Stop,
 )
 from swarmeval.runtime.extensions.dispatch import HookDispatcher, PauseRequest
+from swarmeval.runtime.extensions.interventions import sha256_json
 from swarmeval.runtime.extensions.registry import LoadedExtension
+from swarmeval.runtime.fork import (
+    ForkStart,
+    ReplaceDelivery,
+    check_edits,
+    delivery_intervention,
+    edit_intervention,
+    edited_contexts,
+    replace_mail,
+)
 from swarmeval.runtime.messages import (
     ChatMessage,
     ModelRequest,
     RequestOptions,
-    SystemMessage,
     ToolCall,
     ToolMessage,
     ToolSchema,
-    UserMessage,
 )
 from swarmeval.runtime.ports import AgentCaller, ModelClient, Pauser, SandboxExecutor, WebClient
 from swarmeval.runtime.records import (
+    AgentCheckpoint,
     AgentStateRow,
+    Checkpoint,
     DeliveryChange,
     EventDraft,
-    ExecResult,
+    ExtensionSnapshot,
     LifecycleRecord,
     LimitRecord,
     ToolCallRecord,
     ToolResult,
     Transaction,
-    WebExchange,
+)
+from swarmeval.runtime.specs import (
+    AgentSpec,
+    RunConfigError,
+    RunOutcome,
+    RunSpec,
+    initial_context,
 )
 from swarmeval.runtime.tools import (
-    RuntimeTool,
     SandboxTool,
     Tool,
     WebTool,
-    WorkerTool,
-    exec_output,
-    parse_arguments,
     tool_schema,
-    web_output,
 )
 from swarmeval.runtime.writer import RunWriter
-
-
-class RunConfigError(Exception):
-    """The run's agents and tools do not fit together."""
-
-
-@dataclass(frozen=True)
-class AgentSpec:
-    id: str
-    model: str
-    system_prompt: str
-    task: str
-    tools: tuple[str, ...] = ()
-    sandbox_id: str | None = None
-    os_user: str | None = None
-    temperature: float | None = None
-    top_p: float | None = None
-    max_output_tokens: int | None = None
-    seed: int | None = None
-
-
-def initial_context(agent: AgentSpec) -> tuple[ChatMessage, ...]:
-    """Generation 0 of an agent's context, before its first turn."""
-    return (SystemMessage(content=agent.system_prompt), UserMessage(content=agent.task))
-
-
-@dataclass(frozen=True)
-class Limits:
-    max_turns: int | None = None
-    """Turns across all agents."""
-    max_tokens: int | None = None
-    """Tokens across all agents. Checked before each model call, so one call may overshoot."""
-
-
-@dataclass(frozen=True)
-class RunSpec:
-    run_id: str
-    seed: int
-    agents: tuple[AgentSpec, ...]
-    limits: Limits = Limits()
-    channels: tuple[ChannelSpec, ...] = ()
-    canaries: tuple[CanaryInfo, ...] = ()
-    sandbox_canaries: tuple[SandboxCanaryInfo, ...] = ()
-
-
-@dataclass(frozen=True)
-class RunOutcome:
-    status: Literal["finished", "stopped", "limit"]
-    reason: str | None
-    turns: int
-    tokens_used: int
 
 
 class _AgentRun:
@@ -128,17 +87,6 @@ class _AgentRun:
         self.last_input = ""
         """The last event whose content was admitted into this agent's context: the parent of
         its next model call (docs/event-log.md#causal-parents). Set when generation 0 commits."""
-
-
-@dataclass(frozen=True)
-class _Execution:
-    """A tool call's outcome. `executed` is the arguments that actually ran, `None` when nothing
-    did; `exec_result` and `web` are what sandboxd or the web client observed."""
-
-    result: ToolResult
-    executed: str | None = None
-    exec_result: ExecResult | None = None
-    web: WebExchange | None = None
 
 
 class _Stopped(Exception):
@@ -164,13 +112,16 @@ class RunLoop:
         tools: Sequence[Tool] = (),
         web_client: WebClient | None = None,
         hook_timeout_s: float = 30.0,
+        fork: ForkStart | None = None,
     ) -> None:
+        """`fork` starts the run from another run's checkpoint instead of from the case's
+        prompts."""
         self._spec = spec
         self._writer = writer
         self._store = writer.store
         self._model = model_client
-        self._sandbox = sandbox_executor
         self._web = web_client
+        self._fork = fork
         self._pauser = pauser
         self._bus = MessageBus(spec.channels)
         writer.subscribe(self._bus.on_commit)
@@ -181,6 +132,8 @@ class RunLoop:
             self._tools.update({t.name: t for t in ext.registrations.tools})
         self._agents = {a.id: _AgentRun(a) for a in spec.agents}
         self._check_tools()
+        self._runner = ToolRunner(self._tools, sandbox_executor, web_client)
+        self._sandbox = sandbox_executor
         self._tokens_used = 0
         self._turns = 0
         self._extensions = extensions
@@ -229,7 +182,14 @@ class RunLoop:
             ),
             agents={a.spec.id: a.info for a in self._agents.values()},
             seed=self._spec.seed,
-            states=await self._store.extension_states(),
+            states=(
+                {
+                    k: ExtensionSnapshot(v.state, v.rng_uses)
+                    for k, v in fork.checkpoint.extensions.items()
+                }
+                if (fork := self._fork) is not None
+                else await self._store.extension_states()
+            ),
             model_client=self._model,
             sandbox_executor=self._sandbox,
             writer=self._writer,
@@ -237,9 +197,20 @@ class RunLoop:
         )
         dispatcher.start()
         try:
-            await self._start()
-            await dispatcher.observe("on_run_start", None, self._started_id)
-            outcome = await self._drive(dispatcher)
+            if self._fork is None:
+                await self._start()
+                await dispatcher.observe("on_run_start", None, self._started_id)
+                outcome = await self._drive(dispatcher)
+            else:
+                await self._start_fork(dispatcher, self._fork)
+                info = ResumeInfo(
+                    fork=True,
+                    source_run_id=self._fork.source_run_id,
+                    at_seq=self._fork.fork_seq,
+                    fidelity=self._fork.fidelity,
+                )
+                await dispatcher.resume(info, self._started_id)
+                outcome = await self._drive(dispatcher, self._fork.checkpoint.round)
             await dispatcher.observe("on_run_end", None, self._started_id)
             await dispatcher.settle()
             record = LifecycleRecord(status=outcome.status, reason=outcome.reason)
@@ -281,25 +252,31 @@ class RunLoop:
         await self._writer.commit(txn)
         self._started_id = started.event_id
 
-    async def _drive(self, dispatcher: HookDispatcher) -> RunOutcome:
+    async def _drive(self, dispatcher: HookDispatcher, resume: Sequence[str] = ()) -> RunOutcome:
+        """`resume` is a fork's round in progress: the agents left in it."""
         limits = self._spec.limits
+        carried = [self._agents[a] for a in resume]
         try:
             while True:
-                active = self._active(dispatcher)
-                if not active:
-                    # What observers asked for on the last response (a stop, a pause, an
-                    # injection) takes effect before the run can end.
-                    await dispatcher.barrier()
-                    await self._checkpoint(dispatcher)
+                if carried:
+                    active, carried = carried, []
+                else:
                     active = self._active(dispatcher)
+                    if not active:
+                        # What observers asked for on the last response (a stop, a pause, an
+                        # injection) takes effect before the run can end.
+                        await dispatcher.barrier()
+                        await self._hook_point(dispatcher)
+                        active = self._active(dispatcher)
                 if not active:
                     return self._outcome("finished", None)
-                for agent in active:
-                    await self._checkpoint(dispatcher)
+                for i, agent in enumerate(active):
+                    await self._hook_point(dispatcher)
                     if limits.max_turns is not None and self._turns >= limits.max_turns:
                         return await self._limit("max_turns", limits.max_turns)
                     if limits.max_tokens is not None and self._tokens_used >= limits.max_tokens:
                         return await self._limit("max_tokens", limits.max_tokens)
+                    await self._mark_turn(dispatcher, active[i:])
                     self._turns += 1
                     await self._step(dispatcher, agent)
         except _Stopped as stop:
@@ -335,7 +312,80 @@ class RunLoop:
         if reason is not None:
             raise _Stopped(reason, self._stop_cause(dispatcher))
 
-    async def _checkpoint(self, d: HookDispatcher) -> None:
+    async def _mark_turn(self, d: HookDispatcher, rest: Sequence["_AgentRun"]) -> None:
+        """Commits the checkpoint a fork can start from, once the observers have caught up."""
+        await d.barrier()
+        checkpoint = Checkpoint(
+            turn=self._turns,
+            round=tuple(a.spec.id for a in rest),
+            tokens_used=self._tokens_used,
+            agents={
+                a.spec.id: AgentCheckpoint(
+                    gen=a.gen,
+                    length=a.length,
+                    turn=a.turn,
+                    finished=a.finished,
+                    last_input=a.last_input,
+                )
+                for a in self._agents.values()
+            },
+            extensions=d.snapshots(),
+            mail=self._bus.snapshot(),
+            queued=d.queued(),
+        )
+        await self._writer.commit(Transaction(checkpoint=checkpoint))
+
+    async def _start_fork(self, d: HookDispatcher, fork: ForkStart) -> None:
+        """The source's state at the checkpoint, then the edits, each an intervention. Its
+        contexts are copied at their generation numbers, so the source's events still explain
+        them."""
+        checkpoint = fork.checkpoint
+        started = EventDraft(
+            record=LifecycleRecord(
+                status="started",
+                reason=f"fork of run {fork.source_run_id} after event {fork.fork_seq}",
+            ),
+            parent_id=self._writer.last_event_id,
+        )
+        txn = Transaction(events=[started], inherited_mail=list(checkpoint.mail))
+        txn.extension_states.update(
+            {k: ExtensionSnapshot(v.state, v.rng_uses) for k, v in checkpoint.extensions.items()}
+        )
+        self._turns, self._tokens_used = checkpoint.turn, checkpoint.tokens_used
+        for agent in self._agents.values():
+            saved = checkpoint.agents[agent.spec.id]
+            agent.gen, agent.length, agent.turn = saved.gen, saved.length, saved.turn
+            agent.finished, agent.last_input = saved.finished, saved.last_input
+            txn.inherited[(agent.spec.id, saved.gen)] = fork.contexts[agent.spec.id]
+            txn.agent_states.append(
+                self._state_row(agent, "finished" if saved.finished else "ready")
+            )
+        check_edits(fork.edits, fork.contexts, checkpoint.mail)
+        for agent_id, messages in edited_contexts(fork.contexts, fork.edits).items():
+            agent = self._agents[agent_id]
+            before = sha256_json([m.model_dump(mode="json") for m in fork.contexts[agent_id]])
+            draft = edit_intervention(agent_id, before, messages, started.event_id)
+            txn.events.append(draft)
+            agent.gen, agent.length, agent.last_input = agent.gen + 1, len(messages), draft.event_id
+            txn.new_generations[agent_id] = messages
+            txn.agent_states.append(self._state_row(agent, "ready"))
+        mail = list(checkpoint.mail)
+        for edit in fork.edits:
+            if isinstance(edit, ReplaceDelivery):
+                i = next(i for i, m in enumerate(mail) if replace_mail(m, edit))
+                draft = delivery_intervention(
+                    mail[i], edit, sha256_json(mail[i].content), started.event_id
+                )
+                txn.events.append(draft)
+                mail[i] = mail[i].model_copy(
+                    update={"content": edit.content, "parent_id": draft.event_id}
+                )
+        self._bus.restore(mail)
+        d.restore_queued(checkpoint.queued)
+        await self._writer.commit(txn)
+        self._started_id = started.event_id
+
+    async def _hook_point(self, d: HookDispatcher) -> None:
         """A hook point: a requested pause takes effect, then a requested stop."""
         pause = d.take_pause()
         if pause is not None:
@@ -400,7 +450,7 @@ class RunLoop:
                 return
             case _:
                 pass
-        await self._checkpoint(d)
+        await self._hook_point(d)
 
         context = await self._store.context(agent.spec.id)
         assert context is not None, "every agent gets generation 0 in _start"
@@ -416,7 +466,7 @@ class RunLoop:
             txn.new_generations[agent.spec.id] = messages
             txn.agent_states.append(self._state_row(agent, "ready"))
         await self._writer.commit(txn)
-        await self._checkpoint(d)
+        await self._hook_point(d)
 
         spec = agent.spec
         options = RequestOptions(
@@ -428,7 +478,7 @@ class RunLoop:
         )
         requested = await d.before_model_request(agent.info, options, agent.last_input)
         await self._writer.commit(requested.txn)
-        await self._checkpoint(d)
+        await self._hook_point(d)
         request = ModelRequest(
             model=spec.model,
             messages=messages,
@@ -479,7 +529,7 @@ class RunLoop:
         blocked_by: str | None = None
         match gate.decision:
             case Block(result=content, is_error=is_error):
-                execution = _Execution(
+                execution = Execution(
                     ToolResult(call_id=call.id, tool=call.name, content=content, is_error=is_error)
                 )
                 blocked_by = gate.decided_by
@@ -490,7 +540,9 @@ class RunLoop:
                     else call.arguments
                 )
                 effective = call.model_copy(update={"arguments": arguments})
-                execution = await self._execute(d, agent, effective, txn, offered, model_event_id)
+                execution = await self._runner.execute(
+                    d, agent.spec, agent.info, effective, txn, offered, model_event_id
+                )
 
         result = execution.result
         record = ToolCallRecord(
@@ -514,59 +566,6 @@ class RunLoop:
         )
         self._admit(txn, agent, [(message, admitted.intervention_id or tool_event.event_id)])
         await self._writer.commit(txn)
-
-    async def _execute(
-        self,
-        d: HookDispatcher,
-        agent: _AgentRun,
-        call: ToolCall,
-        txn: Transaction,
-        offered: tuple[str, ...],
-        model_event_id: str,
-    ) -> _Execution:
-        """`offered` is the tool list of the request that produced the call, after
-        `before_model_request` narrowed it. A call outside it is refused even if the agent
-        otherwise has the tool. Events the tool causes name `model_event_id` as their parent."""
-        tool = self._tools.get(call.name) if call.name in offered else None
-        if tool is None:
-            available = ", ".join(offered) or "none"
-            content = f"Unknown tool `{call.name}`. Available tools: {available}."
-            return _Execution(
-                ToolResult(call_id=call.id, tool=call.name, content=content, is_error=True)
-            )
-        parsed = parse_arguments(tool, call)
-        if isinstance(parsed, ToolResult):
-            return _Execution(parsed)
-        if isinstance(tool, RuntimeTool):
-            outcome = tool.run(parsed, agent.spec.id, call.id)
-            txn.events.extend(replace(e, parent_id=model_event_id) for e in outcome.events)
-            result = ToolResult(
-                call_id=call.id, tool=call.name, content=outcome.content, is_error=outcome.is_error
-            )
-            return _Execution(result, call.arguments)
-        if isinstance(tool, WorkerTool):
-            content, effects = await d.run_worker_tool(tool, agent.info, parsed, model_event_id)
-            txn.extend(effects)
-            return _Execution(
-                ToolResult(call_id=call.id, tool=call.name, content=content), call.arguments
-            )
-        if isinstance(tool, WebTool):
-            assert self._web is not None, "checked in _check_tools"
-            exchange = await self._web.request(tool.build(parsed))
-            return _Execution(web_output(call, exchange), call.arguments, web=exchange)
-        try:
-            command = tool.build(parsed)
-        except Exception as err:
-            if tool.owner is None:
-                raise
-            raise ExtensionError(
-                tool.owner, "tool", f"building `{tool.name}` failed: {err}"
-            ) from err
-        assert agent.spec.sandbox_id is not None, "checked in _check_tools"
-        result = await self._sandbox.exec(
-            agent.spec.sandbox_id, agent.spec.os_user, command, call_id=call.id
-        )
-        return _Execution(exec_output(call, result), call.arguments, exec_result=result)
 
     async def _route(self, d: HookDispatcher) -> None:
         """Runs `before_deliver` for every send committed since the last call, per recipient,

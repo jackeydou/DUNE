@@ -109,6 +109,28 @@ func (s *Server) Exec(req *sandboxv1.ExecRequest, stream grpc.ServerStreamingSer
 	})
 }
 
+func (s *Server) RestoreFiles(ctx context.Context, req *sandboxv1.RestoreFilesRequest) (*sandboxv1.RestoreFilesResponse, error) {
+	dirs := make([]RestoreDir, len(req.GetDirs()))
+	for i, d := range req.GetDirs() {
+		dirs[i] = RestoreDir{Path: d.GetPath(), Mode: fs.FileMode(d.GetMode()).Perm()}
+	}
+	files := make([]SeedFile, len(req.GetFiles()))
+	for i, f := range req.GetFiles() {
+		files[i] = SeedFile{Path: f.GetPath(), Content: f.GetContent(), Mode: fs.FileMode(f.GetMode()).Perm()}
+	}
+	err := s.svc.RestoreFiles(ctx, RestoreRequest{
+		RunID:     req.GetRunId(),
+		SandboxID: req.GetSandboxId(),
+		Remove:    req.GetRemove(),
+		Dirs:      dirs,
+		Files:     files,
+	})
+	if err != nil {
+		return nil, s.status("RestoreFiles", err)
+	}
+	return &sandboxv1.RestoreFilesResponse{}, nil
+}
+
 func (s *Server) ReadFile(ctx context.Context, req *sandboxv1.ReadFileRequest) (*sandboxv1.ReadFileResponse, error) {
 	content, size, err := s.svc.ReadFile(ctx, req.GetRunId(), req.GetSandboxId(), req.GetPath(), req.GetMaxBytes())
 	if err != nil {
@@ -150,6 +172,8 @@ func (s *Server) status(rpc string, err error) error {
 		code = codes.NotFound
 	case errors.Is(err, ErrExists):
 		code = codes.AlreadyExists
+	case errors.Is(err, ErrState):
+		code = codes.FailedPrecondition
 	case errors.Is(err, context.Canceled):
 		code = codes.Canceled
 	case errors.Is(err, context.DeadlineExceeded):

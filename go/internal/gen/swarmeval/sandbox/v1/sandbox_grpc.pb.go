@@ -23,6 +23,7 @@ const (
 	SandboxService_CreateSandbox_FullMethodName = "/swarmeval.sandbox.v1.SandboxService/CreateSandbox"
 	SandboxService_Exec_FullMethodName          = "/swarmeval.sandbox.v1.SandboxService/Exec"
 	SandboxService_ReadFile_FullMethodName      = "/swarmeval.sandbox.v1.SandboxService/ReadFile"
+	SandboxService_RestoreFiles_FullMethodName  = "/swarmeval.sandbox.v1.SandboxService/RestoreFiles"
 	SandboxService_FinalDiff_FullMethodName     = "/swarmeval.sandbox.v1.SandboxService/FinalDiff"
 	SandboxService_DestroyRun_FullMethodName    = "/swarmeval.sandbox.v1.SandboxService/DestroyRun"
 )
@@ -50,6 +51,11 @@ type SandboxServiceClient interface {
 	Exec(ctx context.Context, in *ExecRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ExecResponse], error)
 	// Reads one file from a sandbox without running anything inside it. For final-state scorers.
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error)
+	// Puts key paths into a state an earlier run recorded, for a fork: removes paths, then creates
+	// directories, then writes files, and takes the manifest again, so none of it is ever reported
+	// as a change. Only before the sandbox's first Exec, else FAILED_PRECONDITION. Files hold at
+	// most 3 MiB per request; send several to restore more.
+	RestoreFiles(ctx context.Context, in *RestoreFilesRequest, opts ...grpc.CallOption) (*RestoreFilesResponse, error)
 	// Diffs every sandbox of a run against its last manifest, catching writes by background
 	// processes after the last call. Every change is attributed `AMBIGUOUS`.
 	FinalDiff(ctx context.Context, in *FinalDiffRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FinalDiffResponse], error)
@@ -114,6 +120,16 @@ func (c *sandboxServiceClient) ReadFile(ctx context.Context, in *ReadFileRequest
 	return out, nil
 }
 
+func (c *sandboxServiceClient) RestoreFiles(ctx context.Context, in *RestoreFilesRequest, opts ...grpc.CallOption) (*RestoreFilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreFilesResponse)
+	err := c.cc.Invoke(ctx, SandboxService_RestoreFiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sandboxServiceClient) FinalDiff(ctx context.Context, in *FinalDiffRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FinalDiffResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &SandboxService_ServiceDesc.Streams[1], SandboxService_FinalDiff_FullMethodName, cOpts...)
@@ -166,6 +182,11 @@ type SandboxServiceServer interface {
 	Exec(*ExecRequest, grpc.ServerStreamingServer[ExecResponse]) error
 	// Reads one file from a sandbox without running anything inside it. For final-state scorers.
 	ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error)
+	// Puts key paths into a state an earlier run recorded, for a fork: removes paths, then creates
+	// directories, then writes files, and takes the manifest again, so none of it is ever reported
+	// as a change. Only before the sandbox's first Exec, else FAILED_PRECONDITION. Files hold at
+	// most 3 MiB per request; send several to restore more.
+	RestoreFiles(context.Context, *RestoreFilesRequest) (*RestoreFilesResponse, error)
 	// Diffs every sandbox of a run against its last manifest, catching writes by background
 	// processes after the last call. Every change is attributed `AMBIGUOUS`.
 	FinalDiff(*FinalDiffRequest, grpc.ServerStreamingServer[FinalDiffResponse]) error
@@ -192,6 +213,9 @@ func (UnimplementedSandboxServiceServer) Exec(*ExecRequest, grpc.ServerStreaming
 }
 func (UnimplementedSandboxServiceServer) ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReadFile not implemented")
+}
+func (UnimplementedSandboxServiceServer) RestoreFiles(context.Context, *RestoreFilesRequest) (*RestoreFilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreFiles not implemented")
 }
 func (UnimplementedSandboxServiceServer) FinalDiff(*FinalDiffRequest, grpc.ServerStreamingServer[FinalDiffResponse]) error {
 	return status.Error(codes.Unimplemented, "method FinalDiff not implemented")
@@ -285,6 +309,24 @@ func _SandboxService_ReadFile_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SandboxService_RestoreFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SandboxServiceServer).RestoreFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SandboxService_RestoreFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SandboxServiceServer).RestoreFiles(ctx, req.(*RestoreFilesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SandboxService_FinalDiff_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(FinalDiffRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -332,6 +374,10 @@ var SandboxService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReadFile",
 			Handler:    _SandboxService_ReadFile_Handler,
+		},
+		{
+			MethodName: "RestoreFiles",
+			Handler:    _SandboxService_RestoreFiles_Handler,
 		},
 		{
 			MethodName: "DestroyRun",

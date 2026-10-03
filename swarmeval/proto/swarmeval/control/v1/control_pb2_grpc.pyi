@@ -50,6 +50,14 @@ class ControlServiceStub:
     """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
     not paused is FAILED_PRECONDITION.
     """
+    ForkRun: _grpc.UnaryUnaryMultiCallable[_control_pb2.ForkRunRequest, _control_pb2.ForkRunResponse]
+    """A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+    happened in, with `edits` applied: the same case
+    revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+    epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+    event before the first turn, or an edit that does not fit the state there is
+    FAILED_PRECONDITION.
+    """
     StreamEvents: _grpc.UnaryStreamMultiCallable[_control_pb2.StreamEventsRequest, _control_pb2.StreamEventsResponse]
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
     ends once the run has finished and every event was sent.
@@ -76,6 +84,14 @@ class ControlServiceAsyncStub(ControlServiceStub):
     ResumeRun: _aio.UnaryUnaryMultiCallable[_control_pb2.ResumeRunRequest, _control_pb2.ResumeRunResponse]  # type: ignore[assignment]
     """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
     not paused is FAILED_PRECONDITION.
+    """
+    ForkRun: _aio.UnaryUnaryMultiCallable[_control_pb2.ForkRunRequest, _control_pb2.ForkRunResponse]  # type: ignore[assignment]
+    """A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+    happened in, with `edits` applied: the same case
+    revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+    epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+    event before the first turn, or an edit that does not fit the state there is
+    FAILED_PRECONDITION.
     """
     StreamEvents: _aio.UnaryStreamMultiCallable[_control_pb2.StreamEventsRequest, _control_pb2.StreamEventsResponse]  # type: ignore[assignment]
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
@@ -130,6 +146,20 @@ class ControlServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_control_pb2.ResumeRunResponse, _abc.Awaitable[_control_pb2.ResumeRunResponse]]:
         """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
         not paused is FAILED_PRECONDITION.
+        """
+
+    @_abc_1.abstractmethod
+    def ForkRun(
+        self,
+        request: _control_pb2.ForkRunRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.ForkRunResponse, _abc.Awaitable[_control_pb2.ForkRunResponse]]:
+        """A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+        happened in, with `edits` applied: the same case
+        revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+        epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+        event before the first turn, or an edit that does not fit the state there is
+        FAILED_PRECONDITION.
         """
 
     @_abc_1.abstractmethod

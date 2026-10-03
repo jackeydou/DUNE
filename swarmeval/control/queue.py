@@ -72,9 +72,13 @@ class RunRow:
     epochs: int
     replaces: str | None
     suite: str | None
+    forked_from: str | None
+    fork_seq: int | None
+    fork_edits: list[JsonValue] | None
     owner_id: str | None
     owner_epoch: int
     isolation: str | None
+    fidelity: str | None
     error: str | None
     created_at: datetime
     started_at: datetime | None
@@ -97,9 +101,13 @@ def _joined() -> Select[*tuple[Any, ...]]:
         s.epochs,
         s.replaces,
         s.suite,
+        s.forked_from,
+        s.fork_seq,
+        s.fork_edits,
         r.owner_id,
         r.owner_epoch,
         r.isolation,
+        r.fidelity,
         r.error,
         r.created_at,
         r.started_at,
@@ -283,6 +291,52 @@ class Queue:
             raise RunNotFound(f"no run `{run_id}`.")
         return found
 
+    async def fork(self, source: RunRow, fork_seq: int, edits: list[JsonValue]) -> RunRow:
+        """Queues a fork of `source`, which goes on after its event `fork_seq` with `edits`:
+        the same case revision, variant, and epoch (so the same seed), as run
+        `<source>.f<n>`. Its reports keep it apart from the epochs."""
+        async with self._engine.begin() as conn:
+            # Serializes the forks of one run, so two take different numbers.
+            lock = f"swarmeval.fork:{source.run_id}"
+            await conn.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(lock, 0))))
+            forks = (
+                await conn.execute(
+                    select(func.count()).where(run_specs.c.forked_from == source.run_id)
+                )
+            ).scalar_one()
+            run_id = f"{source.run_id}.f{forks + 1}"
+            await conn.execute(
+                insert(control_runs).values(
+                    run_id=run_id, workspace=source.workspace, status="queued"
+                )
+            )
+            await conn.execute(
+                insert(run_specs).values(
+                    run_id=run_id,
+                    submission_id=source.submission_id,
+                    case_id=source.case_id,
+                    case_sha256=source.case_sha256,
+                    overrides=source.overrides,
+                    variant=source.variant,
+                    task_args=source.task_args,
+                    epoch=source.epoch,
+                    epochs=source.epochs,
+                    suite=source.suite,
+                    forked_from=source.run_id,
+                    fork_seq=fork_seq,
+                    fork_edits=edits,
+                )
+            )
+        return await self.get(run_id)
+
+    async def set_fidelity(self, run_id: str, owner_epoch: int, fidelity: str) -> None:
+        async with self._engine.begin() as conn:
+            await conn.execute(
+                update(control_runs)
+                .where(control_runs.c.run_id == run_id, control_runs.c.owner_epoch == owner_epoch)
+                .values(fidelity=fidelity)
+            )
+
     async def set_isolation(self, run_id: str, owner_epoch: int, isolation: str) -> None:
         async with self._engine.begin() as conn:
             await conn.execute(
@@ -397,6 +451,7 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
                     s.task_args,
                     s.epochs,
                     s.suite,
+                    s.forked_from,
                     control_runs.c.workspace,
                 )
                 .join_from(run_specs, control_runs, s.run_id == control_runs.c.run_id)
@@ -417,7 +472,8 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
             )
         )
     ).one()
-    if reruns >= spec["epochs"]:
+    if reruns >= spec["epochs"] or spec["forked_from"] is not None:
+        # A fork is a counterfactual, not an epoch: an interrupted one is forked again by hand.
         return None
     epoch = last + 1
     rerun_id = run_id_of(spec["case_id"], spec["submission_id"], spec["variant"], epoch)

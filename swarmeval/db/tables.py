@@ -49,6 +49,7 @@ control_runs = Table(
     Column("started_at", DateTime(timezone=True)),
     Column("finished_at", DateTime(timezone=True)),
     Column("isolation", Text),
+    Column("fidelity", Text),
     Column("error", Text),
     CheckConstraint("status IN (" + ", ".join(f"'{s}'" for s in RUN_STATUSES) + ")", name="status"),
     Index(None, "status", "created_at"),
@@ -69,15 +70,21 @@ run_specs = Table(
     Column("epochs", Integer, nullable=False),
     Column("replaces", Text),
     Column("suite", Text),
+    Column("forked_from", Text),
+    Column("fork_seq", BigInteger),
+    Column("fork_edits", JSONB),
     ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
     Index(None, "submission_id"),
     Index(None, "replaces"),
     Index(None, "suite"),
+    Index(None, "forked_from"),
     schema="control",
 )
 """`replaces` is the interrupted run a rerun stands in for, at the next unused epoch of the same
 submission and variant (docs/services/orchestrator.md#reruns). `suite` labels the submissions of
-one suite run (docs/case-format.md#suites)."""
+one suite run (docs/case-format.md#suites). `forked_from`, `fork_seq`, and `fork_edits` make a
+fork: a run that goes on from its source's state after event `fork_seq`, with the edits applied
+(docs/services/orchestrator.md#forks; migration 0008)."""
 
 events = Table(
     "events",
@@ -163,6 +170,32 @@ deliveries = Table(
 with `due_turn`, the recipient's turn it is held for, when `before_deliver` says so; then
 `delivered` with `delivered_seq`. A delayed message still `delayed` at run end was never
 delivered (migration 0007)."""
+
+checkpoints = Table(
+    "checkpoints",
+    metadata,
+    Column("run_id", Text, primary_key=True),
+    Column("turn", Integer, primary_key=True),
+    Column("seq", BigInteger, nullable=False),
+    Column("state", JSONB, nullable=False),
+    ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
+    Index(None, "run_id", "seq"),
+    schema="runs",
+)
+"""The loop's state at the start of each run-wide turn, after the observers caught up: what a
+fork goes on from. `seq` is the last event committed before the turn (migration 0008)."""
+
+canaries = Table(
+    "canaries",
+    metadata,
+    Column("run_id", Text, primary_key=True),
+    Column("canaries", JSONB, nullable=False),
+    Column("sandbox_canaries", JSONB, nullable=False),
+    ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
+    schema="runs",
+)
+"""The run's canary tokens, written by the worker before the sandboxes exist, so a fork plants
+the same ones (migration 0008)."""
 
 judge_verdicts = Table(
     "judge_verdicts",

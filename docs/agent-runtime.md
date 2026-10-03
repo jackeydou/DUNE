@@ -12,7 +12,10 @@ spec describes but the code does not do.
 
 ## The loop
 
-`RunLoop` runs one fresh run. Agents take turns in `round_robin` order. A turn is one model call
+`RunLoop` runs one run: a fresh one, or a fork, given a `ForkStart` (a checkpoint of another run,
+the agents' contexts there, and edits; [forks](services/orchestrator.md#forks)). At the start of
+every run-wide turn, once the observers have caught up, it commits a checkpoint
+([event-log.md](event-log.md#checkpoints)). Agents take turns in `round_robin` order. A turn is one model call
 plus every tool call it makes:
 
 1. `before_turn` gate. Messages due on the Message Bus, then queued injections and `Inject`
@@ -225,6 +228,7 @@ agents that use the sandbox), `token`, and where it is planted: `hostname`, `env
 | Hook | Kind | Payload | Returns |
 |---|---|---|---|
 | `on_run_start`, `after_turn`, `on_run_end` | Observe | — | `None` |
+| `on_resume` | Observe | `ResumeInfo`: `fork`, `source_run_id`, `at_seq`, `fidelity` (`fs_restored` or `fs_partial`) | `None`. Runs instead of `on_run_start` when a run goes on from another run's state, after the state is restored and before the first turn; extension state is already the source's |
 | `before_turn` | Gate | `TurnInfo` | `Proceed`, `Skip`, `Inject(messages)`, `Stop(reason)` |
 | `compact_context` | Transform | Current messages | `None`, or a new, non-empty message tuple (new generation). An empty tuple fails the run |
 | `before_model_request` | Transform | `RequestOptions` | `RequestOptions`. Tools may only be narrowed |
@@ -298,8 +302,7 @@ The timeout is the loop's `hook_timeout_s` (default 30 s) unless the extension d
 
 | Spec item | State |
 |---|---|
-| Resume, takeover, fork | `RunLoop` refuses a run that already has context. The `awaiting_admit` status exists, and the gateway path is to write it when that path is built |
-| `on_resume` hook | Arrives with recovery (M3) |
+| Resume and takeover | Forks are built; recovering a run in place after a worker failure is M3. The `awaiting_admit` status exists, and the gateway path is to write it when that path is built. A fresh `RunLoop` still refuses a run that already has context |
 | `Delay` in seconds | With the `async` turn policy |
 | `read_messages`, LLM monitor agents (`role: monitor`) | After M2 (M2 spec open question 4). Channel members get messages pushed at their next turn |
 | `Pause` as a gate decision | `ctx.actions.pause` exists; a `before_turn` / `before_tool_call` `Pause` decision does not |
