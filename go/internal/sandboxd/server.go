@@ -236,6 +236,7 @@ func changes(cs []Change) []*sandboxv1.FsChange {
 			Attribution:    attribution,
 			CandidateCalls: c.Candidates,
 			Content:        c.Content,
+			MtimeNs:        current.MtimeNs,
 		}
 	}
 	return out

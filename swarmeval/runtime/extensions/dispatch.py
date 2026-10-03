@@ -85,6 +85,8 @@ class DeliveryOutcome:
     intervention_id: str | None
     """The last intervention on this delivery: what the delivered content, or the hold, is
     from."""
+    seconds: float = 0.0
+    """Also held this long (`async` only)."""
 
 
 @dataclass(frozen=True)
@@ -139,6 +141,12 @@ class HookDispatcher:
             saved = states.get(loaded.instance_id)
             self._instances.append(Instance(loaded, saved, seed, default_timeout_s))
 
+        self.timed_delays = False
+        """Whether `Delay(seconds=...)` is honored: under the `async` turn policy."""
+        self.quiesce = True
+        """Whether a barrier waits for the observers to go quiet, events they cause included
+        (sequential policies), or only for the events committed when it was entered (`async`,
+        where other agents keep committing)."""
         self.stop_reason: str | None = None
         self.stop_cause: str | None = None
         """The intervention event of the stop that `stop_reason` describes."""
@@ -152,6 +160,8 @@ class HookDispatcher:
         self._processed = 0
         self._idle = asyncio.Event()
         self._idle.set()
+        self._progress = asyncio.Event()
+        """Set whenever an observed event is done, for barriers that wait for a count."""
         self._observer: asyncio.Task[None] | None = None
         self._sandbox_calls: dict[str, int] = {}
         writer.subscribe(self._on_commit)
@@ -221,8 +231,15 @@ class HookDispatcher:
             await asyncio.gather(self._observer, return_exceptions=True)
 
     async def barrier(self) -> None:
-        while self._processed < self._published and self._failure is None:
-            await self._idle.wait()
+        target = self._published
+        while self._failure is None and self._processed < (
+            self._published if self.quiesce else target
+        ):
+            if self.quiesce:
+                await self._idle.wait()
+            else:
+                await self._progress.wait()
+                self._progress.clear()
         if self._failure is not None:
             raise self._failure
 
@@ -468,9 +485,19 @@ class HookDispatcher:
                     continue
                 case Deliver(content=content):
                     changed = envelope.model_copy(update={"content": content})
-                case Delay(turns=turns):
+                case Delay(turns=turns, seconds=seconds):
+                    if seconds is not None and not self.timed_delays:
+                        raise ExtensionError(
+                            instance.id,
+                            "before_deliver",
+                            "returned Delay(seconds=...), which only the `async` turn policy "
+                            "honors; delay by `turns` instead.",
+                        )
                     changed = envelope.model_copy(
-                        update={"delayed_turns": envelope.delayed_turns + turns}
+                        update={
+                            "delayed_turns": envelope.delayed_turns + (turns or 0),
+                            "delayed_seconds": envelope.delayed_seconds + (seconds or 0.0),
+                        }
                     )
                 case Drop():
                     changed = None
@@ -486,7 +513,9 @@ class HookDispatcher:
             if changed is None:
                 return DeliveryOutcome(None, envelope.delayed_turns, txn, last)
             envelope = changed
-        return DeliveryOutcome(envelope.content, envelope.delayed_turns, txn, last)
+        return DeliveryOutcome(
+            envelope.content, envelope.delayed_turns, txn, last, envelope.delayed_seconds
+        )
 
     async def run_worker_tool(
         self, tool: WorkerTool, agent: AgentInfo, args: BaseModel, trigger_id: str
@@ -646,6 +675,7 @@ class HookDispatcher:
                 self._failure = err
             finally:
                 self._processed += 1
+                self._progress.set()
                 if self._processed >= self._published:
                     self._idle.set()
 

@@ -73,7 +73,7 @@ def _check(case: CaseFile, use: ExtensionUse, where: str) -> None:
     model = CONFIGS.get(use.use)
     if model is None:
         return
-    if use.use == DELAY and "seconds" in use.config:
+    if use.use == DELAY and "seconds" in use.config and case.swarm.turn_policy != "async":
         raise ValueError(
             f"`{where}` (`{use.instance_id}`): `seconds` needs the `async` turn policy. Under "
             f"`{case.swarm.turn_policy}` a delay counts the recipient's own turns; use `turns`."

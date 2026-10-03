@@ -69,6 +69,9 @@ class RunHeader:
     """The task as the case states it; Inspect shows it as the sample's input."""
     models: Mapping[str, str]
     """Agent id to model, in the case's agent order. The first agent's model is `eval.model`."""
+    deterministic: bool = True
+    """`False` under the `async` turn policy: the order of events is recorded, not
+    reproducible."""
 
 
 @dataclass(frozen=True)
@@ -221,6 +224,7 @@ def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
                 "workspace": run.workspace,
                 "variant": header.variant,
                 "models": dict(header.models),
+                "deterministic": header.deterministic,
             }
         },
     )

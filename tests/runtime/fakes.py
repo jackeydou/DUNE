@@ -5,7 +5,8 @@ import hashlib
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from swarmeval.gateway.bus import ChannelSpec
 from swarmeval.gateway.model.client import to_wire
@@ -80,6 +81,7 @@ class FakeStore:
         for draft in txn.events:
             seq = len(self.events) + 1
             event = CommittedEvent(
+                ts=datetime.now(UTC),
                 event_id=draft.event_id,
                 seq=seq,
                 agent_id=draft.agent_id,
@@ -199,12 +201,16 @@ class ScriptedModel:
     requests: list[tuple[Caller, ModelRequest]] = field(
         default_factory=list[tuple[Caller, ModelRequest]]
     )
+    latency: dict[str, float] = field(default_factory=dict[str, float])
+    """Seconds a caller's calls take, for concurrent turn policies."""
 
     async def generate(
         self, caller: Caller, request: ModelRequest, *, parent_id: str | None
     ) -> RecordedResponse:
         self.requests.append((caller, request))
         key = caller.agent_id if isinstance(caller, AgentCaller) else caller.instance_id
+        if key in self.latency:
+            await asyncio.sleep(self.latency[key])
         response = self.scripts[key].pop(0)
         record = ModelCallRecord(
             model=request.model,
@@ -320,11 +326,13 @@ def harness(
     web: FakeWeb | None = None,
     pauser: FakePauser | None = None,
     fork: ForkStart | None = None,
+    turn_policy: Literal["round_robin", "event_driven", "async"] = "round_robin",
+    latency: dict[str, float] | None = None,
 ) -> Harness:
     store = store or FakeStore()
     pauser = pauser or FakePauser()
     writer = RunWriter(store)
-    model = ScriptedModel(writer, scripts)
+    model = ScriptedModel(writer, scripts, latency=latency or {})
     sandbox = sandbox or FakeSandbox()
     exts = [e if isinstance(e, tuple) else (e, ExtensionUse(use=e.id)) for e in extensions]
     loaded = load_extensions(
@@ -341,6 +349,7 @@ def harness(
             channels=channels,
             canaries=canaries,
             sandbox_canaries=sandbox_canaries,
+            turn_policy=turn_policy,
         ),
         writer=writer,
         model_client=model,

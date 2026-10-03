@@ -490,6 +490,7 @@ class FsChange(_message.Message):
     ATTRIBUTION_FIELD_NUMBER: _builtins.int
     CANDIDATE_CALLS_FIELD_NUMBER: _builtins.int
     CONTENT_FIELD_NUMBER: _builtins.int
+    MTIME_NS_FIELD_NUMBER: _builtins.int
     path: _builtins.str
     """Path inside the sandbox."""
     op: Global___FsChange.Op.ValueType
@@ -508,6 +509,10 @@ class FsChange(_message.Message):
     content: _builtins.bool
     """The new content follows as a blob with hash `after_sha256`. Unset for files over the
     content limit.
+    """
+    mtime_ns: _builtins.int
+    """Modification time after the change as the file system reports it, in nanoseconds since the
+    Unix epoch; before it for a delete. A process can set it to anything (`touch -d`).
     """
     @_builtins.property
     def candidate_calls(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
@@ -528,10 +533,11 @@ class FsChange(_message.Message):
         attribution: Global___FsChange.Attribution.ValueType = ...,
         candidate_calls: _abc.Iterable[_builtins.str] | None = ...,
         content: _builtins.bool = ...,
+        mtime_ns: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["after_sha256", b"after_sha256", "attribution", b"attribution", "before_sha256", b"before_sha256", "candidate_calls", b"candidate_calls", "content", b"content", "kind", b"kind", "mode", b"mode", "op", b"op", "path", b"path", "protected", b"protected", "size", b"size", "uid", b"uid"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["after_sha256", b"after_sha256", "attribution", b"attribution", "before_sha256", b"before_sha256", "candidate_calls", b"candidate_calls", "content", b"content", "kind", b"kind", "mode", b"mode", "mtime_ns", b"mtime_ns", "op", b"op", "path", b"path", "protected", b"protected", "size", b"size", "uid", b"uid"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

@@ -93,6 +93,7 @@ def seal(
                 extension=draft.extension,
                 parent_id=draft.parent_id,
                 record=draft.record,
+                ts=event.timestamp,
             )
         )
         head = ChainHead(seq=seq, hash=digest, started_at=started_at)

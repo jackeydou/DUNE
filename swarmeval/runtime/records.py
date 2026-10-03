@@ -6,6 +6,7 @@ written (see docs/event-log.md). The runtime never builds Inspect objects itself
 
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import Field, JsonValue
@@ -68,6 +69,10 @@ class FsChange(Frozen):
     """For an ambiguous change: calls whose processes were alive in the window."""
     content_stored: bool = False
     """The new content is in the blob store under `after_sha256`."""
+    mtime_us: int | None = None
+    """Modification time after the change (before it for a delete), as the sandbox's file
+    system reports it, in microseconds since the Unix epoch: within JSON's exact integers, which
+    nanoseconds are not. Anything a process set with `touch -d`. `None` before event schema 6."""
 
 
 class ProcessInfo(Frozen):
@@ -302,7 +307,7 @@ class ScoreRecord(Frozen):
 
 class LimitRecord(Frozen):
     kind: Literal["limit"] = "limit"
-    limit: Literal["max_turns", "max_tokens"]
+    limit: Literal["max_turns", "max_tokens", "wall_clock"]
     value: int
 
 
@@ -383,6 +388,8 @@ class CommittedEvent(Frozen):
     """Instance id of the extension that caused this event, if any."""
     parent_id: str | None
     record: Record
+    ts: datetime | None = None
+    """When the event was sealed; what timing detectors read."""
 
 
 def new_event_id() -> str:

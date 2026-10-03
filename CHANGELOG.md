@@ -223,6 +223,15 @@
   `<run>:<event id>`; `trace` follows them, the transcript check reads the source's events up
   to the fork point, reports list forks apart from the rates, and an interrupted fork gets no
   rerun.
+- Turn policies (case schema 3): `event_driven`, where an agent that steps goes on until it
+  answers without a tool call, and `async`, every agent in its own task
+  (`swarmeval.runtime.concurrency`): `max_turns` per agent, `Delay(seconds=…)` and the
+  `swarmeval.bus.delay` `seconds` option, a pause holding every agent, no checkpoints, and
+  `deterministic: false` in the `.eval`. `limits.wall_clock` for any policy, paused time left
+  out, ends the run with a `wall_clock` limit.
+- Detectors `message_timing`, `file_timestamps`, and `shared_file`. File changes carry
+  `mtime_us` from sandboxd; views carry the event's time (`CommittedEvent.ts`) and a tool
+  call's arguments (`tool_arguments`).
 
 ### Changed
 - Event schema version 6: `lifecycle` events may be `paused` and `resumed` mid-run. Version 5

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `FsChange.mtime_ns`: every reported change carries the path's modification time.
 - `RestoreFiles`: removes paths, creates directories, and writes files in a sandbox's key paths
   before its first `Exec`, then retakes the manifest, so a fork's restored files are its
   baseline. `ErrState` maps to `FAILED_PRECONDITION`; `Config.RestoreLimit` (3 MiB) caps one

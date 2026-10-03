@@ -5,14 +5,15 @@ two commits: first as observed (record), then as the agent will see it after hoo
 See docs/agent-runtime.md.
 """
 
+import asyncio
 import json
 from collections.abc import Sequence
 from typing import Literal
 
 from swarmeval.gateway.bus import MessageBus
+from swarmeval.runtime.concurrency import AsyncDriver
 from swarmeval.runtime.execute import Execution, ToolRunner
 from swarmeval.runtime.extensions.api import (
-    AgentInfo,
     Block,
     ChannelInfo,
     Envelope,
@@ -25,16 +26,9 @@ from swarmeval.runtime.extensions.api import (
     Stop,
 )
 from swarmeval.runtime.extensions.dispatch import HookDispatcher, PauseRequest
-from swarmeval.runtime.extensions.interventions import sha256_json
 from swarmeval.runtime.extensions.registry import LoadedExtension
 from swarmeval.runtime.fork import (
     ForkStart,
-    ReplaceDelivery,
-    check_edits,
-    delivery_intervention,
-    edit_intervention,
-    edited_contexts,
-    replace_mail,
 )
 from swarmeval.runtime.messages import (
     ChatMessage,
@@ -46,9 +40,6 @@ from swarmeval.runtime.messages import (
 )
 from swarmeval.runtime.ports import AgentCaller, ModelClient, Pauser, SandboxExecutor, WebClient
 from swarmeval.runtime.records import (
-    AgentCheckpoint,
-    AgentStateRow,
-    Checkpoint,
     DeliveryChange,
     EventDraft,
     ExtensionSnapshot,
@@ -59,12 +50,12 @@ from swarmeval.runtime.records import (
     Transaction,
 )
 from swarmeval.runtime.specs import (
-    AgentSpec,
     RunConfigError,
     RunOutcome,
     RunSpec,
     initial_context,
 )
+from swarmeval.runtime.state import AgentRun, Stopped, checkpoint_of, fork_start
 from swarmeval.runtime.tools import (
     SandboxTool,
     Tool,
@@ -72,28 +63,6 @@ from swarmeval.runtime.tools import (
     tool_schema,
 )
 from swarmeval.runtime.writer import RunWriter
-
-
-class _AgentRun:
-    def __init__(self, spec: AgentSpec) -> None:
-        self.spec = spec
-        self.info = AgentInfo(
-            id=spec.id, model=spec.model, sandbox_id=spec.sandbox_id, tools=spec.tools
-        )
-        self.gen = 0
-        self.length = 0
-        self.turn = 0
-        self.finished = False
-        self.last_input = ""
-        """The last event whose content was admitted into this agent's context: the parent of
-        its next model call (docs/event-log.md#causal-parents). Set when generation 0 commits."""
-
-
-class _Stopped(Exception):
-    def __init__(self, reason: str, cause: str | None) -> None:
-        self.reason = reason
-        self.cause = cause
-        """The event that stopped the run, if an event did."""
 
 
 class RunLoop:
@@ -124,13 +93,21 @@ class RunLoop:
         self._fork = fork
         self._pauser = pauser
         self._bus = MessageBus(spec.channels)
+        self._resumed = asyncio.Event()
+        """Cleared while the run is paused: every agent's next hook point waits on it."""
+        self._resumed.set()
+        self._paused_s = 0.0
+        self._clock_start = 0.0
+        self._driver: AsyncDriver | None = None
+        self._poke: asyncio.Task[None] | None = None
+        """Wakes the `async` driver's waiting agents after a cancel; held so it is not lost."""
         writer.subscribe(self._bus.on_commit)
         bus_tool = self._bus.tool()
         self._tools: dict[str, Tool] = {t.name: t for t in tools}
         self._tools[bus_tool.name] = bus_tool
         for ext in extensions:
             self._tools.update({t.name: t for t in ext.registrations.tools})
-        self._agents = {a.id: _AgentRun(a) for a in spec.agents}
+        self._agents = {a.id: AgentRun(a) for a in spec.agents}
         self._check_tools()
         self._runner = ToolRunner(self._tools, sandbox_executor, web_client)
         self._sandbox = sandbox_executor
@@ -195,7 +172,10 @@ class RunLoop:
             writer=self._writer,
             default_timeout_s=self._hook_timeout_s,
         )
+        dispatcher.timed_delays = self._spec.turn_policy == "async"
+        dispatcher.quiesce = self._spec.turn_policy != "async"
         dispatcher.start()
+        self._clock_start = asyncio.get_running_loop().time()
         try:
             if self._fork is None:
                 await self._start()
@@ -248,12 +228,20 @@ class RunLoop:
             txn.new_generations[agent.spec.id] = initial
             agent.length = len(initial)
             agent.last_input = started.event_id
-            txn.agent_states.append(self._state_row(agent, "ready"))
+            txn.agent_states.append(agent.row("ready", self._tokens_used))
         await self._writer.commit(txn)
         self._started_id = started.event_id
 
     async def _drive(self, dispatcher: HookDispatcher, resume: Sequence[str] = ()) -> RunOutcome:
-        """`resume` is a fork's round in progress: the agents left in it."""
+        """`resume` is a fork's round in progress: the agents left in it. Under `event_driven`
+        an agent, once it steps, goes on until it answers without a tool call; under
+        `round_robin` it takes one step per round."""
+        if self._spec.turn_policy == "async":
+            assert not resume, "forks of async runs are refused: they have no checkpoints"
+            self._driver = AsyncDriver(_LoopTurns(self), dispatcher)
+            outcome = await self._driver.run()
+            self._end_cause = self._driver.end_cause
+            return outcome
         limits = self._spec.limits
         carried = [self._agents[a] for a in resume]
         try:
@@ -271,19 +259,23 @@ class RunLoop:
                 if not active:
                     return self._outcome("finished", None)
                 for i, agent in enumerate(active):
-                    await self._hook_point(dispatcher)
-                    if limits.max_turns is not None and self._turns >= limits.max_turns:
-                        return await self._limit("max_turns", limits.max_turns)
-                    if limits.max_tokens is not None and self._tokens_used >= limits.max_tokens:
-                        return await self._limit("max_tokens", limits.max_tokens)
-                    await self._mark_turn(dispatcher, active[i:])
-                    self._turns += 1
-                    await self._step(dispatcher, agent)
-        except _Stopped as stop:
+                    while True:
+                        await self._hook_point(dispatcher)
+                        if limits.max_turns is not None and self._turns >= limits.max_turns:
+                            return await self._limit("max_turns", limits.max_turns)
+                        reached = await self._run_limit()
+                        if reached is not None:
+                            return reached[0]
+                        await self._mark_turn(dispatcher, active[i:])
+                        self._turns += 1
+                        await self._step(dispatcher, agent)
+                        if self._spec.turn_policy != "event_driven" or agent.finished:
+                            break
+        except Stopped as stop:
             self._end_cause = stop.cause
             return self._outcome("stopped", stop.reason)
 
-    def _active(self, d: HookDispatcher) -> list[_AgentRun]:
+    def _active(self, d: HookDispatcher) -> list[AgentRun]:
         """Agents that take a turn this round. Mail due at a finished agent's next turn, or an
         injection queued for it, wakes it; admitting it records the state change."""
         for agent in self._agents.values():
@@ -303,6 +295,8 @@ class RunLoop:
         point, like a stop an extension requests."""
         if self._stop_reason is None:
             self._stop_reason = reason
+        if self._driver is not None:
+            self._poke = asyncio.get_running_loop().create_task(self._driver.poke())
 
     def _stop_requested(self, dispatcher: HookDispatcher) -> str | None:
         return self._stop_reason or dispatcher.stop_reason
@@ -310,25 +304,16 @@ class RunLoop:
     def _check_stop(self, dispatcher: HookDispatcher) -> None:
         reason = self._stop_requested(dispatcher)
         if reason is not None:
-            raise _Stopped(reason, self._stop_cause(dispatcher))
+            raise Stopped(reason, self._stop_cause(dispatcher))
 
-    async def _mark_turn(self, d: HookDispatcher, rest: Sequence["_AgentRun"]) -> None:
+    async def _mark_turn(self, d: HookDispatcher, rest: Sequence[AgentRun]) -> None:
         """Commits the checkpoint a fork can start from, once the observers have caught up."""
         await d.barrier()
-        checkpoint = Checkpoint(
-            turn=self._turns,
-            round=tuple(a.spec.id for a in rest),
+        checkpoint = checkpoint_of(
+            turns=self._turns,
+            rest=rest,
             tokens_used=self._tokens_used,
-            agents={
-                a.spec.id: AgentCheckpoint(
-                    gen=a.gen,
-                    length=a.length,
-                    turn=a.turn,
-                    finished=a.finished,
-                    last_input=a.last_input,
-                )
-                for a in self._agents.values()
-            },
+            agents=tuple(self._agents.values()),
             extensions=d.snapshots(),
             mail=self._bus.snapshot(),
             queued=d.queued(),
@@ -337,10 +322,6 @@ class RunLoop:
         await self._writer.commit(Transaction(checkpoint=checkpoint))
 
     async def _start_fork(self, d: HookDispatcher, fork: ForkStart) -> None:
-        """The source's state at the checkpoint, then the edits, each an intervention. Its
-        contexts are copied at their generation numbers, so the source's events still explain
-        them."""
-        checkpoint = fork.checkpoint
         started = EventDraft(
             record=LifecycleRecord(
                 status="started",
@@ -348,46 +329,17 @@ class RunLoop:
             ),
             parent_id=self._writer.last_event_id,
         )
-        txn = Transaction(events=[started], inherited_mail=list(checkpoint.mail))
-        txn.extension_states.update(
-            {k: ExtensionSnapshot(v.state, v.rng_uses) for k, v in checkpoint.extensions.items()}
-        )
-        self._turns, self._tokens_used = checkpoint.turn, checkpoint.tokens_used
-        for agent in self._agents.values():
-            saved = checkpoint.agents[agent.spec.id]
-            agent.gen, agent.length, agent.turn = saved.gen, saved.length, saved.turn
-            agent.finished, agent.last_input = saved.finished, saved.last_input
-            txn.inherited[(agent.spec.id, saved.gen)] = fork.contexts[agent.spec.id]
-            txn.agent_states.append(
-                self._state_row(agent, "finished" if saved.finished else "ready")
-            )
-        check_edits(fork.edits, fork.contexts, checkpoint.mail)
-        for agent_id, messages in edited_contexts(fork.contexts, fork.edits).items():
-            agent = self._agents[agent_id]
-            before = sha256_json([m.model_dump(mode="json") for m in fork.contexts[agent_id]])
-            draft = edit_intervention(agent_id, before, messages, started.event_id)
-            txn.events.append(draft)
-            agent.gen, agent.length, agent.last_input = agent.gen + 1, len(messages), draft.event_id
-            txn.new_generations[agent_id] = messages
-            txn.agent_states.append(self._state_row(agent, "ready"))
-        mail = list(checkpoint.mail)
-        for edit in fork.edits:
-            if isinstance(edit, ReplaceDelivery):
-                i = next(i for i, m in enumerate(mail) if replace_mail(m, edit))
-                draft = delivery_intervention(
-                    mail[i], edit, sha256_json(mail[i].content), started.event_id
-                )
-                txn.events.append(draft)
-                mail[i] = mail[i].model_copy(
-                    update={"content": edit.content, "parent_id": draft.event_id}
-                )
+        txn, mail = fork_start(fork, self._agents, started)
+        self._turns, self._tokens_used = fork.checkpoint.turn, fork.checkpoint.tokens_used
         self._bus.restore(mail)
-        d.restore_queued(checkpoint.queued)
+        d.restore_queued(fork.checkpoint.queued)
         await self._writer.commit(txn)
         self._started_id = started.event_id
 
     async def _hook_point(self, d: HookDispatcher) -> None:
-        """A hook point: a requested pause takes effect, then a requested stop."""
+        """A hook point: a requested pause takes effect, then a requested stop. Under `async`
+        one agent pauses the run, and the others wait here."""
+        await self._resumed.wait()
         pause = d.take_pause()
         if pause is not None:
             await self._pause(d, pause)
@@ -396,6 +348,9 @@ class RunLoop:
     async def _pause(self, d: HookDispatcher, request: PauseRequest) -> None:
         """Waits for the observers first, so the pause's intervention, which an observer may
         still be committing, precedes the `paused` event it parents."""
+        self._resumed.clear()
+        clock = asyncio.get_running_loop()
+        began = clock.time()
         await d.barrier()
         paused = EventDraft(
             record=LifecycleRecord(status="paused", reason=request.reason),
@@ -408,16 +363,40 @@ class RunLoop:
             return
         resumed = EventDraft(record=LifecycleRecord(status="resumed"), parent_id=paused.event_id)
         await self._writer.commit(Transaction(events=[resumed]))
+        self._paused_s += clock.time() - began
+        self._resumed.set()
 
     def _stop_cause(self, dispatcher: HookDispatcher) -> str | None:
         """An extension's stop intervention; `None` for a stop from outside (a cancel)."""
         return None if self._stop_reason is not None else dispatcher.stop_cause
 
-    async def _limit(self, limit: Literal["max_turns", "max_tokens"], value: int) -> RunOutcome:
-        draft = EventDraft(record=LimitRecord(limit=limit, value=value), parent_id=self._started_id)
+    async def _limit(
+        self,
+        limit: Literal["max_turns", "max_tokens", "wall_clock"],
+        value: int,
+        agent_id: str | None = None,
+    ) -> RunOutcome:
+        record = LimitRecord(limit=limit, value=value)
+        draft = EventDraft(record=record, agent_id=agent_id, parent_id=self._started_id)
         await self._writer.commit(Transaction(events=[draft]))
         self._end_cause = draft.event_id
         return self._outcome("limit", f"{limit} reached ({value})")
+
+    async def _run_limit(self) -> tuple[RunOutcome, str] | None:
+        """`max_tokens` or `wall_clock`, recorded, with the `limit` event."""
+        limits = self._spec.limits
+        if limits.max_tokens is not None and self._tokens_used >= limits.max_tokens:
+            outcome = await self._limit("max_tokens", limits.max_tokens)
+        elif limits.wall_clock_s is not None and self._elapsed() >= limits.wall_clock_s:
+            outcome = await self._limit("wall_clock", round(limits.wall_clock_s))
+        else:
+            return None
+        assert self._end_cause is not None, "set by _limit"
+        return outcome, self._end_cause
+
+    def _elapsed(self) -> float:
+        """Seconds since the run started, paused time left out."""
+        return asyncio.get_running_loop().time() - self._clock_start - self._paused_s
 
     def _outcome(
         self, status: Literal["finished", "stopped", "limit"], reason: str | None
@@ -426,7 +405,7 @@ class RunLoop:
             status=status, reason=reason, turns=self._turns, tokens_used=self._tokens_used
         )
 
-    async def _step(self, d: HookDispatcher, agent: _AgentRun) -> None:
+    async def _step(self, d: HookDispatcher, agent: AgentRun) -> None:
         agent.turn += 1
         gate = await d.before_turn(agent.info, self._turns, agent.last_input)
         txn = gate.txn
@@ -446,7 +425,7 @@ class RunLoop:
         await self._route(d)
         match gate.decision:
             case Stop(reason=reason):
-                raise _Stopped(f"{gate.decided_by}: {reason}", gate.intervention_id)
+                raise Stopped(f"{gate.decided_by}: {reason}", gate.intervention_id)
             case Skip():
                 return
             case _:
@@ -465,7 +444,7 @@ class RunLoop:
             agent.length = len(messages)
             agent.last_input = compacted.intervention_id
             txn.new_generations[agent.spec.id] = messages
-            txn.agent_states.append(self._state_row(agent, "ready"))
+            txn.agent_states.append(agent.row("ready", self._tokens_used))
         await self._writer.commit(txn)
         await self._hook_point(d)
 
@@ -504,14 +483,14 @@ class RunLoop:
             await self._tool_step(d, agent, call, model_event_id, requested.value.tools)
         if not response.value.tool_calls:
             agent.finished = True
-            txn = Transaction(agent_states=[self._state_row(agent, "finished")])
+            txn = Transaction(agent_states=[agent.row("finished", self._tokens_used)])
             await self._writer.commit(txn)
         await d.observe("after_turn", agent.info, agent.last_input)
 
     async def _tool_step(
         self,
         d: HookDispatcher,
-        agent: _AgentRun,
+        agent: AgentRun,
         call: ToolCall,
         model_event_id: str,
         offered: tuple[str, ...],
@@ -526,7 +505,7 @@ class RunLoop:
         reason = self._stop_requested(d)
         if reason is not None:
             await self._writer.commit(txn)
-            raise _Stopped(reason, self._stop_cause(d))
+            raise Stopped(reason, self._stop_cause(d))
         blocked_by: str | None = None
         match gate.decision:
             case Block(result=content, is_error=is_error):
@@ -591,15 +570,21 @@ class RunLoop:
                 txn.deliveries.append(DeliveryChange(item.send.seq, item.recipient, "dropped"))
                 continue
             due = recipient.turn + 1 + outcome.delay if outcome.delay else None
-            if due is not None:
+            if due is not None or outcome.seconds:
                 txn.deliveries.append(
                     DeliveryChange(item.send.seq, item.recipient, "delayed", due_turn=due)
                 )
-            self._bus.route(item, outcome.content, due_turn=due, parent_id=outcome.intervention_id)
+            self._bus.route(
+                item,
+                outcome.content,
+                due_turn=due,
+                parent_id=outcome.intervention_id,
+                hold_s=outcome.seconds,
+            )
         await self._writer.commit(txn)
 
     def _admit(
-        self, txn: Transaction, agent: _AgentRun, messages: Sequence[tuple[ChatMessage, str]]
+        self, txn: Transaction, agent: AgentRun, messages: Sequence[tuple[ChatMessage, str]]
     ) -> None:
         """Each message comes with the event its content is from."""
         if not messages:
@@ -607,16 +592,46 @@ class RunLoop:
         txn.messages.extend((agent.spec.id, m) for m, _ in messages)
         agent.length += len(messages)
         agent.last_input = messages[-1][1]
-        txn.agent_states.append(self._state_row(agent, "ready"))
+        txn.agent_states.append(agent.row("ready", self._tokens_used))
 
-    def _state_row(
-        self, agent: _AgentRun, status: Literal["awaiting_admit", "ready", "finished"]
-    ) -> AgentStateRow:
-        return AgentStateRow(
-            agent_id=agent.spec.id,
-            gen=agent.gen,
-            length=agent.length,
-            turn=agent.turn,
-            status=status,
-            tokens_used=self._tokens_used,
-        )
+
+class _LoopTurns:
+    """The loop as the `async` driver sees it (`swarmeval.runtime.concurrency.Turns`)."""
+
+    def __init__(self, loop: RunLoop) -> None:
+        self._loop = loop
+
+    @property
+    def agents(self) -> Sequence[AgentRun]:
+        return tuple(self._loop._agents.values())  # pyright: ignore[reportPrivateUsage]
+
+    @property
+    def bus(self) -> MessageBus:
+        return self._loop._bus  # pyright: ignore[reportPrivateUsage]
+
+    @property
+    def max_turns(self) -> int | None:
+        return self._loop._spec.limits.max_turns  # pyright: ignore[reportPrivateUsage]
+
+    async def hook_point(self, d: HookDispatcher) -> None:
+        await self._loop._hook_point(d)  # pyright: ignore[reportPrivateUsage]
+
+    def stop_requested(self, d: HookDispatcher) -> bool:
+        return self._loop._stop_requested(d) is not None  # pyright: ignore[reportPrivateUsage]
+
+    async def run_limit(self) -> tuple[RunOutcome, str] | None:
+        return await self._loop._run_limit()  # pyright: ignore[reportPrivateUsage]
+
+    async def agent_limit(self, agent: AgentRun) -> None:
+        limit = self._loop._spec.limits.max_turns  # pyright: ignore[reportPrivateUsage]
+        assert limit is not None, "the driver checks max_turns first"
+        await self._loop._limit("max_turns", limit, agent.spec.id)  # pyright: ignore[reportPrivateUsage]
+
+    async def step(self, d: HookDispatcher, agent: AgentRun) -> None:
+        self._loop._turns += 1  # pyright: ignore[reportPrivateUsage]
+        await self._loop._step(d, agent)  # pyright: ignore[reportPrivateUsage]
+
+    def outcome(
+        self, status: Literal["finished", "stopped", "limit"], reason: str | None
+    ) -> RunOutcome:
+        return self._loop._outcome(status, reason)  # pyright: ignore[reportPrivateUsage]

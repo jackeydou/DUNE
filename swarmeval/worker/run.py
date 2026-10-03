@@ -341,4 +341,5 @@ def _header(run: RunRow, variant: Variant) -> RunHeader:
         epochs=run.epochs,
         input=variant.prompts[agents[0].id].task,
         models={a.id: a.model for a in agents},
+        deterministic=variant.case.swarm.turn_policy != "async",
     )

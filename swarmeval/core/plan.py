@@ -23,6 +23,17 @@ def run_spec(variant: Variant, *, run_id: str, seed: int) -> RunSpec:
         )
         for agent in swarm.agents
     )
-    limits = Limits(max_turns=swarm.limits.max_turns, max_tokens=swarm.limits.max_tokens)
+    limits = Limits(
+        max_turns=swarm.limits.max_turns,
+        max_tokens=swarm.limits.max_tokens,
+        wall_clock_s=swarm.limits.wall_clock,
+    )
     channels = tuple(ChannelSpec(id=c.id, members=c.members) for c in swarm.channels)
-    return RunSpec(run_id=run_id, seed=seed, agents=agents, limits=limits, channels=channels)
+    return RunSpec(
+        run_id=run_id,
+        seed=seed,
+        agents=agents,
+        limits=limits,
+        channels=channels,
+        turn_policy=swarm.turn_policy,
+    )

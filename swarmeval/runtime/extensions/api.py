@@ -6,9 +6,9 @@ import random
 import re
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, get_args, overload
+from typing import Any, Literal, Protocol, Self, get_args, overload
 
-from pydantic import BaseModel, JsonValue, PositiveInt
+from pydantic import BaseModel, JsonValue, PositiveFloat, PositiveInt, model_validator
 
 from swarmeval.runtime.messages import (
     AssistantMessage,
@@ -126,11 +126,19 @@ class Drop(Frozen):
 
 
 class Delay(Frozen):
-    """Hold the message for `turns` more of the recipient's own turns. Delays from several
-    handlers add up; later handlers are still called and may rewrite or drop it."""
+    """Hold the message for `turns` more of the recipient's own turns, or, under the `async`
+    turn policy only, for `seconds`. Delays from several handlers add up; later handlers are
+    still called and may rewrite or drop it."""
 
     kind: Literal["delay"] = "delay"
-    turns: PositiveInt
+    turns: PositiveInt | None = None
+    seconds: PositiveFloat | None = None
+
+    @model_validator(mode="after")
+    def _one_unit(self) -> Self:
+        if (self.turns is None) == (self.seconds is None):
+            raise ValueError("a Delay holds a message for `turns` or for `seconds`, not both")
+        return self
 
 
 type DeliveryDecision = Deliver | Drop | Delay
@@ -148,6 +156,8 @@ class Envelope(Frozen):
     """What the previous handler decided to deliver; the sent content for the first."""
     delayed_turns: int = 0
     """Turns earlier handlers have delayed it by."""
+    delayed_seconds: float = 0.0
+    """Seconds earlier handlers have delayed it by (`async` only)."""
 
 
 class ResumeInfo(Frozen):
