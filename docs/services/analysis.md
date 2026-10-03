@@ -7,8 +7,8 @@ of the Control API behind [edge](edge.md), not part of it. Its place among the s
 
 **Status:** built as batch jobs (`swarmeval.analysis`): `report`, trigger rates per case,
 variant, and scorer from run summaries; `judge`, an LLM judge whose verdicts cite events; and
-`eval-set`, one Inspect `.eval` per variant. Rule scans, event-rule scorers, and a single-run
-timeline are not built yet; M1 runs them as batch jobs too. Analysis is built here rather than on Docent or inspect-scout
+`eval-set`, one Inspect `.eval` per variant; and `timeline`, one run's events laned by agent.
+Rule scans and event-rule scorers are not built yet; M1 runs them as batch jobs too. Analysis is built here rather than on Docent or inspect-scout
 ([trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 9); `.eval`
 stays the format for exchanging runs with those tools. M4 turns analysis into a gRPC service behind edge. Items marked *(proposed)* go beyond what the specs
 decided; they are listed under [Not settled](#not-settled).
@@ -38,6 +38,7 @@ Files a person reads, such as per-variant `.eval` logs, go to a local directory 
 | Event-rule scorers | The case's rule scorers, sharing their detector interface with the online Monitor. Output is an Inspect `Score` with `1 = triggered` |
 | LLM judge | Asks a question about a run, or a `seq` range of it, through [model-gateway](model-gateway.md) with the analysis key. The judge reads the run's `events.parquet` rendered one line per event, `[event_id] #seq agent …`, with line breaks inside an event escaped so run content cannot pose as another event, each cut at 2,000 characters; score events are left out so scorers do not lead it, and a transcript over 400,000 characters is refused rather than cut. It answers through a `verdict` tool: `yes`, `no`, or `unclear`, an explanation, and the event ids it rests on. The verdict is rejected when it cites an event it was not shown, when a `yes` cites nothing, or when the model does not call `verdict` exactly once. Every call is stored, accepted or rejected, with its request and response; NUL in the response is replaced with U+FFFD first, since `jsonb` refuses it. Built as the `judge` job |
 | Reports | Trigger rate per case revision (`case_sha256`, shown as `case@hash`), variant, and scorer over `done` runs: epochs, mean, stderr, and a 95% Wilson interval, which, unlike mean ± 1.96·stderr, does not collapse to a point when no epoch or every epoch triggered. Runs that ended otherwise are listed per status and left out (runtime spec Q6). Built as the `report` job. Grouping by risk category, isolation level, fidelity, and `reasoning_visibility` is not built |
+| Single-run timeline | One run's `events.parquet` in `seq` order, as a Markdown table with one column (lane) per agent and one, `-`, for events no agent caused; each event fills its own lane's cell, as the same one-line text the judge reads (pipes escaped), with its id and seconds since the run's first event. Every event is shown, scores included. Narrowed by lane (`--agent`, repeatable) and `seq` range; times stay relative to the run's start. `--html` also writes the table as one self-contained page (no scripts, no external resources, run content HTML-escaped). Built as the `timeline` job |
 | Per-variant `.eval` | One Inspect log per submission, case revision, and variant, every `done` epoch a sample, with `results` and `reductions` computed by Inspect from the reducers (default `mean`) and metrics the header declares: per reducer, `mean` of the reduced value; over epochs, `epoch_stderr` and `epoch_ci_wilson`. Runs that ended otherwise are listed in `eval.metadata.swarmeval.left_out`. Read from each run's `sample.eval`, written to a local directory, and opened with `inspect view`. Built as the `eval-set` job; the assembly is in [event-log.md](../event-log.md#the-per-variant-eval). A case scorer cannot pick its own reducer: Inspect has one reducer list per log |
 
 Each capability is a job: `python -m swarmeval.analysis <job>`, with the object store flags the
@@ -70,6 +71,13 @@ uv run inspect view --log-dir logs/
 It writes `<submission>_<case>-<hash8>_v<variant>.eval` per variant, replacing a file of that
 name, and prints one line per variant with the runs it left out. A variant with no `done` run
 gets no file.
+
+```bash
+uv run python -m swarmeval.analysis timeline --run RUN_ID --s3-endpoint 127.0.0.1:9000 \
+  --s3-scheme http --agent dev --agent - --from-seq 10 --to-seq 80 --html run.html
+```
+
+It prints the Markdown table; `--event-chars` (default 400) sets where each event is cut.
 
 ## Interface (M4)
 

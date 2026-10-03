@@ -8,7 +8,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from swarmeval.analysis.judge import Gateway, JudgeError, judge, load_events
+from swarmeval.analysis.exports import ExportError, load_events
+from swarmeval.analysis.judge import Gateway, judge
 from swarmeval.db import judge_verdicts
 from swarmeval.events import ObjectStore
 from tests.analysis.test_judge import ROWS, verdict_args
@@ -92,5 +93,5 @@ async def test_nul_in_a_model_response_is_stored_replaced(engine: AsyncEngine) -
 
 
 async def test_a_run_without_an_export_says_so(object_store: ObjectStore) -> None:
-    with pytest.raises(JudgeError, match=re.escape("no `runs/never_ran/events.parquet`")):
+    with pytest.raises(ExportError, match=re.escape("no `runs/never_ran/events.parquet`")):
         await load_events(object_store, "never_ran")
