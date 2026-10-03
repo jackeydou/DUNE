@@ -13,7 +13,7 @@ from swarmeval.control.queue import Queue
 from swarmeval.db import async_engine
 from swarmeval.events import ObjectStore
 from swarmeval.worker.run import WorkerDeps
-from swarmeval.worker.worker import Worker, WorkerIdInUse
+from swarmeval.worker.worker import Worker, WorkerIdInUse, WorkerIdLost
 
 
 async def serve(
@@ -78,7 +78,7 @@ def main() -> None:
                 max_runs=args.max_runs,
             )
         )
-    except WorkerIdInUse as err:
+    except (WorkerIdInUse, WorkerIdLost) as err:
         raise SystemExit(str(err)) from err
 
 

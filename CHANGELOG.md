@@ -149,8 +149,13 @@
   fields.
 
 ### Changed
+- A serving worker checks every 10 s that it still holds its worker id's lock, and stops with
+  `WorkerIdLost` if the connection holding it dropped.
 - sandboxd `INVALID_ARGUMENT` answers end a run `failed`, not `interrupted`, since the same
   request gets the same answer.
+- `Queue.finish` changes only a `running`, `paused`, or `cancelled` run, and
+  `Queue.interrupt_owned` increments the `owner_epoch` of the runs it finishes, fencing their old
+  owner.
 - The isolation self-check passes a peer's names to the DNS probe in two halves and scrubs them
   from its output, so no probe event carries another sandbox's canary token.
   `ProbeSandbox.names` holds (what, name) pairs.
@@ -165,8 +170,9 @@
 - The run lifecycle runs the isolation self-check before attaching the model-gateway stream, so
   a run that fails it never reaches a model.
 - The judge's transcript shows an isolation self-check event by its findings, not its scripts.
-- A run whose summary cannot be written ends `failed`, with the reason in its error. Cancelled
-  queued runs and runs interrupted by a worker restart get summaries too.
+- A `done` run whose summary cannot be written ends `failed`; an `interrupted`, `failed`, or
+  `cancelled` one keeps its status (`Queue.summary_failed`). Either way the reason is added to its
+  error. Cancelled queued runs and runs interrupted by a worker restart get summaries too.
 - Event schema version 3: tool events from `web_request` carry `web`. Additive; version 2 events
   read unchanged.
 - An agent that finished gets another turn when a message arrives for it; the run ends when

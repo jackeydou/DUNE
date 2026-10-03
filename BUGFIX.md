@@ -13,6 +13,40 @@ the live tests in `tests/worker/test_probes_live.py` check stored events too.
 **Touches.** The marker halves rule in the same module (the `/proc` scan must not find its own
 command line). Anything else that passes one sandbox's identity into another must split it too.
 
+## 2026-10-02 — A summary failure after a rerun was queued marks the run `failed`
+
+**Symptom.** If a run's summary export failed after the run was finished `interrupted` (with its
+rerun queued) or `cancelled`, the run was then set `failed`, while its rerun stayed queued: a
+failed run that was rerun, against "failed runs are never rerun".
+**Root cause.** The worker recorded the summary failure with a second `finish(..., "failed")`,
+which overwrote any status.
+**Fix.** `Queue.summary_failed` turns only a `done` run `failed` and adds the reason to the
+error; other statuses stay. `swarmeval/control/queue.py`, `swarmeval/worker/worker.py`.
+**Guard.** `tests/worker/test_reruns.py::test_a_summary_that_cannot_be_written_keeps_an_interrupted_run_and_its_rerun`,
+`tests/control/test_queue.py::test_a_missing_summary_fails_only_a_done_run`.
+**Touches.** 2026-10-02 (worker stopped while recording): that path is still shielded by
+`_to_the_end`. `finish` now refuses finished runs (next entry), so the old second `finish` would
+have silently done nothing; don't go back to it.
+
+## 2026-10-02 — A stale worker process overwrites a run its restart interrupted
+
+**Symptom.** After a worker restarted with the same id and marked its old run `interrupted`
+(queuing a rerun), a process of the old worker that was still running finished the run late as
+`done`, overwriting `interrupted` while the rerun stayed queued.
+**Root cause.** `interrupt_owned` left `owner_epoch` unchanged, so the stale owner still passed
+the epoch check; and `finish` overwrote any status the epoch matched.
+**Fix.** `finish` changes a run only while it is `running`, `paused`, or `cancelled`;
+`interrupt_owned` increments `owner_epoch` for the runs it finishes, so the stale owner's next
+write raises `FencedError`. A serving worker also checks its id lock every 10 s and stops with
+`WorkerIdLost` once the connection holding it is gone. `swarmeval/control/queue.py`,
+`swarmeval/worker/worker.py`.
+**Guard.** `tests/control/test_queue.py::test_a_stale_owner_cannot_overwrite_a_run_its_restarted_worker_interrupted`,
+`test_finish_leaves_an_already_finished_run_alone`,
+`tests/worker/test_multi_worker.py::test_a_worker_that_loses_its_id_lock_stops_serving`.
+**Touches.** 2026-10-02 (cancelled while the worker was down): those runs are fenced the same
+way, and `finish` still keeps `cancelled`. M3's takeover must bump `owner_epoch` too. Up to 10 s
+after its lock connection drops a worker is still unguarded.
+
 ## 2026-10-02 — A sandboxd refusal ends a run `interrupted` and is rerun
 
 **Symptom.** A run sandboxd refused with `INVALID_ARGUMENT` (a bad user, seed file, environment

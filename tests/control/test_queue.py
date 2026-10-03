@@ -6,6 +6,8 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.control.queue import Queue, Recovered
+from swarmeval.events import FencedError, PostgresRunStore
+from swarmeval.runtime.records import AlertRecord, EventDraft, Transaction
 from tests.queueing import enqueue, start
 
 pytestmark = pytest.mark.docker
@@ -117,3 +119,71 @@ async def test_a_restarted_worker_finishes_only_its_own_runs(
     assert (await queue.get(theirs)).status == "running"
     assert await queue.interrupt_owned("w_restarted") == []
     await queue.finish(theirs, their_epoch, "done")
+
+
+async def test_a_stale_owner_cannot_overwrite_a_run_its_restarted_worker_interrupted(
+    engine: AsyncEngine, submission: str
+) -> None:
+    queue = Queue(engine)
+    (run,) = await enqueue(queue, submission, epochs=1)
+    w1 = f"w1_{submission}"
+    old_epoch = await start(engine, run, w1)
+    stale = PostgresRunStore(
+        engine, run_id=run, workspace="ws_test", owner_epoch=old_epoch, sandboxes={}
+    )
+
+    assert await queue.interrupt_owned(w1) == [
+        Recovered(run, "interrupted", f"c.{submission}.v0.e2")
+    ]
+    assert await queue.finish(run, old_epoch, "done") is None
+    assert await queue.summary_failed(run, old_epoch, "late") is None
+    with pytest.raises(FencedError, match=run):
+        alert = AlertRecord(message="late", severity="low")
+        await stale.commit(Transaction(events=[EventDraft(record=alert)]))
+
+    interrupted = await queue.get(run)
+    assert (interrupted.status, interrupted.error) == (
+        "interrupted",
+        "the worker that owned the run restarted",
+    )
+    assert interrupted.owner_epoch == old_epoch + 1
+
+
+async def test_finish_leaves_an_already_finished_run_alone(
+    engine: AsyncEngine, submission: str
+) -> None:
+    queue = Queue(engine)
+    run, other = await enqueue(queue, submission, epochs=2)
+    owner_epoch = await start(engine, run, "w1")
+    await queue.finish(run, owner_epoch, "failed", "backend 502")
+
+    assert await queue.finish(run, owner_epoch, "interrupted") is None
+
+    runs = {r.run_id: (r.status, r.error) for r in await queue.list_runs(submission_id=submission)}
+    assert runs == {run: ("failed", "backend 502"), other: ("queued", None)}
+
+
+async def test_a_missing_summary_fails_only_a_done_run(
+    engine: AsyncEngine, submission: str
+) -> None:
+    queue = Queue(engine)
+    done, interrupted, cancelled = await enqueue(queue, submission, epochs=3)
+    epochs = {r: await start(engine, r, "w1") for r in (done, interrupted, cancelled)}
+    await queue.cancel(cancelled)
+    await queue.finish(done, epochs[done], "done")
+    rerun = await queue.finish(interrupted, epochs[interrupted], "interrupted", "sandboxd down")
+    await queue.finish(cancelled, epochs[cancelled], "done")
+
+    statuses = [
+        await queue.summary_failed(r, epochs[r], "summary export failed: OSError: full")
+        for r in (done, interrupted, cancelled)
+    ]
+
+    assert statuses == ["failed", "interrupted", "cancelled"]
+    runs = {r.run_id: (r.status, r.error) for r in await queue.list_runs(submission_id=submission)}
+    assert runs == {
+        done: ("failed", "summary export failed: OSError: full"),
+        interrupted: ("interrupted", "sandboxd down; summary export failed: OSError: full"),
+        cancelled: ("cancelled", "summary export failed: OSError: full"),
+        rerun: ("queued", None),
+    }

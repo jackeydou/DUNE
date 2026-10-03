@@ -10,13 +10,20 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 
 import pytest
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.analysis import load_summaries, report
 from swarmeval.control.queue import FINISHED, Queue, RunRow
 from swarmeval.db import async_engine
 from swarmeval.events import ObjectStore
-from swarmeval.worker import Worker, WorkerDeps, WorkerIdInUse, hold_worker_id
+from swarmeval.worker import (
+    Worker,
+    WorkerDeps,
+    WorkerIdInUse,
+    WorkerIdLost,
+    hold_worker_id,
+)
 from swarmeval.worker import worker as worker_module
 from swarmeval.worker.run import Outcome
 from tests.queueing import enqueue, start
@@ -152,3 +159,29 @@ async def test_a_worker_stopped_while_recording_a_run_still_writes_its_summary(
         s["status"] for s in load_summaries(bare_deps.store).to_pylist() if s["run_id"] == run_id
     ]
     assert statuses == ["done"]
+
+
+async def test_a_worker_that_loses_its_id_lock_stops_serving(
+    engine: AsyncEngine, other_engine: AsyncEngine
+) -> None:
+    async def serve() -> None:
+        async with hold_worker_id(engine, "w_lost", check_s=0.05):
+            await asyncio.sleep(60)
+
+    serving = asyncio.create_task(serve())
+    holder = text(
+        "SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 1 "
+        "AND ((classid::bigint << 32) | objid::bigint) = hashtextextended(:name, 0)"
+    )
+    async with asyncio.timeout(10), other_engine.connect() as conn:
+        name = {"name": "swarmeval.worker:w_lost"}
+        while (pid := (await conn.execute(holder, name)).scalar()) is None:
+            await asyncio.sleep(0.02)
+        await conn.execute(select(func.pg_terminate_backend(pid)))
+
+    done, _ = await asyncio.wait({serving}, timeout=10)
+    assert done, "still serving after its id's lock was lost"
+    with pytest.raises(WorkerIdLost, match="`w_lost` lost the database connection"):
+        await serving
+    async with hold_worker_id(other_engine, "w_lost"):
+        pass
