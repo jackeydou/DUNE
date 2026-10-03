@@ -123,15 +123,16 @@ therefore a claimable row, not a push, and the control plane holds no state of i
 concurrency per submission and per model backend are conditions in the claim query *(proposed)*.
 
 Status values are `queued`, `running`, `paused`, `interrupted`, `done`, `failed`, and `cancelled`.
-A run ends `done` (finished, or stopped by a limit or an extension), `cancelled`, `failed` (the case
-no longer loads, an extension failed, a service gave an answer it would give again — model-gateway's
-backend refused or failed a call, `502`, model-gateway refused the request, any `4xx` such as an
-unknown model, or sandboxd refused the request, `INVALID_ARGUMENT` such as a bad user, hostname, or
-seed file — or a bug), or `interrupted` (sandboxd or model-gateway itself was unavailable, sandboxd
-forgot the run after a restart, `NOT_FOUND`, or the worker that owned the run restarted; M3 pauses
-or takes over instead). A finished run's status is final: `finish` changes a run only while it is
-`running`, `paused`, or `cancelled` (a cancel lands before its owner finishes the run). Leases are
-not taken yet (M3).
+A run ends `done` (finished, or stopped by a limit or an extension), `cancelled`, `failed` (the
+case no longer loads, an extension failed, the [isolation self-check](#isolation-self-check)
+failed, a service gave an answer it would give again — model-gateway's backend refused or failed
+a call, `502`, model-gateway refused the request, any `4xx` such as an unknown model, or sandboxd
+refused the request, `INVALID_ARGUMENT` such as a bad user, hostname, or seed file — or a bug), or
+`interrupted` (sandboxd or model-gateway itself was unavailable, sandboxd forgot the run after a
+restart, `NOT_FOUND`, or the worker that owned the run restarted; M3 pauses or takes over
+instead). A finished run's status is final: `finish` changes a run only while it is `running`,
+`paused`, or `cancelled` (a cancel lands before its owner finishes the run). Leases are not taken
+yet (M3).
 
 ### Reruns
 
@@ -431,11 +432,17 @@ the script prints: the hostname is the peer's [sandbox canary](#sandbox-canaries
 appear in another sandbox's `/proc` or in its `isolation_probe` events.
 
 If any probe gets through, the worker commits a `failed` lifecycle event and the run ends
-`failed`, with an error naming each sandbox pair (or `network`), the probe, and what it saw. With
-`--sandbox-network per-sandbox` every sandbox has an interface besides `lo`, so `interfaces`
-fails every run until the network capability defines what its self-check expects. Not probed:
-`web_request`'s address check, which its tests cover; side channels such as CPU contention and
-timing, which the runtime spec (decision 6) says to record as run metadata, not built.
+`failed`, with an error naming each sandbox pair (or `network`), the probe, and what it saw. A
+leak between sandboxes the case never declared is a fault of the worker's host, not an outcome of
+the case, and every run the worker claimed would fail the same way. So the worker then claims no
+more runs, lets the runs it is already executing finish, and `serve` exits with `WorkerHalted`,
+naming the run and the probes that got through (`swarmeval-worker` exits non-zero with it). The
+runs it did not claim stay queued for a healthy worker. Fix the host, then restart the worker.
+With `--sandbox-network per-sandbox` every sandbox has an interface besides `lo`, so `interfaces`
+fails the first run and stops the worker, until the network capability defines what its
+self-check expects. Not probed: `web_request`'s address check, which its tests cover; side
+channels such as CPU contention and timing, which the runtime spec (decision 6) says to record as
+run metadata, not built.
 
 ## Leases, fencing, and takeover
 

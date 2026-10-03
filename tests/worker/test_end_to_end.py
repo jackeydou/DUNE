@@ -306,7 +306,7 @@ async def test_sandboxes_that_are_not_isolated_fail_the_run_before_any_agent_tur
     (run_id,) = submitted.run_ids
     outcomes = await platform.worker.drain()
 
-    assert outcomes[run_id].status == "failed"
+    assert (outcomes[run_id].status, outcomes[run_id].host_fault) == ("failed", True)
     run = (await platform.control.GetRun(pb.GetRunRequest(run_id=run_id))).run
     assert run.status == "failed"
     assert "isolation self-check failed before any agent turn" in run.error

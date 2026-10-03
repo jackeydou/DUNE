@@ -20,6 +20,7 @@ from swarmeval.events import ObjectStore
 from swarmeval.worker import (
     Worker,
     WorkerDeps,
+    WorkerHalted,
     WorkerIdInUse,
     WorkerIdLost,
     hold_worker_id,
@@ -185,3 +186,38 @@ async def test_a_worker_that_loses_its_id_lock_stops_serving(
         await serving
     async with hold_worker_id(other_engine, "w_lost"):
         pass
+
+
+async def test_a_run_that_finds_the_host_unisolated_stops_the_worker_claiming(
+    bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broken, in_flight, *untouched = await enqueue(bare_deps.queue, submission, epochs=4)
+    executed: list[str] = []
+    leak = (
+        "the isolation self-check failed before any agent turn: sandbox `a` and sandbox `b`: "
+        "proc got through (pid 7 carries its marker)."
+    )
+
+    started = asyncio.Event()
+
+    async def fake_execute(run: RunRow, deps: WorkerDeps) -> Outcome:
+        executed.append(run.run_id)
+        if run.run_id == broken:
+            await started.wait()
+            return Outcome("failed", leak, host_fault=True)
+        started.set()
+        await asyncio.sleep(0.3)
+        return Outcome("done")
+
+    monkeypatch.setattr(worker_module, "execute", fake_execute)
+    worker = Worker(bare_deps, owner_id="w_unisolated", max_runs=2)
+
+    with pytest.raises(WorkerHalted) as info:
+        await asyncio.wait_for(worker.serve(poll_s=0.02), 30)
+
+    message = str(info.value)
+    assert f"run `{broken}`" in message
+    assert "sandbox `a` and sandbox `b`: proc got through" in message
+    assert executed == [broken, in_flight]
+    runs = {r.run_id: r.status for r in await bare_deps.queue.list_runs(submission_id=submission)}
+    assert runs == {broken: "failed", in_flight: "done", **dict.fromkeys(untouched, "queued")}

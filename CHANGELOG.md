@@ -149,6 +149,9 @@
   fields.
 
 ### Changed
+- A worker whose run fails the isolation self-check claims no more runs, lets its other runs
+  finish, and `serve` raises `WorkerHalted` naming the run and the probes; `swarmeval-worker`
+  exits with it. `Outcome.host_fault` marks such a run.
 - A serving worker checks every 10 s that it still holds its worker id's lock, and stops with
   `WorkerIdLost` if the connection holding it dropped.
 - sandboxd `INVALID_ARGUMENT` answers end a run `failed`, not `interrupted`, since the same
