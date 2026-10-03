@@ -77,6 +77,16 @@ message CreateSandboxRequest {
   // Unix users to add before the sandbox starts, each with a home directory under /home. A
   // name the image already has is left as it is. Names match [a-z_][a-z0-9_-]{0,31}.
   repeated string users = 7;
+  // Environment variables of every process in the sandbox, exec'd commands included. They
+  // override the image's. Names match [A-Za-z_][A-Za-z0-9_]{0,127}; values hold no NUL.
+  map<string, string> env = 8;
+  // The sandbox's hostname. Empty leaves the backend's default. At most 63 characters of
+  // [a-z0-9-], neither first nor last a `-`.
+  string hostname = 9;
+  // Written to /etc/machine-id before the sandbox starts, outside every key path, so it is never
+  // diffed. Empty writes nothing. 32 lowercase hex characters, the file's format. The image
+  // must have /etc.
+  string machine_id = 10;
 }
 
 message SeedFile {

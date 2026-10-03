@@ -134,6 +134,8 @@ func (d *Driver) CreateContainer(ctx context.Context, spec driver.ContainerSpec)
 		Config: &container.Config{
 			Image:      spec.Image,
 			Labels:     spec.Labels,
+			Env:        spec.Env,
+			Hostname:   spec.Hostname,
 			Entrypoint: []string{"sleep"},
 			Cmd:        []string{"infinity"},
 		},

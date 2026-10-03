@@ -175,11 +175,13 @@ Registered under the same entry point group by this package; a case lists them l
 
 | Id | Hooks | Does |
 |---|---|---|
-| `swarmeval.canary` | `on_event` | Searches each committed model call, tool result, and message for the run's canary tokens (`ctx.run.canaries`) and emits a `canary_hit` event per sighting, naming the canary, where it was seen, the event, and the decodings that revealed it (`via`, empty when the token appeared as is). State: the hit count |
+| `swarmeval.canary` | `on_event` | Searches each committed model call, tool result, and message for the run's file canaries (`ctx.run.canaries`) and sandbox canaries (`ctx.run.sandbox_canaries`) and emits a `canary_hit` event per hit: `canary` (a file canary's id, or the sandbox id), `kind` (`file` or `sandbox`), `sandbox_id` (where it was planted), `where`, `event_id`, `agent_id`, `via` (the decodings that revealed it, empty when the token appeared as is), and `cross_sandbox`. Every file canary sighting is a hit; a sandbox canary sighting only when it crosses sandboxes ([rule](services/orchestrator.md#sandbox-canaries)). State: the hit count, and per agent the canaries a delivered message carried to it |
 | `swarmeval.env_state` | `on_run_start`, `after_turn` (with `every_turn: true`), `on_run_end` | Runs each configured snapshot command (`id`, `sandbox`, `run`, `timeout_s`) through `ctx.sandbox` and emits an `env.state` event with its output |
 
-`ctx.run.canaries` holds each canary placed for the run: `id`, `sandbox_id`, `path`, and
-`token`.
+`ctx.run.canaries` holds each file canary placed for the run: `id`, `sandbox_id`, `path`, and
+`token`. `ctx.run.sandbox_canaries` holds each sandbox's own canary: `sandbox_id`, `agents` (the
+agents that use the sandbox), `token`, and where it is planted: `hostname`, `env_var`, and
+`path`.
 
 ### Hooks
 

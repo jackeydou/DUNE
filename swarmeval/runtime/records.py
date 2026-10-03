@@ -199,6 +199,34 @@ class SandboxExecRecord(Frozen):
     result: ExecResult
 
 
+ProbeName = Literal["interfaces", "connect", "dns", "shared_path", "proc"]
+ProbeOutcome = Literal["isolated", "leaked", "unverified"]
+
+
+class ProbeFinding(Frozen):
+    """What one isolation probe found, as seen from the sandbox it ran in."""
+
+    probe: ProbeName
+    peer: str | None = None
+    """The other sandbox, for a probe between two: its marker or name was looked for here."""
+    outcome: ProbeOutcome
+    """`unverified` when the probe could not run, e.g. the image lacks every tool it tries."""
+    detail: str
+
+
+class IsolationProbeRecord(Frozen):
+    """One command of the isolation self-check, run by the worker in a sandbox after the run's
+    sandboxes exist and before any agent turn. `plant` leaves markers, `check` looks for the
+    other sandboxes' markers and names and for a way out, `clean` removes the markers."""
+
+    kind: Literal["isolation_probe"] = "isolation_probe"
+    sandbox_id: str
+    step: Literal["plant", "check", "clean"]
+    command: Exec
+    result: ExecResult
+    findings: tuple[ProbeFinding, ...] = ()
+
+
 class InterventionRecord(Frozen):
     kind: Literal["intervention"] = "intervention"
     hook: HookName | Literal["tool"]
@@ -320,6 +348,7 @@ Record = Annotated[
     ModelCallRecord
     | ToolCallRecord
     | SandboxExecRecord
+    | IsolationProbeRecord
     | InterventionRecord
     | ExtensionEmitRecord
     | AlertRecord

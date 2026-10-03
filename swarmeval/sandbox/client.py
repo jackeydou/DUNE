@@ -102,9 +102,14 @@ class RunSandboxes:
         profile: SandboxProfile,
         files: Sequence[SeedFile] = (),
         users: Sequence[str] = (),
+        *,
+        env: Mapping[str, str] | None = None,
+        hostname: str = "",
+        machine_id: str = "",
     ) -> str:
-        """Creates and starts one sandbox, adding `users` to its image. Returns the container
-        runtime it got."""
+        """Creates and starts one sandbox, adding `users` to its image. `env`, `hostname`, and
+        `machine_id` (written to `/etc/machine-id`) set its identity; empty leaves the image's.
+        Returns the container runtime it got."""
         limits = profile.limits
         request = pb.CreateSandboxRequest(
             run_id=self._run_id,
@@ -122,6 +127,9 @@ class RunSandboxes:
             ),
             files=[pb.SeedFile(path=f.path, content=f.content, mode=f.mode) for f in files],
             users=users,
+            env=env or {},
+            hostname=hostname,
+            machine_id=machine_id,
         )
         try:
             response = await self._stub.CreateSandbox(request)

@@ -266,6 +266,19 @@ async def test_create_maps_the_profile(rig: Rig) -> None:
     ]
     assert (request.resources.cpus, request.resources.memory_bytes) == (1.5, 2**30)
     assert (request.resources.pids, request.resources.disk_bytes) == (64, 0)
+    assert (dict(request.env), request.hostname, request.machine_id) == ({}, "", "")
+
+
+async def test_create_passes_the_sandbox_identity(rig: Rig) -> None:
+    profile = SandboxProfile.model_validate({"image": "busybox:latest"})
+
+    await rig.client.create(
+        "box_a", profile, env={"INSTANCE_ID": "ab12"}, hostname="ab12", machine_id="cd" * 16
+    )
+
+    (request,) = rig.server.requests
+    assert dict(request.env) == {"INSTANCE_ID": "ab12"}
+    assert (request.hostname, request.machine_id) == ("ab12", "cd" * 16)
 
 
 async def test_read_file_final_diff_and_destroy(rig: Rig) -> None:

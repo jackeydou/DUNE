@@ -19,6 +19,7 @@ from swarmeval.runtime.extensions.api import (
     Inject,
     Rewrite,
     RunInfo,
+    SandboxCanaryInfo,
     Skip,
     Stop,
 )
@@ -100,6 +101,7 @@ class RunSpec:
     limits: Limits = Limits()
     channels: tuple[ChannelSpec, ...] = ()
     canaries: tuple[CanaryInfo, ...] = ()
+    sandbox_canaries: tuple[SandboxCanaryInfo, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -204,6 +206,7 @@ class RunLoop:
                 run_id=self._spec.run_id,
                 agent_ids=tuple(self._agents),
                 canaries=self._spec.canaries,
+                sandbox_canaries=self._spec.sandbox_canaries,
             ),
             agents={a.spec.id: a.info for a in self._agents.values()},
             seed=self._spec.seed,

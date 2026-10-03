@@ -45,6 +45,9 @@ def describe(payload: dict[str, JsonValue]) -> str:
         case "tool":
             args = json.dumps(payload.get("arguments"), ensure_ascii=False)
             return f"tool {payload.get('function')}({args}) -> {payload.get('result')}"
+        case "sandbox" if (probe := _probe(payload)) is not None:
+            findings = json.dumps(probe.get("findings", []), ensure_ascii=False)
+            return f"isolation self-check, {probe.get('step')} step: findings {findings}"
         case "sandbox":
             return f"sandbox exec by an extension: {payload.get('cmd')} -> {payload.get('output')}"
         case "score":
@@ -60,6 +63,15 @@ def describe(payload: dict[str, JsonValue]) -> str:
             return f"{payload.get('source')}: {data}"
         case kind:
             return f"{kind}: {json.dumps(payload, ensure_ascii=False)}"
+
+
+def _probe(payload: dict[str, JsonValue]) -> dict[str, JsonValue] | None:
+    """An `isolation_probe` event's `probe`, without its scripts, which are the platform's and
+    long: a reader needs only what the probes found."""
+    metadata = payload.get("metadata")
+    swarmeval = metadata.get("swarmeval") if isinstance(metadata, dict) else None
+    probe = swarmeval.get("probe") if isinstance(swarmeval, dict) else None
+    return probe if isinstance(probe, dict) else None
 
 
 def _model_output(payload: dict[str, JsonValue]) -> str:

@@ -38,7 +38,7 @@ authentication, so only the internal network may reach it.
 
 | RPC | Does | State |
 |---|---|---|
-| `CreateSandbox` | Creates one sandbox from a profile's image, key paths, limits, seed files, and users, labels it, and takes the initial manifest | Built |
+| `CreateSandbox` | Creates one sandbox from a profile's image, key paths, limits, seed files, users, and identity (environment, hostname, machine id), labels it, and takes the initial manifest | Built |
 | `Exec` | Runs one tool call and streams back its result, file changes, and surviving processes | Built |
 | `ReadFile` | Reads a file for final-state scorers, through the engine's copy API, so nothing runs in the sandbox | Built |
 | `FinalDiff` | Diffs every sandbox one last time at run end, catching background writes | Built |
@@ -87,7 +87,19 @@ from inside the sandbox (see [below](#exec-diff-and-process-snapshot)). The dock
 - **Seed files.** `CreateSandbox` writes its `files` (path, content, mode) after the image content
   and before the first manifest, so they are part of the baseline. Each path must be absolute,
   clean, and strictly inside a key path; together they hold at most 1 MiB. The worker uses them
-  for canaries.
+  for case files and file canaries.
+- **Identity.** `CreateSandbox` takes `env`, `hostname`, and `machine_id`; each left empty keeps
+  the image's or docker's default. `env` is set on the container, so every process gets it,
+  exec'd commands included, over the image's own variables; names match
+  `[A-Za-z_][A-Za-z0-9_]{0,127}` and values hold no NUL. `hostname` is at most 63 characters of
+  `[a-z0-9-]`, neither first nor last a `-`; docker also sets `HOSTNAME` from it.
+  `machine_id` is 32 lowercase hex characters, written to `/etc/machine-id` (mode `0444`) before
+  the container starts, like added users, so gVisor sees it; the image must have `/etc`. The
+  file is outside the key paths, so it is never diffed, and a key path at `/etc` or
+  `/etc/machine-id`, which would hide it, is refused. The worker sets all three to the sandbox's
+  canary ([orchestrator.md](orchestrator.md#sandbox-canaries)). sandboxd knows nothing of
+  canaries; the machine id is a field of its own rather than a general file outside the key
+  paths, so the worker can write nothing else there *(proposed)*.
 - **Initial content.** A bind mount hides what the image has at that path, so `CreateSandbox`
   first copies the image's content at each top-level key path into its host directory, the way
   docker fills a new named volume. A nested key path (`/workspace/tests` under `/workspace`) lives
@@ -115,10 +127,14 @@ from inside the sandbox (see [below](#exec-diff-and-process-snapshot)). The dock
 connection out fails at once with `Network is unreachable`, and docker's embedded DNS is absent
 under runc as well. `CreateRun` creates no networks and no `resolv.conf` is mounted. The only
 egress is the worker's `web_request` ([orchestrator.md](orchestrator.md#web_request)). Why:
-[trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 2. Guard:
-`TestLiveSandboxHasOnlyLoopbackAndReachesNothing`.
+[trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 2. Guards:
+`TestLiveSandboxHasOnlyLoopbackAndReachesNothing`, and `TestLiveProbesFailBetweenTwoSandboxes`
+for two sandboxes of one run, which cannot see each other's files, `/dev/shm`, processes, or
+names. Every run checks the same at start with the worker's
+[isolation self-check](orchestrator.md#isolation-self-check).
 
-**`per-sandbox`, for the network capability.** Nothing holds the gateway address until
+**`per-sandbox`, for the network capability.** The worker's isolation self-check fails every run
+here, since each sandbox has an interface besides `lo`. Nothing holds the gateway address until
 net-gateway exists, so a sandbox reaches nothing here either, but every attempt waits for a
 timeout. One network per sandbox, created by `CreateRun`, whose only other member is net-gateway
 at the
@@ -217,3 +233,5 @@ it is not built in M0–M5.
 4. Size caps. Today's defaults: 64 KiB of stdout and stderr inline, 16 MiB kept per stream, file
    contents sent back up to 1 MiB each and 64 MiB per call. They are constants in
    `sandboxd.DefaultConfig`, not flags yet.
+5. `machine_id` as a field of `CreateSandbox` of its own, for the sandbox canary's file, rather
+   than seed files allowed outside the key paths.

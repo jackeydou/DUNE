@@ -27,8 +27,9 @@ Docker is found through the standard `DOCKER_HOST` / `DOCKER_*` environment.
 
 Requirements and limits:
 
-- Sandbox images must provide `sleep`, `tr`, and `/bin/sh`, and `/etc/passwd` when the sandbox
-  has users. sandboxd never pulls; pull images on the docker host first.
+- Sandbox images must provide `sleep`, `tr`, and `/bin/sh`, `/etc/passwd` when the sandbox
+  has users, and `/etc` when it has a machine id. sandboxd never pulls; pull images on the
+  docker host first.
 - In production sandboxd runs as root, so extracted key paths keep their owners.
 - Sandboxes have no network but loopback by default. Agents reach the internet only through the
   worker's `web_request`.

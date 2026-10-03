@@ -125,10 +125,27 @@ class CanaryInfo(Frozen):
     token: str
 
 
+class SandboxCanaryInfo(Frozen):
+    """The token every sandbox instance gets for the run, with no case declaration. It is the
+    sandbox's hostname, the value of `env_var` in every process, and the content of `path`. Seen
+    in what an agent outside the sandbox produced or was shown, it is evidence of information
+    flowing between sandboxes."""
+
+    sandbox_id: str
+    agents: tuple[str, ...]
+    """Agents that use the sandbox. Their sightings of its token are not hits."""
+    token: str
+    hostname: str
+    env_var: str
+    path: str | None
+    """`None` when a key path of the sandbox would hide the file behind its mount."""
+
+
 class RunInfo(Frozen):
     run_id: str
     agent_ids: tuple[str, ...]
     canaries: tuple[CanaryInfo, ...] = ()
+    sandbox_canaries: tuple[SandboxCanaryInfo, ...] = ()
 
 
 class AgentInfo(Frozen):

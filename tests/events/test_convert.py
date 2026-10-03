@@ -19,8 +19,10 @@ from swarmeval.runtime.records import (
     Exec,
     ExecResult,
     FsChange,
+    IsolationProbeRecord,
     LimitRecord,
     ModelCallRecord,
+    ProbeFinding,
     Record,
     SandboxExecRecord,
     ToolCallRecord,
@@ -159,7 +161,7 @@ def test_a_web_request_carries_its_exchange_without_the_shown_body() -> None:
         "cd" * 32,
     )
     assert "body" not in web
-    assert event.metadata["swarmeval"]["schema_version"] == SCHEMA_VERSION == 3
+    assert event.metadata["swarmeval"]["schema_version"] == SCHEMA_VERSION
 
 
 def test_a_timed_out_tool_call_has_a_timeout_error() -> None:
@@ -190,6 +192,31 @@ def test_an_extension_exec_is_a_sandbox_event() -> None:
     assert (event.action, event.cmd, event.result, event.output) == ("exec", "cat 'a b'", 0, "hi")
     assert event.metadata is not None
     assert event.metadata["swarmeval"]["source"] == "sandboxd"
+
+
+def test_an_isolation_probe_is_a_sandbox_event_with_its_findings() -> None:
+    finding = ProbeFinding(probe="proc", peer="box_b", outcome="isolated", detail="none")
+    record = IsolationProbeRecord(
+        sandbox_id="box_a",
+        step="check",
+        command=Exec(argv=("sh", "-c", "probe_proc box_b")),
+        result=ExecResult(exit_code=0, stdout="R proc box_b isolated none\n", stderr=""),
+        findings=(finding,),
+    )
+
+    event = roundtrip(record)
+
+    assert isinstance(event, SandboxEvent)
+    assert (event.action, event.result) == ("exec", 0)
+    assert event.metadata is not None
+    meta = event.metadata["swarmeval"]
+    assert (meta["source"], meta["schema_version"]) == ("sandboxd", SCHEMA_VERSION)
+    assert SCHEMA_VERSION == 4
+    assert meta["probe"] == {
+        "step": "check",
+        "findings": [{"probe": "proc", "peer": "box_b", "outcome": "isolated", "detail": "none"}],
+    }
+    assert meta["exec"]["exit_code"] == 0
 
 
 def test_a_limit_is_a_sample_limit_event() -> None:

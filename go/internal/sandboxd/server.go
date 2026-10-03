@@ -63,8 +63,11 @@ func (s *Server) CreateSandbox(ctx context.Context, req *sandboxv1.CreateSandbox
 			Pids:        res.GetPids(),
 			DiskBytes:   res.GetDiskBytes(),
 		},
-		Files: files,
-		Users: req.GetUsers(),
+		Files:     files,
+		Users:     req.GetUsers(),
+		Env:       req.GetEnv(),
+		Hostname:  req.GetHostname(),
+		MachineID: req.GetMachineId(),
 	})
 	if err != nil {
 		return nil, s.status("CreateSandbox", err)

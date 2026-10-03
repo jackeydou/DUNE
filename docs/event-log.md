@@ -27,6 +27,7 @@ defines a second event structure. It extends Inspect in two ways only:
 | `llm.request` / `llm.response` | `ModelEvent`. The gateway's record goes in `metadata.swarmeval.gateway`: request hash, backend raw response, `reasoning_passback`, sampling actually sent, weight hash, latency, attempts |
 | `tool.call` / `tool.result` | `ToolEvent`. The file changes and surviving processes sandboxd saw go in `metadata.swarmeval.exec`; a `web_request`'s exchange goes in `metadata.swarmeval.web` (schema version 3) |
 | A command an extension ran through `ctx.sandbox` | `SandboxEvent` |
+| `isolation_probe`: a command of the [isolation self-check](services/orchestrator.md#isolation-self-check) | `SandboxEvent`, with `metadata.swarmeval.probe` holding `step` (`plant`, `check`, `clean`) and, for `check`, `findings` (`probe`, `peer`, `outcome`, `detail`) beside `exec` (schema version 4). `sandbox_id` is the sandbox it ran in |
 | Interrupted tool call | `InterruptEvent` |
 | Recovery point, pause | `CheckpointEvent` |
 | Budget or limit hit | `SampleLimitEvent` |
@@ -149,7 +150,7 @@ explain an equal message in any agent's context; and content that merely looks l
 or result inside a recorded result is not a mismatch, since the event recorded it so. Rule scans
 and the judge look at content.
 
-No `schema_version` bump: the event is a new `InfoEvent` source, and older runs simply lack it.
+Added in schema version 4 (with `isolation_probe`); older runs simply lack it.
 
 ## Hash chain
 

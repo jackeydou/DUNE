@@ -28,9 +28,14 @@ from swarmeval.gateway.model.client import (
     GatewaySession,
     ModelGatewayError,
 )
-from swarmeval.honeypot import PlacedCanary, place
+from swarmeval.honeypot import PlacedCanary, place, place_sandboxes
 from swarmeval.runtime import RunConfigError, RunLoop, RunSpec
-from swarmeval.runtime.extensions import ExtensionError, ExtensionLoadError, load_extensions
+from swarmeval.runtime.extensions import (
+    ExtensionError,
+    ExtensionLoadError,
+    SandboxCanaryInfo,
+    load_extensions,
+)
 from swarmeval.runtime.loop import initial_context
 from swarmeval.runtime.ports import AgentCaller, Caller, ExtensionCaller
 from swarmeval.runtime.records import CommittedEvent, EventDraft, Transaction
@@ -39,6 +44,7 @@ from swarmeval.runtime.writer import RunWriter
 from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError, SeedFile
 from swarmeval.scorers import FinalStateScoring
 from swarmeval.web import HttpWebClient
+from swarmeval.worker.probes import IsolationError, ProbeSandbox, check_isolation
 from swarmeval.worker.transcript import check_transcript
 
 log = logging.getLogger(__name__)
@@ -111,9 +117,15 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
     except (CaseError, ExtensionLoadError) as err:
         return Outcome("failed", f"the case no longer loads: {err}")
     canaries = place(variant.env.canaries)
+    profiles = variant.env.sandbox_profiles
+    sandbox_canaries = place_sandboxes(
+        {p.id: p.agents for p in variant.sandboxes.values()},
+        {p.id: [m.path for m in profiles[p.profile].fs] for p in variant.sandboxes.values()},
+    )
     spec = replace(
         run_spec(variant, run_id=run.run_id, seed=run.epoch),
         canaries=tuple(c.info for c in canaries),
+        sandbox_canaries=sandbox_canaries,
     )
     store = PostgresRunStore(
         deps.engine,
@@ -132,7 +144,8 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
     try:
         async with contextlib.AsyncExitStack() as stack:
             stack.push_async_callback(sandboxes.destroy)
-            await _create_sandboxes(run, variant, canaries, sandboxes, deps.queue)
+            await _create_sandboxes(run, variant, canaries, sandbox_canaries, sandboxes, deps.queue)
+            await check_isolation(probe_targets(variant, sandbox_canaries), sandboxes, writer)
             gateway = await stack.enter_async_context(
                 GatewaySession(
                     http=deps.gateway_http,
@@ -166,12 +179,13 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     scorers=variant.case.scorers,
                     scripts=variant.scripts,
                     canaries=spec.canaries,
+                    sandbox_canaries=sandbox_canaries,
                     agent_sandboxes={a.id: variant.sandbox_of(a.id).id for a in spec.agents},
                     sandboxes=sandboxes,
                     writer=writer,
                 ).run(committed)
             await _check_transcript(deps.engine, spec, loop, writer)
-    except (ExtensionError, RunConfigError) as err:
+    except (ExtensionError, RunConfigError, IsolationError) as err:
         return Outcome("failed", str(err))
     except (SandboxdError, ModelGatewayError) as err:
         outcome = service_failure(err)
@@ -206,10 +220,12 @@ async def _create_sandboxes(
     run: RunRow,
     variant: Variant,
     canaries: Sequence[PlacedCanary],
+    sandbox_canaries: Sequence[SandboxCanaryInfo],
     sandboxes: RunSandboxes,
     queue: Queue,
 ) -> None:
     await sandboxes.create_run(list(variant.sandboxes))
+    identity = {c.sandbox_id: c for c in sandbox_canaries}
     runtimes: list[str] = []
     for plan in variant.sandboxes.values():
         seeds = [
@@ -228,8 +244,37 @@ async def _create_sandboxes(
                 if a.os_user is not None and variant.sandbox_of(a.id).id == plan.id
             }
         )
-        runtimes.append(await sandboxes.create(plan.id, profile, seeds, users))
+        canary = identity[plan.id]
+        runtime = await sandboxes.create(
+            plan.id,
+            profile,
+            seeds,
+            users,
+            env={canary.env_var: canary.token},
+            hostname=canary.hostname,
+            machine_id=canary.token if canary.path is not None else "",
+        )
+        runtimes.append(runtime)
     await queue.set_isolation(run.run_id, run.owner_epoch, _isolation(runtimes))
+
+
+def probe_targets(
+    variant: Variant, sandbox_canaries: Sequence[SandboxCanaryInfo]
+) -> list[ProbeSandbox]:
+    """What the isolation self-check needs of each sandbox, from the case's topology."""
+    hostnames = {c.sandbox_id: c.hostname for c in sandbox_canaries}
+    targets: list[ProbeSandbox] = []
+    for plan in variant.sandboxes.values():
+        mounts = variant.env.sandbox_profiles[plan.profile].fs
+        targets.append(
+            ProbeSandbox(
+                sandbox_id=plan.id,
+                names=(hostnames[plan.id], plan.id),
+                key_paths=tuple(m.path for m in mounts),
+                plant_dirs=tuple(m.path for m in mounts if m.mode == "rw" and not m.protected),
+            )
+        )
+    return targets
 
 
 def _header(run: RunRow, variant: Variant) -> RunHeader:

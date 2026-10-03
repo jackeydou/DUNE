@@ -46,6 +46,10 @@ type ContainerSpec struct {
 	Binds     []Bind
 	Resources Resources
 	Labels    map[string]string
+	// Env is NAME=value for every process in the container, exec'd commands included.
+	Env []string
+	// Hostname is the container's hostname. Empty leaves the backend's default.
+	Hostname string
 	// Network is the name of the network the container joins. Empty means no network at all.
 	Network string
 	// DNS is the only upstream of docker's embedded resolver, which listens inside every

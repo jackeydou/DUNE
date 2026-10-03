@@ -14,6 +14,7 @@ from swarmeval.runtime.extensions import (
     CanaryInfo,
     Extension,
     ExtensionUse,
+    SandboxCanaryInfo,
     load_extensions,
 )
 from swarmeval.runtime.loop import AgentSpec, Limits, RunLoop, RunSpec
@@ -259,6 +260,7 @@ def harness(
     seed: int = 7,
     channels: tuple[ChannelSpec, ...] = (),
     canaries: tuple[CanaryInfo, ...] = (),
+    sandbox_canaries: tuple[SandboxCanaryInfo, ...] = (),
     web: FakeWeb | None = None,
 ) -> Harness:
     store = store or FakeStore()
@@ -279,6 +281,7 @@ def harness(
             limits=limits,
             channels=channels,
             canaries=canaries,
+            sandbox_canaries=sandbox_canaries,
         ),
         writer=writer,
         model_client=model,

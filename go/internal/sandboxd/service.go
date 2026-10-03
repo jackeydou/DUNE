@@ -137,6 +137,10 @@ type CreateRequest struct {
 	Files     []SeedFile
 	// Users are added to the image before the sandbox starts.
 	Users []string
+	// Env, Hostname, and MachineID are the sandbox's identity; see identity.go.
+	Env       map[string]string
+	Hostname  string
+	MachineID string
 }
 
 // SeedFile is written into a key path before the first manifest.
@@ -163,6 +167,9 @@ func (s *Service) CreateSandbox(ctx context.Context, req CreateRequest) (string,
 		return "", fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
 	}
 	if err := checkUsers(req.Users); err != nil {
+		return "", fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
+	}
+	if err := checkIdentity(req, mounts); err != nil {
 		return "", fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
 	}
 	net, err := s.network(req.RunID, req.SandboxID)
@@ -245,9 +252,11 @@ func (s *Service) create(ctx context.Context, req CreateRequest, sb *sandbox, ru
 		Binds:     binds,
 		Resources: req.Resources,
 		Labels:    labels,
+		Env:       envList(req.Env),
+		Hostname:  req.Hostname,
 		Network:   net.name,
 		DNS:       net.gateway,
-		Files:     files,
+		Files:     append(files, machineIDFile(req.MachineID)...),
 	})
 	if err != nil {
 		return fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
