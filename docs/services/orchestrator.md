@@ -123,12 +123,13 @@ therefore a claimable row, not a push, and the control plane holds no state of i
 concurrency per submission and per model backend are conditions in the claim query *(proposed)*.
 
 Status values are `queued`, `running`, `paused`, `interrupted`, `done`, `failed`, and `cancelled`.
-A run ends `done` (finished, or stopped by a limit or an extension), `cancelled`, `failed` (the
-case no longer loads, an extension failed, model-gateway gave an answer it would give again — the
-backend refused or failed a call, `502`, or the request was refused, any `4xx` such as an unknown
-model — or a bug), or `interrupted` (sandboxd or model-gateway itself was unavailable, or the
-worker that owned the run restarted; M3 pauses or takes over instead). Leases are not taken yet
-(M3).
+A run ends `done` (finished, or stopped by a limit or an extension), `cancelled`, `failed` (the case
+no longer loads, an extension failed, a service gave an answer it would give again — model-gateway's
+backend refused or failed a call, `502`, model-gateway refused the request, any `4xx` such as an
+unknown model, or sandboxd refused the request, `INVALID_ARGUMENT` such as a bad user, hostname, or
+seed file — or a bug), or `interrupted` (sandboxd or model-gateway itself was unavailable, sandboxd
+forgot the run after a restart, `NOT_FOUND`, or the worker that owned the run restarted; M3 pauses
+or takes over instead). Leases are not taken yet (M3).
 
 ### Reruns
 
