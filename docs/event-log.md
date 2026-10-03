@@ -32,7 +32,7 @@ defines a second event structure. It extends Inspect in two ways only:
 | Budget or limit hit | `SampleLimitEvent` |
 | Score | `ScoreEvent` / `Score`, with `Score.metadata.swarmeval` holding `meaning`, `direction` (`1 = triggered`), and `event_ids` |
 | `msg.send` / `msg.deliver`, `net.*`, `env.state`, `monitor.*`, `run.lifecycle` | `InfoEvent(source="swarmeval.<type>")` |
-| Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert`, `final_diff` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record |
+| Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert`, `final_diff`, `transcript_check` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record |
 
 One record is one event. The conversion is `swarmeval.events.convert.to_event`.
 
@@ -118,7 +118,36 @@ gateway received it; the worker checks it against the body it sent. A model call
 built from an agent's context (an extension's own call) has `gen: null`, and its input is not
 stored yet *(open)*. Writing the full context on every call would make
 storage grow with the square of the step count. If the gateway's request hash disagrees with the
-expanded input, that is a spoofing signal *(open, runtime spec Q1)*.
+expanded input, that is a spoofing signal; the [transcript check](#transcript-check) looks for it
+at run end.
+
+## Transcript check
+
+At run end, after the final-state scorers and before export, the worker compares what each agent
+saw with what the sources recorded (v1 spec §6; agent loop spec decision 2). It reads the run's
+rows, not its memory (`swarmeval.events.transcript.load_transcript`), compares them
+(`swarmeval.worker.transcript.check_transcript`), and commits the outcome as the run's last
+event, `InfoEvent(source="swarmeval.transcript_check")`, so both exports carry it. Compared:
+
+| Check | What must hold | Mismatch names |
+|---|---|---|
+| `context` | Walking each agent's generations in `idx` order: generation 0 starts with the case's system prompt and task; a later generation starts with the `after` of a `compact_context` intervention. After that, an assistant message at index *i* of generation *g* is the response of the agent's model call built from `(g, i)`; the tool messages after it are the results of that call's `ToolEvent`s (`parent_id`), in `seq` order, with the call's id; a user message is a `msg.deliver` to this agent (as the bus words it), an injection into it (`ctx.actions.inject`), or a `before_turn` `Inject`. Where an `after_model_response` / `after_tool_result` intervention rewrote the event, the last rewrite's `after` is what must appear instead | The model or tool event the message was compared with; none when no event could explain it. A generation whose start nothing explains is reported once and not walked further |
+| `request` | Each agent model call's request, rebuilt from the stored context (`gen`, `len`), the tools it offered, and its sampling options, hashes (sha256 of the wire body the worker sends) to the gateway's `request_sha256` | The model event |
+| `response` | Each model call's response equals the gateway's `upstream_response_json` normalized again the way model-gateway normalizes it | The model event |
+
+`data` holds `consistent`, the counts compared (`messages`, `requests`, `responses`), the
+intervention events that explained a difference (`interventions`), each mismatch (`check`,
+`agent_id`, `gen`, `idx`, `event_id`, `detail`), and `event_ids`, every event a mismatch names.
+A difference an intervention explains is an intervention; any other is a mismatch, the spoofing
+signal. A mismatch does not fail the run; the worker logs a warning.
+
+Each source explains one message. Not covered: an extension's own model calls have no stored
+input, so only their responses are checked; a `before_turn` `Inject` names no agent, so it can
+explain an equal message in any agent's context; and content that merely looks like a tool call
+or result inside a recorded result is not a mismatch, since the event recorded it so. Rule scans
+and the judge look at content.
+
+No `schema_version` bump: the event is a new `InfoEvent` source, and older runs simply lack it.
 
 ## Hash chain
 

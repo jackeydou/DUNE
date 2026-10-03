@@ -42,7 +42,8 @@ the model call, or the tool call with its result. Then hooks run, and the conten
 will see it is admitted: `messages` rows, an `agent_state` row, and one `intervention` event for
 every change a hook made. The observed original is never modified. A difference between what the
 gateway recorded and what the agent saw is either explained by an `intervention` event or is a
-spoofing signal.
+spoofing signal; the worker checks this at run end
+([transcript check](event-log.md#transcript-check)).
 
 A hook never builds a request-only view of the context. Every context change is a committed
 message or a new generation, so a request can always be rebuilt from `messages`.

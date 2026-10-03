@@ -127,11 +127,15 @@ are the data, so a lost notification costs latency, never an event.
 4. From M1, run the isolation probes. The run fails if any probe gets through.
 5. Drive the turn policy until limits, task end, or cancel.
 6. Run the final-state scorers while the sandboxes still exist.
-7. Export ([event-log.md](../event-log.md#export)), tear down through sandboxd, and mark the
+7. Compare each agent's context with what the gateway, the tools, and the bus recorded, and
+   commit the outcome as a `transcript_check` event
+   ([event-log.md](../event-log.md#transcript-check)).
+8. Export ([event-log.md](../event-log.md#export)), tear down through sandboxd, and mark the
    run `done`.
 
 Built in `swarmeval.worker` for M0. Step 2 calls `CreateRun` and then creates each sandbox with
-the `os_user`s of the agents in it; the probes are not built yet. With the network capability
+the `os_user`s of the agents in it; the probes are not built yet. Step 7 runs for cancelled
+runs too, since they are exported. With the network capability
 (later), steps 1–3 also generate the TLS interception CA and a net-gateway certificate, start
 [net-gateway](net-gateway.md) and service containers, and attach its event stream. Sandboxes are
 destroyed whatever happens. A cancel is seen by polling the run's status every 2 s, so it takes effect at the first

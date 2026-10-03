@@ -99,6 +99,11 @@
   computed by Inspect from the header's reducers (`--reducer`, default `mean`) and metrics:
   `mean` per reducer, and `epoch_stderr` / `epoch_ci_wilson` over epochs. Runs that ended
   otherwise are listed in `eval.metadata.swarmeval.left_out` (`swarmeval.events.variant_log`).
+- Transcript check: at run end, before export, the worker compares each agent's context with the
+  recorded model calls, tool results, deliveries, and interventions, rebuilds every agent model
+  request's hash from the stored context, and normalizes the gateway's raw response again. The
+  outcome is a `swarmeval.transcript_check` event naming every mismatching event; a mismatch
+  is the spoofing signal and does not fail the run. New `InfoEvent` source, no schema bump.
 
 ### Changed
 - A run whose summary cannot be written ends `failed`, with the reason in its error. Cancelled

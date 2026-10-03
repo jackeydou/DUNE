@@ -1,5 +1,7 @@
 """In-memory stand-ins for Postgres, model-gateway, and sandboxd."""
 
+import hashlib
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -7,6 +9,7 @@ from typing import Any
 from pydantic import JsonValue
 
 from swarmeval.gateway.bus import ChannelSpec
+from swarmeval.gateway.model.client import to_wire
 from swarmeval.runtime.extensions import (
     CanaryInfo,
     Extension,
@@ -44,6 +47,7 @@ from swarmeval.runtime.records import (
 )
 from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, SHELL, WEB_REQUEST
 from swarmeval.runtime.writer import RunWriter
+from tests.gateway.mock_backend import completion, tool_call
 
 
 @dataclass
@@ -115,7 +119,27 @@ GATEWAY = GatewayRecord(
     latency_s=0.0,
     attempts=1,
 )
-"""What the scripted model reports as the gateway's record of every call."""
+"""A gateway record with placeholder hash and raw response; `honest_record` fills them in."""
+
+
+def honest_record(request: ModelRequest, response: ModelResponse) -> GatewayRecord:
+    """What model-gateway records for a call it served faithfully: the hash of the body the
+    worker sends, and a backend completion that normalizes to `response`."""
+    body = to_wire(request).model_dump_json(exclude_none=True).encode()
+    message = response.message
+    raw = completion(
+        message.content,
+        tool_calls=[tool_call(c.name, c.arguments, id=c.id) for c in message.tool_calls] or None,
+        reasoning=message.reasoning,
+        prompt_tokens=response.usage.input_tokens,
+        completion_tokens=response.usage.output_tokens,
+    )
+    return GATEWAY.model_copy(
+        update={
+            "request_sha256": hashlib.sha256(body).hexdigest(),
+            "upstream_response_json": json.dumps(raw),
+        }
+    )
 
 
 def reply(content: str = "", *tool_calls: ToolCall, tokens: int = 10) -> ModelResponse:
@@ -150,7 +174,7 @@ class ScriptedModel:
             options=request.options,
             response=response.message,
             usage=response.usage,
-            gateway=GATEWAY,
+            gateway=honest_record(request, response),
         )
         draft = EventDraft(
             record=record,

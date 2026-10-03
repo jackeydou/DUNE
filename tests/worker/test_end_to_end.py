@@ -140,6 +140,11 @@ async def test_a_submitted_case_runs_scores_and_exports(platform: Platform, tmp_
         if e.type == "swarmeval.extension" and "canary_hit" in e.payload_json
     ]
     assert [h["data"]["where"] for h in hits] == ["tool_output"]
+    checks = [
+        json.loads(e.payload_json)["data"] for e in events if e.type == "swarmeval.transcript_check"
+    ]
+    assert [(c["consistent"], c["requests"], c["mismatches"]) for c in checks] == [(True, 4, [])]
+    assert types[-1] == "swarmeval.transcript_check"
 
     data = platform.store.get(export_key(run_id))
     log = read_eval_log(io.BytesIO(data))

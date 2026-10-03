@@ -22,21 +22,24 @@ from swarmeval.control.queue import Queue, RunRow, RunStatus
 from swarmeval.core import CaseError, Variant, load_case, run_spec
 from swarmeval.core.models import Scalar
 from swarmeval.events import ObjectStore, PostgresRunStore, RunHeader, export_events, export_run
+from swarmeval.events.transcript import load_transcript
 from swarmeval.gateway.model.client import (
     UPSTREAM_ERROR_STATUS,
     GatewaySession,
     ModelGatewayError,
 )
 from swarmeval.honeypot import PlacedCanary, place
-from swarmeval.runtime import RunConfigError, RunLoop
+from swarmeval.runtime import RunConfigError, RunLoop, RunSpec
 from swarmeval.runtime.extensions import ExtensionError, ExtensionLoadError, load_extensions
+from swarmeval.runtime.loop import initial_context
 from swarmeval.runtime.ports import AgentCaller, Caller, ExtensionCaller
-from swarmeval.runtime.records import CommittedEvent
+from swarmeval.runtime.records import CommittedEvent, EventDraft, Transaction
 from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, BUILTIN_TOOLS
 from swarmeval.runtime.writer import RunWriter
 from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError, SeedFile
 from swarmeval.scorers import FinalStateScoring
 from swarmeval.web import HttpWebClient
+from swarmeval.worker.transcript import check_transcript
 
 log = logging.getLogger(__name__)
 
@@ -165,6 +168,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     sandboxes=sandboxes,
                     writer=writer,
                 ).run(committed)
+            await _check_transcript(deps.engine, spec, loop, writer)
     except (ExtensionError, RunConfigError) as err:
         return Outcome("failed", str(err))
     except (SandboxdError, ModelGatewayError) as err:
@@ -174,6 +178,26 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
     await export_run(deps.engine, _header(run, variant), deps.store)
     await export_events(deps.engine, run.run_id, deps.store)
     return Outcome("cancelled" if cancelled else "done")
+
+
+async def _check_transcript(
+    engine: AsyncEngine, spec: RunSpec, loop: RunLoop, writer: RunWriter
+) -> None:
+    """Commits the transcript check as the run's last event before export, so the exports
+    carry it. A mismatch is a finding about the run, not a failure of it."""
+    check = check_transcript(
+        await load_transcript(engine, spec.run_id),
+        prompts={a.id: initial_context(a) for a in spec.agents},
+        tools=loop.tool_schemas(),
+    )
+    await writer.commit(Transaction(events=[EventDraft(record=check)]))
+    if not check.consistent:
+        log.warning(
+            "run %s: the transcript check found %d mismatches, naming events %s",
+            spec.run_id,
+            len(check.mismatches),
+            ", ".join(check.event_ids) or "none",
+        )
 
 
 async def _create_sandboxes(

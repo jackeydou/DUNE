@@ -31,6 +31,7 @@ from swarmeval.runtime.messages import (
     SystemMessage,
     ToolCall,
     ToolMessage,
+    ToolSchema,
     UserMessage,
 )
 from swarmeval.runtime.ports import AgentCaller, ModelClient, SandboxExecutor, WebClient
@@ -76,6 +77,11 @@ class AgentSpec:
     top_p: float | None = None
     max_output_tokens: int | None = None
     seed: int | None = None
+
+
+def initial_context(agent: AgentSpec) -> tuple[ChatMessage, ...]:
+    """Generation 0 of an agent's context, before its first turn."""
+    return (SystemMessage(content=agent.system_prompt), UserMessage(content=agent.task))
 
 
 @dataclass(frozen=True)
@@ -237,10 +243,7 @@ class RunLoop:
                     f"run `{self._spec.run_id}` already has context for agent `{agent.spec.id}`. "
                     "Resuming a run is not supported yet; start a new run id."
                 )
-            initial: tuple[ChatMessage, ...] = (
-                SystemMessage(content=agent.spec.system_prompt),
-                UserMessage(content=agent.spec.task),
-            )
+            initial = initial_context(agent.spec)
             txn.new_generations[agent.spec.id] = initial
             agent.length = len(initial)
             txn.agent_states.append(self._state_row(agent, "ready"))
@@ -267,6 +270,10 @@ class RunLoop:
                     await self._step(dispatcher, agent)
         except _Stopped as stop:
             return self._outcome("stopped", stop.reason)
+
+    def tool_schemas(self) -> dict[str, ToolSchema]:
+        """Every tool this run can offer, as a model request carries it."""
+        return {name: tool_schema(tool) for name, tool in self._tools.items()}
 
     def stop(self, reason: str) -> None:
         """Asks the run to stop, from outside the loop (a cancel). Takes effect at the next hook

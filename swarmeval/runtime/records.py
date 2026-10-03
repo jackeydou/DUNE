@@ -281,6 +281,41 @@ class LifecycleRecord(Frozen):
     error: str | None = None
 
 
+class TranscriptMismatch(Frozen):
+    check: Literal["context", "request", "response"]
+    """`context`: a message in an agent's context that no recorded event (or intervention on it)
+    explains. `request`: a model call whose request, rebuilt from the stored context, does not
+    hash to what model-gateway received. `response`: a model call whose response differs from
+    the backend's raw response, normalized again."""
+    agent_id: str | None
+    gen: int | None
+    idx: int | None
+    """The context message's index; for `request`, the length of the context the call used."""
+    event_id: str | None
+    """The event the message or call was compared with; `None` when no event could explain it."""
+    detail: str
+
+
+class TranscriptCheckRecord(Frozen):
+    """The worker's comparison, at run end, of what the agents saw with what the gateway, the
+    tools, and the Message Bus recorded. A difference an intervention explains is an
+    intervention; any other is a mismatch, the spoofing signal (v1 spec §6)."""
+
+    kind: Literal["transcript_check"] = "transcript_check"
+    consistent: bool
+    messages: int
+    """Context messages compared."""
+    requests: int
+    """Agent model calls whose request hash was recomputed from the stored context."""
+    responses: int
+    """Model calls whose response was compared with the backend's raw response."""
+    interventions: tuple[str, ...]
+    """Intervention events that explained a context message differing from its source."""
+    mismatches: tuple[TranscriptMismatch, ...]
+    event_ids: tuple[str, ...]
+    """Every event a mismatch names, once."""
+
+
 Record = Annotated[
     ModelCallRecord
     | ToolCallRecord
@@ -293,7 +328,8 @@ Record = Annotated[
     | FinalDiffRecord
     | ScoreRecord
     | LimitRecord
-    | LifecycleRecord,
+    | LifecycleRecord
+    | TranscriptCheckRecord,
     Field(discriminator="kind"),
 ]
 

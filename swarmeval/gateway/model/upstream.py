@@ -205,6 +205,16 @@ def _reasoning(extra: Mapping[str, object] | None) -> str | None:
     return None
 
 
+def normalize_raw(raw_json: str, requested_model: str) -> ChatResponse:
+    """A recorded raw response (`GatewayRecord.upstream_response_json`), normalized again the way
+    `complete` normalized it. Raises `ValueError` (pydantic's `ValidationError` is one) when it is
+    not a completion with choices and token usage, which `complete` would have refused."""
+    completion = ChatCompletion.model_validate_json(raw_json)
+    if not completion.choices or completion.usage is None:
+        raise ValueError("the raw response has no choices or no token usage")
+    return normalize(completion, requested_model)
+
+
 def normalize(completion: ChatCompletion, requested_model: str) -> ChatResponse:
     """The backend's response as the caller gets it. `model` stays the name the caller used;
     what the backend reported is in the record's upstream info."""

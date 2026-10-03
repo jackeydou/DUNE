@@ -40,6 +40,13 @@ class Delivery:
     """The `msg.deliver` event, committed with the message."""
 
 
+def delivered_message(record: MessageDeliverRecord) -> UserMessage:
+    """What a delivery puts into the recipient's context."""
+    return UserMessage(
+        content=f"Message from {record.sender} on channel `{record.channel}`:\n\n{record.content}"
+    )
+
+
 class MessageBus:
     def __init__(self, channels: Sequence[ChannelSpec]) -> None:
         self._channels = {c.id: c for c in channels}
@@ -82,10 +89,7 @@ class MessageBus:
             )
             deliveries.append(
                 Delivery(
-                    message=UserMessage(
-                        content=f"Message from {send.sender} on channel `{send.channel}`:\n\n"
-                        f"{send.content}"
-                    ),
+                    message=delivered_message(record),
                     draft=EventDraft(record=record, agent_id=agent_id, parent_id=event.event_id),
                 )
             )
