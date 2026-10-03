@@ -15,8 +15,11 @@ from inspect_ai.log import read_eval_log
 
 from swarmeval.analysis import load_summaries, report
 from swarmeval.control.bundles import pack
+from swarmeval.control.queue import RunRow
 from swarmeval.events import events_key, export_key
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
+from swarmeval.worker import worker as worker_module
+from swarmeval.worker.run import Outcome, WorkerDeps, execute
 from tests.gateway.mock_backend import completion, tool_call
 from tests.worker.conftest import Platform
 
@@ -180,6 +183,46 @@ async def test_a_cancelled_queued_run_never_starts(platform: Platform, tmp_path:
         pb.ListRunsRequest(submission_id=submitted.submission_id)
     )
     assert sorted(r.run_id for r in listed.runs) == sorted(submitted.run_ids)
+    unscored = report(load_summaries(platform.store), [submitted.submission_id]).unscored
+    assert [(u.status, u.runs) for u in unscored] == [("cancelled", 2)]
+
+
+async def test_a_cancel_that_lands_while_a_run_finishes_is_what_the_summary_says(
+    platform: Platform, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for _ in range(3):
+        platform.backend.reply(completion("done"))
+    submitted = await platform.control.SubmitRuns(
+        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
+    )
+    assert len(submitted.run_ids) == 1
+
+    async def execute_then_cancel(run: RunRow, deps: WorkerDeps) -> Outcome:
+        outcome = await execute(run, deps)
+        await platform.queue.cancel(run.run_id)
+        return outcome
+
+    monkeypatch.setattr(worker_module, "execute", execute_then_cancel)
+    await platform.worker.drain()
+
+    result = report(load_summaries(platform.store), [submitted.submission_id])
+    assert result.rates == ()
+    assert [(u.status, u.runs) for u in result.unscored] == [("cancelled", 1)]
+
+
+async def test_runs_interrupted_by_a_worker_restart_get_a_summary(
+    platform: Platform, tmp_path: Path
+) -> None:
+    submitted = await platform.control.SubmitRuns(
+        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
+    )
+    claimed = await platform.queue.claim("worker_e2e")
+    assert claimed is not None
+
+    assert await platform.worker.recover() == [claimed.run_id]
+
+    unscored = report(load_summaries(platform.store), [submitted.submission_id]).unscored
+    assert [(u.status, u.runs) for u in unscored] == [("interrupted", 1)]
 
 
 async def test_a_case_that_does_not_load_is_refused(platform: Platform, tmp_path: Path) -> None:

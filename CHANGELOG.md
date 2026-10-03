@@ -87,7 +87,8 @@
   dependency.
 
 ### Changed
-- A run whose summary cannot be written ends `failed`, with the reason in its error.
+- A run whose summary cannot be written ends `failed`, with the reason in its error. Cancelled
+  queued runs and runs interrupted by a worker restart get summaries too.
 - Event schema version 3: tool events from `web_request` carry `web`. Additive; version 2 events
   read unchanged.
 - An agent that finished gets another turn when a message arrives for it; the run ends when

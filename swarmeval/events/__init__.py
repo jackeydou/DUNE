@@ -18,7 +18,6 @@ from swarmeval.events.export import (
 from swarmeval.events.parquet import (
     EVENTS_SCHEMA,
     SUMMARY_SCHEMA,
-    Finished,
     events_key,
     export_events,
     export_summary,
@@ -39,7 +38,6 @@ __all__ = [
     "ChainError",
     "ChainRow",
     "FencedError",
-    "Finished",
     "ObjectStore",
     "PostgresRunStore",
     "RunHeader",

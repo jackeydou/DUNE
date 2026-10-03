@@ -39,6 +39,7 @@ class Platform:
     worker: Worker
     backend: MockBackend
     store: ObjectStore
+    queue: Queue
 
 
 @pytest.fixture
@@ -88,6 +89,7 @@ async def platform(
             worker=Worker(deps, owner_id="worker_e2e"),
             backend=backend,
             store=object_store,
+            queue=queue,
         )
     await server.stop(None)
     await listener.close()

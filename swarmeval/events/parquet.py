@@ -5,8 +5,6 @@ logs (docs/event-log.md#export). Derived from the rows, like the `.eval`.
 import asyncio
 import io
 import json
-from dataclasses import dataclass
-from datetime import datetime
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -112,18 +110,10 @@ async def export_events(engine: AsyncEngine, run_id: str, store: ObjectStore) ->
     return key
 
 
-@dataclass(frozen=True)
-class Finished:
-    """How the run ended, which the worker knows before `control.runs` records it."""
-
-    status: str
-    error: str | None
-    finished_at: datetime
-
-
-async def export_summary(
-    engine: AsyncEngine, run_id: str, finished: Finished, store: ObjectStore
-) -> str:
+async def export_summary(engine: AsyncEngine, run_id: str, store: ObjectStore) -> str:
+    """Writes the run's summary and returns the key. Call it once `control.runs` holds the run's
+    final status, which the summary copies: a cancel that lands while a worker finishes is
+    whatever `control.runs` kept."""
     async with engine.connect() as conn:
         spec = (
             (
@@ -139,6 +129,9 @@ async def export_summary(
                         control_runs.c.workspace,
                         control_runs.c.isolation,
                         control_runs.c.started_at,
+                        control_runs.c.finished_at,
+                        control_runs.c.status,
+                        control_runs.c.error,
                     )
                     .join(control_runs, control_runs.c.run_id == run_specs.c.run_id)
                     .where(run_specs.c.run_id == run_id)
@@ -167,9 +160,6 @@ async def export_summary(
         **spec,
         "run_id": run_id,
         "task_args": json.dumps(spec["task_args"], sort_keys=True, ensure_ascii=False),
-        "status": finished.status,
-        "error": finished.error,
-        "finished_at": finished.finished_at,
         "scores": list(scores.values()),
     }
     table = pa.Table.from_pylist([row], schema=SUMMARY_SCHEMA)

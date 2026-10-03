@@ -6,10 +6,9 @@ M0 runs one worker. A run whose worker dies is marked `interrupted` when that wo
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 
 from swarmeval.control.queue import RunRow
-from swarmeval.events import FencedError, Finished, export_summary
+from swarmeval.events import FencedError, export_summary
 from swarmeval.worker.run import Outcome, WorkerDeps, execute
 
 log = logging.getLogger(__name__)
@@ -23,10 +22,12 @@ class Worker:
         self._tasks: set[asyncio.Task[None]] = set()
 
     async def recover(self) -> list[str]:
-        """Marks runs this worker owned before a restart as interrupted."""
+        """Marks runs this worker owned before a restart as interrupted, and writes their
+        summaries. Raises if a summary cannot be written: the worker does not start."""
         interrupted = await self._deps.queue.interrupt_owned(self._owner_id)
         for run_id in interrupted:
             log.warning("run %s was running when worker %s stopped", run_id, self._owner_id)
+            await export_summary(self._deps.engine, run_id, self._deps.store)
         return interrupted
 
     async def serve(self, poll_s: float = 1.0) -> None:
@@ -72,13 +73,16 @@ class Worker:
             # The task boundary: an unexpected error fails this run, not the worker.
             log.error("run %s failed unexpectedly", run.run_id, exc_info=True)
             outcome = Outcome("failed", f"{type(err).__name__}: {err}")
-        finished = Finished(outcome.status, outcome.error, datetime.now(UTC))
+        await self._deps.queue.finish(run.run_id, run.owner_epoch, outcome.status, outcome.error)
         try:
-            await export_summary(self._deps.engine, run.run_id, finished, self._deps.store)
+            await export_summary(self._deps.engine, run.run_id, self._deps.store)
         except Exception as err:
-            # Same boundary: a run reports cannot see is failed, saying why, like a failed export.
+            # Same boundary: a run reports cannot see is failed, saying why, like a failed
+            # export. `finish` keeps a run that was cancelled meanwhile `cancelled`.
             log.error("run %s: summary export failed", run.run_id, exc_info=True)
             outcome = Outcome("failed", f"summary export failed: {type(err).__name__}: {err}")
-        await self._deps.queue.finish(run.run_id, run.owner_epoch, outcome.status, outcome.error)
+            await self._deps.queue.finish(
+                run.run_id, run.owner_epoch, outcome.status, outcome.error
+            )
         log.info("run %s: %s", run.run_id, outcome.status)
         return outcome
