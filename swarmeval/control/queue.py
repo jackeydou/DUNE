@@ -22,6 +22,7 @@ from sqlalchemy import ColumnElement, Row, Select, case, func, insert, select, t
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from swarmeval.db import control_runs, run_specs
+from swarmeval.events.store import FencedError
 
 RunStatus = Literal["queued", "running", "paused", "interrupted", "done", "failed", "cancelled"]
 FINISHED: tuple[RunStatus, ...] = ("interrupted", "done", "failed", "cancelled")
@@ -342,17 +343,27 @@ class Queue:
     ) -> str | None:
         """Records the outcome. A run cancelled meanwhile stays `cancelled`. A run that becomes
         `interrupted` gets its rerun in the same transaction, whose id is returned. Does nothing
-        when `owner_epoch` is no longer the run's, or when the run already finished otherwise
-        (an owner that lost it to `interrupt_owned` must not overwrite that)."""
+        when the run already finished otherwise. Raises `FencedError` when `owner_epoch` is no
+        longer the run's: a worker that took the run over, or the owner's restart, finishes it
+        and writes its summary, and the stale owner must write neither."""
         runs = control_runs.c
         async with self._engine.begin() as conn:
-            current = (
+            found = (
                 await conn.execute(
-                    select(runs.status)
-                    .where(runs.run_id == run_id, runs.owner_epoch == owner_epoch)
+                    select(runs.status, runs.owner_epoch)
+                    .where(runs.run_id == run_id)
                     .with_for_update()
                 )
-            ).scalar_one_or_none()
+            ).one_or_none()
+            if found is None:
+                raise RunNotFound(f"no run `{run_id}`.")
+            current, epoch = found
+            if epoch != owner_epoch:
+                raise FencedError(
+                    f"run {run_id} is at owner_epoch {epoch}, the finish came at {owner_epoch}. "
+                    "Another worker took the run over, or its owner restarted; that one records "
+                    "its outcome."
+                )
             if current not in _FINISHABLE:
                 return None
             final: RunStatus = "cancelled" if current == "cancelled" else status

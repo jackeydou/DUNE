@@ -10,15 +10,19 @@ from swarmeval.worker.leases import LeaseLost, Leases
 
 
 class FakeQueue:
-    """Renews whatever `keep` says; raises once `down` is set."""
+    """Renews whatever `keep` says; raises once `down` is set, and never answers once `hung`
+    is."""
 
     def __init__(self) -> None:
         self.keep: set[str] | None = None
         self.down = False
+        self.hung = False
         self.calls: list[dict[str, int]] = []
 
     async def renew(self, owner_id: str, held: Mapping[str, int], lease_s: float) -> set[str]:
         self.calls.append(dict(held))
+        if self.hung:
+            await asyncio.sleep(3600)
         if self.down:
             raise OperationalError("UPDATE control.runs", {}, ConnectionRefusedError())
         return set(held) if self.keep is None else set(held) & self.keep
@@ -84,6 +88,30 @@ async def test_failing_renewals_stop_every_run_before_the_lease_runs_out() -> No
 
     assert len(queue.calls) >= 3, "one failed renewal alone does not stop the run"
     assert stopped_after < lease_s
+    assert stopped == ["cancelled"]
+
+
+async def test_renewals_that_fail_then_hang_stop_every_run_by_the_cutoff() -> None:
+    queue = FakeQueue()
+    lease_s = 0.6
+    leases = Leases(queue, "w_hung", lease_s=lease_s)
+    clock = asyncio.get_running_loop()
+    started, stopped = asyncio.Event(), list[str]()
+
+    async with leases.renewing():
+        holding = asyncio.create_task(leases.hold("r1", 1, _forever(started, stopped)))
+        await started.wait()
+        await asyncio.sleep(lease_s / 3 + 0.05)
+        last_renewed = clock.time()
+        queue.down = True
+        while len(queue.calls) < 2:
+            await asyncio.sleep(0.01)
+        queue.hung = True
+        with pytest.raises(LeaseLost, match="renewals failed"):
+            await asyncio.wait_for(holding, 2)
+        stopped_after = clock.time() - last_renewed
+
+    assert stopped_after < lease_s * 2 / 3 + 0.05
     assert stopped == ["cancelled"]
 
 

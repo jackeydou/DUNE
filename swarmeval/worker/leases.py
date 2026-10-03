@@ -4,9 +4,10 @@ Behavior: docs/services/orchestrator.md#leases-fencing-and-takeover.
 
 A claim gives a run a lease of `lease_s`. While the worker works on the run, it renews every lease
 it holds each third of that. A run the renewal no longer finds was taken over or finished
-elsewhere, and is stopped here at once. When renewals keep failing, every held run is stopped
-once two thirds of the lease have passed since the last renewal went out, before any lease can
-run out and another worker take the run. Fencing still refuses the writes of an owner that
+elsewhere, and is stopped here at once. A failed renewal is retried every twelfth of the lease;
+once two thirds of the lease have passed since the last renewal went out, every held run is
+stopped, before any lease can run out and another worker take the run. No attempt outlasts that
+cutoff. Fencing still refuses the writes of an owner that
 missed this, for instance because its process was suspended.
 """
 
@@ -90,43 +91,53 @@ class Leases:
     async def _renew(self) -> None:
         clock = asyncio.get_running_loop()
         interval = self._lease_s / 3
+        retry_s = interval / 4
         # When the last successful renewal went out. Every lease held now was set no earlier, so
-        # it lasts at least `lease_s` from then.
+        # it lasts at least `lease_s` from then; held runs stop by `cutoff`, a third before that.
         last_sent = clock.time()
+        wait = interval
         while True:
-            await asyncio.sleep(interval)
+            await asyncio.sleep(wait)
+            cutoff = last_sent + self._lease_s - interval
+            if clock.time() >= cutoff:
+                self._lose_all(clock.time() - last_sent)
+                # Nothing is held any more; a run claimed from now on has a lease of its own.
+                last_sent, wait = clock.time(), interval
+                continue
             sent = clock.time()
             held = {run_id: h.owner_epoch for run_id, h in self._held.items()}
             try:
-                async with asyncio.timeout(interval):
+                # Bounded by the cutoff, so a hung database cannot keep held runs going past it.
+                async with asyncio.timeout(cutoff - sent):
                     renewed = await self._queue.renew(self._owner_id, held, self._lease_s)
             except (SQLAlchemyError, TimeoutError):
-                deadline = last_sent + self._lease_s - interval
-                if clock.time() < deadline:
-                    log.warning(
-                        "worker %s could not renew its leases; trying again in %.1f s",
-                        self._owner_id,
-                        interval,
-                        exc_info=True,
-                    )
-                    continue
-                log.error(
-                    "worker %s has not renewed its leases for %.1f s; stopping its %d runs "
-                    "before their leases run out",
+                wait = max(0.0, min(retry_s, cutoff - clock.time()))
+                log.warning(
+                    "worker %s could not renew its leases; trying again in %.1f s, and stopping "
+                    "its %d runs if that has not worked %.1f s from now",
                     self._owner_id,
-                    clock.time() - last_sent,
-                    len(self._held),
+                    wait,
+                    len(held),
+                    max(0.0, cutoff - clock.time()),
                     exc_info=True,
                 )
-                reason = f"renewals failed for {clock.time() - last_sent:.1f} s"
-                for run_id in list(self._held):
-                    self._lose(run_id, self._held[run_id].owner_epoch, reason)
-                # Nothing is held any more; a run claimed from now on has a lease of its own.
-                last_sent = sent
                 continue
-            last_sent = sent
+            last_sent, wait = sent, interval
             for run_id in held.keys() - renewed:
                 self._lose(run_id, held[run_id], "another worker took it over or finished it")
+
+    def _lose_all(self, since_s: float) -> None:
+        if not self._held:
+            return
+        log.error(
+            "worker %s has not renewed its leases for %.1f s; stopping its %d runs before their "
+            "leases run out",
+            self._owner_id,
+            since_s,
+            len(self._held),
+        )
+        for run_id, held in list(self._held.items()):
+            self._lose(run_id, held.owner_epoch, f"renewals failed for {since_s:.1f} s")
 
     def _lose(self, run_id: str, owner_epoch: int, reason: str) -> None:
         held = self._held.get(run_id)

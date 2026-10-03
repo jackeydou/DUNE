@@ -265,10 +265,19 @@ class Worker:
         return await _to_the_end(self._record(run, outcome))
 
     async def _record(self, run: RunRow, outcome: Outcome) -> Outcome:
-        """Writes the run's final status, then its summary."""
-        rerun = await self._deps.queue.finish(
-            run.run_id, run.owner_epoch, outcome.status, outcome.error
-        )
+        """Writes the run's final status, then its summary. Writes neither if another worker took
+        the run over meanwhile: the summary would race the one its new owner writes."""
+        try:
+            rerun = await self._deps.queue.finish(
+                run.run_id, run.owner_epoch, outcome.status, outcome.error
+            )
+        except FencedError:
+            log.warning(
+                "run %s: taken over before its status was written; its new owner records it",
+                run.run_id,
+                exc_info=True,
+            )
+            return replace(outcome, status="interrupted", error="fenced")
         if rerun is not None:
             log.warning("run %s interrupted; queued %s to rerun it", run.run_id, rerun)
         try:

@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import logging
+import math
 import socket
 
 import grpc
@@ -56,6 +57,21 @@ async def serve(
             await engine.dispose()
 
 
+def lease_seconds(text: str) -> float:
+    """`--lease-s`: a finite number of seconds above zero. A lease of zero or less runs out as it
+    is taken, so workers would take each other's runs over endlessly."""
+    try:
+        value = float(text)
+    except ValueError as err:
+        raise argparse.ArgumentTypeError(f"`{text}` is not a number of seconds") from err
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError(
+            f"`{text}` is not a lease length; give a finite number of seconds above 0, such as "
+            "the default 30"
+        )
+    return value
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="swarmeval-worker")
     add_database(parser)
@@ -76,7 +92,7 @@ def main() -> None:
     parser.add_argument("--max-runs", type=int, default=4, help="runs executed at once")
     parser.add_argument(
         "--lease-s",
-        type=float,
+        type=lease_seconds,
         default=LEASE_S,
         help="lease on each run this worker claims, renewed every third of it. Once a lease has "
         "run out, any worker may take the run over",
