@@ -129,7 +129,9 @@ backend refused or failed a call, `502`, model-gateway refused the request, any 
 unknown model, or sandboxd refused the request, `INVALID_ARGUMENT` such as a bad user, hostname, or
 seed file — or a bug), or `interrupted` (sandboxd or model-gateway itself was unavailable, sandboxd
 forgot the run after a restart, `NOT_FOUND`, or the worker that owned the run restarted; M3 pauses
-or takes over instead). Leases are not taken yet (M3).
+or takes over instead). A finished run's status is final: `finish` changes a run only while it is
+`running`, `paused`, or `cancelled` (a cancel lands before its owner finishes the run). Leases are
+not taken yet (M3).
 
 ### Reruns
 
@@ -138,7 +140,9 @@ status, the queue adds one queued run for the same submission, case revision, ov
 variant, at the variant's next unused epoch number, so its seed differs too
 (`swarmeval.control.queue`). The rerun's `run_specs.replaces` names the run it stands in for, and
 `GetRun` shows it as `replaces`. Both places a run becomes `interrupted` do this: `finish`, when
-a worker's run ends on an outage, and `interrupt_owned`, when a worker restarts. A run cancelled
+a worker's run ends on an outage, and `interrupt_owned`, when a worker restarts. `interrupt_owned`
+also increments the `owner_epoch` of every run it finishes, so a process of the old owner that
+still runs one is fenced: its next write fails and its `finish` changes nothing. A run cancelled
 meanwhile stays `cancelled` and is not rerun; `failed` and `cancelled` runs are never rerun.
 
 A variant gets at most `epochs` reruns per submission, counted over all its runs, so a backend
@@ -183,7 +187,10 @@ runs for cancelled runs too, since they are exported. With the network capabilit
 (later), steps 1–3 also generate the TLS interception CA and a net-gateway certificate, start
 [net-gateway](net-gateway.md) and service containers, and attach its event stream. Sandboxes are
 destroyed whatever happens. A cancel is seen by polling the run's status every 2 s, so it takes effect at the first
-hook point after that. A failed or interrupted run keeps its events but is not exported. The
+hook point after that. A failed or interrupted run keeps its events but is not exported. If the
+run's summary cannot be written once its status is, a `done` run becomes `failed`, since no
+report can see it; any other status stays, so an interrupted run keeps its rerun and a cancel
+still wins. Either way the run's error adds why (`Queue.summary_failed`). The
 worker runs up to `--max-runs` runs at once (default 4); `--worker-id` (default the hostname)
 must stay the same across restarts, because on start the worker marks the runs it still owned
 `interrupted`, which [reruns](#reruns) them, and gives a run cancelled while it ran its
@@ -201,9 +208,11 @@ Worker ids must be unique among live workers, because at start a worker finishes
 owns. While it serves, a worker holds a Postgres session-level advisory lock on its id
 (`swarmeval.worker.hold_worker_id`), on a connection of its own; a second worker with an id in use
 exits before touching any run. The lock goes with the connection, so a crashed worker's id is free
-at once; if that connection alone drops while the worker keeps going, the id is unguarded until
-it restarts. Until M3's leases, a worker that never comes back leaves its runs `running`:
-starting a worker with its id, on any host, interrupts and reruns them.
+at once. Every 10 s the worker checks that connection is still the session holding the lock; if
+it dropped, the worker stops serving (its runs are cancelled and stay `running` until a worker
+with its id starts) and exits with `WorkerIdLost`, since another process could now take the id.
+For up to those 10 s the id is unguarded. Until M3's leases, a worker that never comes back
+leaves its runs `running`: starting a worker with its id, on any host, interrupts and reruns them.
 
 Stopping a worker (SIGINT, or cancelling `serve`) cancels its runs, which stay `running` until it
 restarts. A run whose final status is being written finishes writing it and its summary first, so

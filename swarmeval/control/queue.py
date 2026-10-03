@@ -21,6 +21,8 @@ from swarmeval.db import control_runs, run_specs
 
 RunStatus = Literal["queued", "running", "paused", "interrupted", "done", "failed", "cancelled"]
 FINISHED: tuple[RunStatus, ...] = ("interrupted", "done", "failed", "cancelled")
+_FINISHABLE: tuple[RunStatus, ...] = ("running", "paused", "cancelled")
+"""What `finish` may change. `cancelled` because a cancel while the run ran waits for its owner."""
 
 
 class RunNotFound(Exception):
@@ -251,7 +253,8 @@ class Queue:
     ) -> str | None:
         """Records the outcome. A run cancelled meanwhile stays `cancelled`. A run that becomes
         `interrupted` gets its rerun in the same transaction, whose id is returned. Does nothing
-        when `owner_epoch` is no longer the run's."""
+        when `owner_epoch` is no longer the run's, or when the run already finished otherwise
+        (an owner that lost it to `interrupt_owned` must not overwrite that)."""
         runs = control_runs.c
         async with self._engine.begin() as conn:
             current = (
@@ -261,7 +264,7 @@ class Queue:
                     .with_for_update()
                 )
             ).scalar_one_or_none()
-            if current is None:
+            if current not in _FINISHABLE:
                 return None
             final: RunStatus = "cancelled" if current == "cancelled" else status
             await conn.execute(
@@ -269,14 +272,36 @@ class Queue:
                 .where(runs.run_id == run_id)
                 .values(status=final, error=error, finished_at=func.now())
             )
-            if final == "interrupted" and current != "interrupted":
+            if final == "interrupted":
                 return await _rerun(conn, run_id)
             return None
+
+    async def summary_failed(self, run_id: str, owner_epoch: int, error: str) -> RunStatus | None:
+        """Records that a finished run's summary could not be written, after `finish`. A `done`
+        run becomes `failed`, since no report can see it; any other status stays, so an
+        interrupted run keeps the rerun `finish` queued and a cancel still wins. `error` is
+        added to the run's error. Returns the status, or `None` when `owner_epoch` is no longer
+        the run's."""
+        runs = control_runs.c
+        async with self._engine.begin() as conn:
+            return (
+                await conn.execute(
+                    update(control_runs)
+                    .where(runs.run_id == run_id, runs.owner_epoch == owner_epoch)
+                    .values(
+                        status=case((runs.status == "done", "failed"), else_=runs.status),
+                        error=func.concat_ws("; ", runs.error, error),
+                    )
+                    .returning(runs.status)
+                )
+            ).scalar_one_or_none()
 
     async def interrupt_owned(self, owner_id: str) -> list[Recovered]:
         """Finishes the runs a previous process of this worker left unfinished: running or paused
         ones become `interrupted` and get their reruns in the same transaction; ones cancelled
-        while they ran get their `finished_at`. M3 resumes them instead.
+        while they ran get their `finished_at`. M3 resumes them instead. Both get a new
+        `owner_epoch`, so a process of the old owner that is somehow still running them is
+        fenced: its next write raises `FencedError`, and its `finish` does nothing.
 
         Only rows owned by `owner_id` are touched, which is why worker ids must be unique
         (`swarmeval.worker.hold_worker_id`)."""
@@ -289,6 +314,7 @@ class Queue:
                     status="interrupted",
                     error="the worker that owned the run restarted",
                     finished_at=func.now(),
+                    owner_epoch=runs.owner_epoch + 1,
                 )
                 .returning(runs.run_id)
             )
@@ -303,7 +329,7 @@ class Queue:
                     runs.status == "cancelled",
                     runs.finished_at.is_(None),
                 )
-                .values(finished_at=func.now())
+                .values(finished_at=func.now(), owner_epoch=runs.owner_epoch + 1)
                 .returning(runs.run_id)
             )
             recovered += [Recovered(r, "cancelled", None) for r in sorted(cancelled.scalars())]

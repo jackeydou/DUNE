@@ -9,10 +9,12 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator, Coroutine
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from swarmeval.control.queue import Recovered, RunRow
 from swarmeval.events import FencedError, export_summary
@@ -20,31 +22,86 @@ from swarmeval.worker.run import Outcome, WorkerDeps, execute
 
 log = logging.getLogger(__name__)
 
+LOCK_CHECK_S = 10.0
+"""How often a serving worker checks it still holds its id. A lost lock is noticed this late."""
+
 
 class WorkerIdInUse(Exception):
     """Another live worker process has this worker id."""
 
 
+class WorkerIdLost(Exception):
+    """The connection holding this worker's id dropped while the worker served, so another
+    process could take the id and interrupt this one's runs. The worker stopped serving."""
+
+
 @asynccontextmanager
-async def hold_worker_id(engine: AsyncEngine, owner_id: str) -> AsyncGenerator[None]:
+async def hold_worker_id(
+    engine: AsyncEngine, owner_id: str, check_s: float = LOCK_CHECK_S
+) -> AsyncGenerator[None]:
     """Holds a Postgres session-level advisory lock on `owner_id` for the block, on a connection
     of its own. A worker id must belong to one live process: at start a worker finishes every run
     its id owns, which would interrupt another live worker's runs. The lock goes when the
-    connection does, so a crashed worker's id is free again at once."""
+    connection does, so a crashed worker's id is free again at once.
+
+    Every `check_s` the connection is checked to still be the database session that took the
+    lock. If it dropped, the block is cancelled and `WorkerIdLost` raised in its place."""
     key = func.hashtextextended(f"swarmeval.worker:{owner_id}", 0)
     async with engine.connect() as conn:
-        held = (await conn.execute(select(func.pg_try_advisory_lock(key)))).scalar_one()
+        held, pid = (
+            await conn.execute(select(func.pg_try_advisory_lock(key), func.pg_backend_pid()))
+        ).one()
         await conn.commit()
         if not held:
             raise WorkerIdInUse(
                 f"worker id `{owner_id}` is in use by another running worker. Give each worker "
                 "process its own `--worker-id`, and reuse an id only to restart that worker."
             )
+        holder = asyncio.current_task()
+        assert holder is not None, "hold_worker_id runs inside a task"
+        lost: list[str] = []
+        watch = asyncio.create_task(_watch_lock(conn, pid, check_s, holder, lost))
         try:
             yield
+        except asyncio.CancelledError as err:
+            if not lost:
+                raise
+            holder.uncancel()
+            raise WorkerIdLost(
+                f"worker `{owner_id}` lost the database connection that holds its id "
+                f"({lost[0]}), so another process could now start with the id and interrupt "
+                "this one's runs. It stopped serving; its runs are interrupted and rerun when "
+                "a worker with this id starts again."
+            ) from err
         finally:
-            await conn.execute(select(func.pg_advisory_unlock(key)))
+            watch.cancel()
+            await asyncio.wait([watch])
+            if not watch.cancelled():
+                watch.result()
+            if not lost:
+                await conn.execute(select(func.pg_advisory_unlock(key)))
+                await conn.commit()
+
+
+async def _watch_lock(
+    conn: AsyncConnection, pid: int, check_s: float, holder: asyncio.Task[Any], lost: list[str]
+) -> None:
+    """Cancels `holder`, saying why in `lost`, once `conn` is no longer database session `pid`.
+    A dropped connection reconnects on its next use, as a session that holds no lock."""
+    while True:
+        await asyncio.sleep(check_s)
+        try:
+            now = (await conn.execute(select(func.pg_backend_pid()))).scalar_one()
             await conn.commit()
+        except SQLAlchemyError as err:
+            log.error("the connection holding the worker id failed", exc_info=True)
+            lost.append(f"{type(err).__name__}: {err}".splitlines()[0])
+        else:
+            if now == pid:
+                continue
+            lost.append(f"it reconnected as session {now}, which does not hold the lock")
+        holder.cancel()
+        return
 
 
 class Worker:
@@ -72,7 +129,8 @@ class Worker:
 
     async def serve(self, poll_s: float = 1.0) -> None:
         """Claims and executes runs until cancelled. Raises `WorkerIdInUse`, before touching any
-        run, when another live worker has this worker's id."""
+        run, when another live worker has this worker's id, and `WorkerIdLost` if it stops
+        holding the id."""
         async with hold_worker_id(self._deps.engine, self._owner_id):
             await self.recover()
             try:
@@ -127,12 +185,14 @@ class Worker:
         try:
             await export_summary(self._deps.engine, run.run_id, self._deps.store)
         except Exception as err:
-            # Same boundary: a run reports cannot see is failed, saying why, like a failed
-            # export. `finish` keeps a run that was cancelled meanwhile `cancelled`.
+            # Same boundary: the run stays finished and says why reports cannot see it.
             log.error("run %s: summary export failed", run.run_id, exc_info=True)
-            outcome = Outcome("failed", f"summary export failed: {type(err).__name__}: {err}")
-            await self._deps.queue.finish(
-                run.run_id, run.owner_epoch, outcome.status, outcome.error
+            error = f"summary export failed: {type(err).__name__}: {err}"
+            status = await self._deps.queue.summary_failed(run.run_id, run.owner_epoch, error)
+            outcome = replace(
+                outcome,
+                status=status or outcome.status,
+                error="; ".join(e for e in (outcome.error, error) if e),
             )
         log.info("run %s: %s", run.run_id, outcome.status)
         return outcome
