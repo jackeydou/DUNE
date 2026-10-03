@@ -221,3 +221,39 @@ async def test_a_run_that_finds_the_host_unisolated_stops_the_worker_claiming(
     assert executed == [broken, in_flight]
     runs = {r.run_id: r.status for r in await bare_deps.queue.list_runs(submission_id=submission)}
     assert runs == {broken: "failed", in_flight: "done", **dict.fromkeys(untouched, "queued")}
+
+
+async def test_a_slot_freed_while_a_host_fault_is_recorded_claims_nothing(
+    bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broken, in_flight, *untouched = await enqueue(bare_deps.queue, submission, epochs=4)
+    executed: list[str] = []
+    in_flight_done = asyncio.Event()
+
+    async def fake_execute(run: RunRow, deps: WorkerDeps) -> Outcome:
+        executed.append(run.run_id)
+        if run.run_id == broken:
+            return Outcome("failed", "proc got through", host_fault=True)
+        await asyncio.sleep(0.05)
+        in_flight_done.set()
+        return Outcome("done")
+
+    real_export = worker_module.export_summary
+
+    async def slow_export(engine: AsyncEngine, run_id: str, store: ObjectStore) -> None:
+        if run_id == broken:
+            # Recording the faulty run outlasts the other run, whose slot frees meanwhile.
+            await in_flight_done.wait()
+            await asyncio.sleep(0.2)
+        await real_export(engine, run_id, store)
+
+    monkeypatch.setattr(worker_module, "execute", fake_execute)
+    monkeypatch.setattr(worker_module, "export_summary", slow_export)
+    worker = Worker(bare_deps, owner_id="w_slow_record", max_runs=2)
+
+    with pytest.raises(WorkerHalted):
+        await asyncio.wait_for(worker.serve(poll_s=0.02), 30)
+
+    assert executed == [broken, in_flight]
+    runs = {r.run_id: r.status for r in await bare_deps.queue.list_runs(submission_id=submission)}
+    assert runs == {broken: "failed", in_flight: "done", **dict.fromkeys(untouched, "queued")}

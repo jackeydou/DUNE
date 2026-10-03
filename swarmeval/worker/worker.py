@@ -188,15 +188,15 @@ class Worker:
             # The task boundary: an unexpected error fails this run, not the worker.
             log.error("run %s failed unexpectedly", run.run_id, exc_info=True)
             outcome = Outcome("failed", f"{type(err).__name__}: {err}")
-        recorded = await _to_the_end(self._record(run, outcome))
         if outcome.host_fault:
+            # Before recording, which may be slow: a slot freed meanwhile must not claim a run.
             self._halt = (
                 f"run `{run.run_id}` found worker `{self._owner_id}`'s host unfit to run any "
                 f"case: {outcome.error} Every run this worker claimed would fail the same way, "
                 "so it claims no more. Fix the host, then restart the worker."
             )
             log.error("%s", self._halt)
-        return recorded
+        return await _to_the_end(self._record(run, outcome))
 
     async def _record(self, run: RunRow, outcome: Outcome) -> Outcome:
         """Writes the run's final status, then its summary."""

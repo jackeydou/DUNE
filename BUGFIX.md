@@ -1,5 +1,18 @@
 # Bug fixes
 
+## 2026-10-03 — A worker claims runs while it records a host fault
+
+**Symptom.** After a run failed the isolation self-check, a worker whose summary write was slow
+could still claim new runs on the unisolated host when another in-flight run freed its slot.
+**Root cause.** `Worker._execute` set the halt reason only after `_record` had written the run's
+status and summary, and the serving loop checks the halt reason before each claim.
+**Fix.** Set the halt reason as soon as `execute` returns a host fault, before recording.
+`swarmeval/worker/worker.py`.
+**Guard.** `tests/worker/test_multi_worker.py::test_a_slot_freed_while_a_host_fault_is_recorded_claims_nothing`.
+**Touches.** Completes 2026-10-02 (one unisolated host fails every run it claims). Anything that
+stops the worker claiming must take effect before the first `await` after the run's outcome.
+Reported by Codex review on #11.
+
 ## 2026-10-02 — One unisolated host fails every run it claims
 
 **Symptom.** A worker whose sandboxd was misconfigured (for example `--sandbox-network
