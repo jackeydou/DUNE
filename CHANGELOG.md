@@ -149,6 +149,8 @@
   fields.
 
 ### Changed
+- sandboxd `INVALID_ARGUMENT` answers end a run `failed`, not `interrupted`, since the same
+  request gets the same answer.
 - The isolation self-check passes a peer's names to the DNS probe in two halves and scrubs them
   from its output, so no probe event carries another sandbox's canary token.
   `ProbeSandbox.names` holds (what, name) pairs.

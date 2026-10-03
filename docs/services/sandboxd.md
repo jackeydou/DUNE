@@ -50,6 +50,8 @@ authentication, so only the internal network may reach it.
 Ids are checked at the boundary: `run_id` matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`, because it
 becomes a directory name, and `sandbox_id` uses the case format's names. Errors map to
 `INVALID_ARGUMENT`, `NOT_FOUND`, and `ALREADY_EXISTS`; anything else is `INTERNAL` and is logged.
+`INVALID_ARGUMENT` means the request itself is wrong, so the worker fails the run rather than
+rerunning it ([orchestrator.md](orchestrator.md#queue-and-claiming)).
 
 ## Drivers
 

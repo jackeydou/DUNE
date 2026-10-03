@@ -72,15 +72,25 @@ class Outcome:
     error: str | None = None
 
 
+_SANDBOXD_REFUSALS = frozenset({grpc.StatusCode.INVALID_ARGUMENT})
+"""sandboxd codes that answer the request itself, so the same request gets them again. sandboxd
+uses `INVALID_ARGUMENT` for every request it rejects (a bad id, seed file, user, environment
+variable, hostname, machine id, or argv). `NOT_FOUND` (sandboxd restarted and forgot the run),
+`ALREADY_EXISTS`, `UNAVAILABLE`, and the rest are about sandboxd's state, not the request."""
+
+
 def service_failure(err: SandboxdError | ModelGatewayError) -> Outcome:
-    """An answer model-gateway would give again ends the run as `failed`: the backend refused
-    or failed the call (`502`), or the request itself was refused (any `4xx`, such as a model
-    name with no route). Anything else is the platform being unavailable, which ends it as
-    `interrupted` and queues a rerun; M3 pauses and resumes instead."""
-    status = err.status if isinstance(err, ModelGatewayError) else None
-    if status is not None and (status == UPSTREAM_ERROR_STATUS or 400 <= status < 500):
-        return Outcome("failed", str(err))
-    return Outcome("interrupted", str(err))
+    """An answer the service would give again ends the run as `failed`: model-gateway's backend
+    refused or failed the call (`502`), model-gateway refused the request itself (any `4xx`,
+    such as a model name with no route), or sandboxd refused the request (`INVALID_ARGUMENT`).
+    Anything else is the platform being unavailable, which ends it as `interrupted` and queues
+    a rerun; M3 pauses and resumes instead."""
+    if isinstance(err, SandboxdError):
+        refused = err.code in _SANDBOXD_REFUSALS
+    else:
+        status = err.status
+        refused = status is not None and (status == UPSTREAM_ERROR_STATUS or 400 <= status < 500)
+    return Outcome("failed" if refused else "interrupted", str(err))
 
 
 async def _variant(run: RunRow, store: ObjectStore) -> Variant:

@@ -13,6 +13,19 @@ the live tests in `tests/worker/test_probes_live.py` check stored events too.
 **Touches.** The marker halves rule in the same module (the `/proc` scan must not find its own
 command line). Anything else that passes one sandbox's identity into another must split it too.
 
+## 2026-10-02 — A sandboxd refusal ends a run `interrupted` and is rerun
+
+**Symptom.** A run sandboxd refused with `INVALID_ARGUMENT` (a bad user, seed file, environment
+variable, hostname, or machine id) ended `interrupted`, so it was rerun up to `epochs` times,
+every attempt refused the same way.
+**Root cause.** `service_failure` mapped every `SandboxdError` to `interrupted`.
+**Fix.** `INVALID_ARGUMENT` ends the run `failed`; `NOT_FOUND`, `UNAVAILABLE`, and every other
+code still interrupt it. sandboxd uses no `FAILED_PRECONDITION`. `swarmeval/worker/run.py`.
+**Guard.** `tests/worker/test_outcomes.py::test_a_backend_refusal_fails_the_run_and_an_outage_interrupts_it`
+(`INVALID_ARGUMENT`, `NOT_FOUND`, `INTERNAL`, protocol-error cases).
+**Touches.** 2026-10-02 (model-gateway `4xx` ends a run `interrupted`): the same rule for the
+other service. M3's pause must not pause on `INVALID_ARGUMENT`. The rerun cap stays the backstop.
+
 ## 2026-10-02 — A worker stopped while recording a run leaves it without a summary
 
 **Symptom.** Stopping a worker right after a run's final status was written, but before its

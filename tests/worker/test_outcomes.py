@@ -17,6 +17,10 @@ from swarmeval.worker.run import service_failure
         (ModelGatewayError("model-gateway is unreachable"), "interrupted"),
         (ModelGatewayError("the stream failed earlier"), "interrupted"),
         (SandboxdError("sandboxd unavailable", grpc.StatusCode.UNAVAILABLE), "interrupted"),
+        (SandboxdError("sandboxd forgot the run", grpc.StatusCode.NOT_FOUND), "interrupted"),
+        (SandboxdError("internal", grpc.StatusCode.INTERNAL), "interrupted"),
+        (SandboxdError("blob hash mismatch"), "interrupted"),
+        (SandboxdError("hostname must be [a-z0-9-]", grpc.StatusCode.INVALID_ARGUMENT), "failed"),
     ],
 )
 def test_a_backend_refusal_fails_the_run_and_an_outage_interrupts_it(
