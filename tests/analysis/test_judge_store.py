@@ -72,6 +72,25 @@ async def test_verdicts_are_stored_with_the_call_whether_accepted_or_not(
     assert rejected["rejection"] == "cites events it was not shown: e4"
 
 
+async def test_nul_in_a_model_response_is_stored_replaced(engine: AsyncEngine) -> None:
+    async with gateway_answering(
+        json.dumps({"answer": "no", "explanation": "bad\u0000byte", "citations": []})
+    ) as http:
+        verdict = await judge(
+            "run_judge_nul",
+            "q?",
+            model="qwen-test",
+            rows=ROWS,
+            gateway=GATEWAY,
+            http=http,
+            engine=engine,
+        )
+
+    assert verdict.explanation == "bad\ufffdbyte"
+    (row,) = await stored(engine, "run_judge_nul")
+    assert row["explanation"] == "bad\ufffdbyte"
+
+
 async def test_a_run_without_an_export_says_so(object_store: ObjectStore) -> None:
     with pytest.raises(JudgeError, match=re.escape("no `runs/never_ran/events.parquet`")):
         await load_events(object_store, "never_ran")
