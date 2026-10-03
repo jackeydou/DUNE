@@ -1,5 +1,46 @@
 # Bug fixes
 
+## 2026-10-03 — A stale owner overwrites the summary its run's new owner wrote
+
+**Symptom.** An owner taken over between the end of its run and its final status (its lease ran
+out while it stalled, or its worker restarted) had its `finish` ignored, but still exported the
+run's summary. That upload could land after the new owner's and replace the final summary with
+one read while the run was unfinished.
+**Root cause.** `Queue.finish` returned `None` both for a stale `owner_epoch` and for a run with
+no rerun, so `Worker._record` could not tell it had lost the run.
+**Fix.** `finish` raises `FencedError` for a stale `owner_epoch`; `_record` then writes no
+summary. `swarmeval/control/queue.py`, `swarmeval/worker/worker.py`.
+**Guard.** `tests/worker/test_takeover.py::test_an_owner_taken_over_after_its_run_ended_writes_no_status_or_summary`,
+`tests/control/test_queue.py::test_a_stale_owner_cannot_finish_or_rerun`.
+**Touches.** 2026-10-02 (stale worker overwrites an interrupted run): `finish` still leaves a
+finished run alone at the right epoch, but now raises rather than returns `None` at a stale one.
+`summary_failed` still returns `None` when stale; it only runs after a successful `finish`.
+Reported by Codex review on #14.
+
+## 2026-10-03 — A hung lease renewal keeps runs going past their lease
+
+**Symptom.** After one renewal failed fast, the next attempt started at the two-thirds cutoff
+with a timeout of a third of a lease, so a database call that hung kept the worker's runs
+executing until their lease ran out, when another worker may take them over.
+**Root cause.** The renewal loop checked the cutoff only after an attempt failed, and bounded
+each attempt by the renewal interval rather than by the time left before the cutoff.
+**Fix.** The cutoff is checked before every attempt, each attempt's timeout is the time left
+before it, and failures retry every twelfth of the lease. `swarmeval/worker/leases.py`.
+**Guard.** `tests/worker/test_leases.py::test_renewals_that_fail_then_hang_stop_every_run_by_the_cutoff`.
+**Touches.** Fencing stays the backstop for an owner whose event loop itself stalls. Reported by
+Codex review on #14.
+
+## 2026-10-03 — `--lease-s 0` makes workers take over runs endlessly
+
+**Symptom.** `swarmeval-worker --lease-s 0` (or a negative value) took leases that had run out
+as they were set, so serving workers kept taking over each other's runs, and their own.
+**Root cause.** The flag was parsed with `float` and never checked.
+**Fix.** `lease_seconds` accepts only a finite number of seconds above zero and names the bad
+value. `swarmeval/worker/server.py`.
+**Guard.** `tests/worker/test_server.py::test_a_lease_is_a_finite_number_of_seconds_above_zero`.
+**Touches.** `Leases` and `Queue` still trust the value they are given. Reported by Codex review
+on #14.
+
 ## 2026-10-03 — A restarted worker leaves its interrupted runs' containers on the host
 
 **Symptom.** After a worker restarted and marked the runs it had owned `interrupted` (or finished

@@ -84,7 +84,8 @@ async def test_a_run_whose_lease_ran_out_is_claimed_and_its_owner_fenced(
     assert taken.expired_at < datetime.now(UTC)
     assert await _lease_left(engine, expired) > 19
     assert await queue.claim_expired("w_taker") is None
-    assert await queue.finish(expired, old_epoch, "done") is None
+    with pytest.raises(FencedError, match=expired):
+        await queue.finish(expired, old_epoch, "done")
     assert await queue.renew("w_dead", {expired: old_epoch}) == set()
     with pytest.raises(FencedError, match=expired):
         alert = AlertRecord(message="late", severity="low")

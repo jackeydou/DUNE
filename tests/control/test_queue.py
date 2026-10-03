@@ -77,7 +77,8 @@ async def test_a_stale_owner_cannot_finish_or_rerun(engine: AsyncEngine, submiss
     (run,) = await enqueue(queue, submission)
     owner_epoch = await start(engine, run, "w1")
 
-    assert await queue.finish(run, owner_epoch - 1, "interrupted") is None
+    with pytest.raises(FencedError, match=f"run {run} is at owner_epoch {owner_epoch}"):
+        await queue.finish(run, owner_epoch - 1, "interrupted")
 
     assert [r.status for r in await queue.list_runs(submission_id=submission)] == ["running"]
     await queue.finish(run, owner_epoch, "done")
@@ -135,7 +136,8 @@ async def test_a_stale_owner_cannot_overwrite_a_run_its_restarted_worker_interru
     assert await queue.interrupt_owned(w1) == [
         Recovered(run, "interrupted", f"c.{submission}.v0.e2")
     ]
-    assert await queue.finish(run, old_epoch, "done") is None
+    with pytest.raises(FencedError, match=run):
+        await queue.finish(run, old_epoch, "done")
     assert await queue.summary_failed(run, old_epoch, "late") is None
     with pytest.raises(FencedError, match=run):
         alert = AlertRecord(message="late", severity="low")

@@ -12,6 +12,7 @@ from typing import Any
 import grpc
 import pytest
 from sqlalchemy import func, update
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.analysis import load_summaries
 from swarmeval.control.queue import FINISHED, Queue, RunRow
@@ -216,3 +217,37 @@ async def test_a_restarted_worker_removes_the_sandboxes_of_the_runs_it_finishes(
     assert removed == [run_id]
     assert recovered.replacement is not None
     await bare_deps.queue.cancel(recovered.replacement)
+
+
+async def test_an_owner_taken_over_after_its_run_ended_writes_no_status_or_summary(
+    bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (run_id,) = await enqueue(bare_deps.queue, submission)
+    exported: list[str] = []
+    real_export = worker_module.export_summary
+
+    async def export(engine: AsyncEngine, run: str, store: ObjectStore) -> str:
+        exported.append(run)
+        return await real_export(engine, run, store)
+
+    async def taken_over_on_the_way_out(run: RunRow) -> Outcome:
+        # As if the owner had stalled between the end of the run and its final status.
+        async with bare_deps.engine.begin() as conn:
+            await conn.execute(
+                update(control_runs)
+                .where(control_runs.c.run_id == run.run_id)
+                .values(lease_until=func.now() - timedelta(seconds=1))
+            )
+        assert await bare_deps.queue.claim_expired("w_other") is not None
+        return Outcome("done")
+
+    _fake_execute(monkeypatch, taken_over_on_the_way_out)
+    monkeypatch.setattr(worker_module, "export_summary", export)
+
+    outcomes = await Worker(bare_deps, owner_id="w_stalled").drain()
+
+    assert outcomes == {run_id: Outcome("interrupted", "fenced")}
+    after = await bare_deps.queue.get(run_id)
+    assert (after.status, after.owner_id, after.finished_at) == ("running", "w_other", None)
+    assert exported == []
+    await bare_deps.queue.finish(run_id, after.owner_epoch, "done")

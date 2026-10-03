@@ -199,8 +199,10 @@
 - pyright checks case extensions (`cases/*/extensions`).
 - Run leases: a claim sets `control.runs.lease_until`, and the worker renews the lease of every
   run it holds each third of `--lease-s` (default 30 s, `swarmeval-worker`). A run a renewal no
-  longer finds is stopped at once; when renewals keep failing, every held run is stopped two
-  thirds of a lease after the last renewal went out (`swarmeval.worker.leases`, `Queue.renew`).
+  longer finds is stopped at once. A failed renewal is retried every twelfth of the lease, no
+  attempt outlasts the cutoff, and at the cutoff, two thirds of a lease after the last renewal
+  went out, every held run is stopped (`swarmeval.worker.leases`, `Queue.renew`). `--lease-s`
+  must be a finite number of seconds above zero.
 - Takeover: a serving worker claims an unfinished run whose lease ran out, before any queued run
   (`Queue.claim_expired`), which fences the old owner. Until resuming is built it removes the
   run's sandboxes through its sandboxd and finishes it `interrupted`, which reruns it, or
@@ -212,6 +214,8 @@
   it; older cases load unchanged and refuse them, naming the field.
 - A worker restarting with its old id also asks its sandboxd to remove the sandboxes of the runs
   it finishes (`Worker.recover`). Before, their containers were left on the host.
+- `Queue.finish` raises `FencedError` when the caller's `owner_epoch` is stale, instead of
+  returning `None`; the worker then writes neither the run's status nor its summary.
 - `case.yaml` schema version 2: channel `interventions`, list values for variant axes, and the
   `cross_sandbox` scorer need it; version 1 cases load unchanged and refuse those with an error
   naming the field. `env.yaml` and suites stay at version 1. Versioning now bumps for any change

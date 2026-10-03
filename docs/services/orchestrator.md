@@ -155,8 +155,9 @@ refused the request, `INVALID_ARGUMENT` such as a bad user, hostname, or seed fi
 restart, `NOT_FOUND`, the worker that owned the run restarted, or it stopped renewing its lease
 and another worker [took the run over](#leases-fencing-and-takeover); M3 pauses or resumes
 instead). A finished run's status is final: `finish` changes a run only while it is `running`,
-`paused`, or `cancelled` (a cancel lands before its owner finishes the run). A claim also sets the
-run's `lease_until`.
+`paused`, or `cancelled` (a cancel lands before its owner finishes the run), and only at the
+caller's `owner_epoch`. A stale owner's `finish` raises `FencedError`, and that owner writes no
+summary either, since the run's new owner writes one. A claim also sets the run's `lease_until`.
 
 ### Reruns
 
@@ -494,8 +495,9 @@ run. The tables were shaped for recovery from the start, so none of this needed 
   database's clock, so workers' clocks never have to agree. While a worker works on a run, until
   only its final status is left to write, it renews the lease every third of that. A run a
   renewal no longer finds (another worker took it over, or it was finished elsewhere) is stopped
-  at once. If renewals keep failing, the worker stops every run it holds once two thirds of the
-  lease have passed since the last renewal went out, before any lease can run out. A stopped run
+  at once. A failed renewal is retried every twelfth of the lease, and no attempt lasts past the
+  cutoff: two thirds of the lease after the last renewal that went out. At the cutoff the worker
+  stops every run it holds, before any lease can run out. A stopped run
   is cancelled where it is: its sandboxes are removed and nothing is recorded, since the run now
   belongs to whoever takes it over.
 - **Fencing.** Every write transaction starts with
