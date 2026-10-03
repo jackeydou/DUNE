@@ -1,0 +1,154 @@
+"""Several workers on one Postgres: each run is claimed and executed by exactly one of them.
+
+`execute` is replaced, so no sandbox or model is involved; what is under test is the queue, the
+worker loop, finishing, reruns, and summaries."""
+
+import asyncio
+import random
+from collections import Counter
+from collections.abc import AsyncIterator
+from dataclasses import replace
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from swarmeval.analysis import load_summaries, report
+from swarmeval.control.queue import FINISHED, Queue, RunRow
+from swarmeval.db import async_engine
+from swarmeval.events import ObjectStore
+from swarmeval.worker import Worker, WorkerDeps, WorkerIdInUse, hold_worker_id
+from swarmeval.worker import worker as worker_module
+from swarmeval.worker.run import Outcome
+from tests.queueing import enqueue, start
+
+pytestmark = pytest.mark.docker
+
+
+@pytest.fixture
+async def other_engine(postgres_url: str) -> AsyncIterator[AsyncEngine]:
+    """A second pool, as a second worker process would have."""
+    engine = async_engine(postgres_url)
+    yield engine
+    await engine.dispose()
+
+
+async def _until_finished(queue: Queue, submission: str, runs: int) -> list[RunRow]:
+    async with asyncio.timeout(60):
+        while True:
+            found = await queue.list_runs(submission_id=submission, limit=1000)
+            if len(found) == runs and all(r.status in FINISHED for r in found):
+                return found
+            await asyncio.sleep(0.05)
+
+
+async def test_two_workers_claim_each_run_exactly_once(
+    bare_deps: WorkerDeps,
+    other_engine: AsyncEngine,
+    submission: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queued = await enqueue(bare_deps.queue, submission, variants=3, epochs=8)
+    flaky = queued[0]
+    executed: list[tuple[str, str | None]] = []
+
+    async def fake_execute(run: RunRow, deps: WorkerDeps) -> Outcome:
+        executed.append((run.run_id, run.owner_id))
+        await asyncio.sleep(random.uniform(0, 0.02))
+        if run.run_id == flaky:
+            return Outcome("interrupted", "sandboxd unavailable")
+        return Outcome("done")
+
+    monkeypatch.setattr(worker_module, "execute", fake_execute)
+    second = replace(bare_deps, engine=other_engine, queue=Queue(other_engine))
+    workers = [
+        Worker(bare_deps, owner_id="w_multi_a", max_runs=3),
+        Worker(second, owner_id="w_multi_b", max_runs=3),
+    ]
+    serving = [asyncio.create_task(w.serve(poll_s=0.02)) for w in workers]
+    try:
+        finished = await _until_finished(bare_deps.queue, submission, len(queued) + 1)
+    finally:
+        for task in serving:
+            task.cancel()
+        await asyncio.gather(*serving, return_exceptions=True)
+
+    runs = Counter(run_id for run_id, _ in executed)
+    assert set(runs.values()) == {1}
+    assert set(runs) == {r.run_id for r in finished}
+    by_owner = Counter(owner for _, owner in executed)
+    assert set(by_owner) == {"w_multi_a", "w_multi_b"}
+    assert {r.run_id: r.owner_id for r in finished} == dict(executed)
+    rerun = next(r for r in finished if r.replaces == flaky)
+    assert (rerun.status, rerun.epoch) == ("done", 9)
+    assert Counter(r.status for r in finished) == {"done": len(queued), "interrupted": 1}
+
+    summaries = [
+        s for s in load_summaries(bare_deps.store).to_pylist() if s["submission_id"] == submission
+    ]
+    assert sorted(s["run_id"] for s in summaries) == sorted(runs)
+    coverage = report(load_summaries(bare_deps.store), [submission]).coverage
+    assert [(c.variant, c.requested, c.done, c.replaced) for c in coverage] == [
+        (0, 8, 8, 1),
+        (1, 8, 8, 0),
+        (2, 8, 8, 0),
+    ]
+
+
+async def test_a_worker_id_is_held_by_one_worker_at_a_time(
+    engine: AsyncEngine, other_engine: AsyncEngine
+) -> None:
+    async with hold_worker_id(engine, "w_held"):
+        with pytest.raises(WorkerIdInUse, match="w_held"):
+            async with hold_worker_id(other_engine, "w_held"):
+                pass
+        async with hold_worker_id(other_engine, "w_other"):
+            pass
+
+    async with hold_worker_id(other_engine, "w_held"):
+        pass
+
+
+async def test_a_second_worker_with_a_live_id_leaves_its_runs_alone(
+    bare_deps: WorkerDeps, other_engine: AsyncEngine, submission: str
+) -> None:
+    (run_id,) = await enqueue(bare_deps.queue, submission)
+    owner_epoch = await start(bare_deps.engine, run_id, "w_twin")
+    duplicate = Worker(
+        replace(bare_deps, engine=other_engine, queue=Queue(other_engine)), owner_id="w_twin"
+    )
+
+    async with hold_worker_id(bare_deps.engine, "w_twin"):
+        with pytest.raises(WorkerIdInUse):
+            await duplicate.serve(poll_s=0.02)
+
+    assert (await bare_deps.queue.get(run_id)).status == "running"
+    await bare_deps.queue.finish(run_id, owner_epoch, "done")
+
+
+async def test_a_worker_stopped_while_recording_a_run_still_writes_its_summary(
+    bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (run_id,) = await enqueue(bare_deps.queue, submission)
+    recording = asyncio.Event()
+    export_summary = worker_module.export_summary
+
+    async def done(run: RunRow, deps: WorkerDeps) -> Outcome:
+        return Outcome("done")
+
+    async def slow_summary(engine: AsyncEngine, run_id: str, store: ObjectStore) -> str:
+        recording.set()
+        await asyncio.sleep(0.2)
+        return await export_summary(engine, run_id, store)
+
+    monkeypatch.setattr(worker_module, "execute", done)
+    monkeypatch.setattr(worker_module, "export_summary", slow_summary)
+    serving = asyncio.create_task(Worker(bare_deps, owner_id="w_stopped").serve(poll_s=0.02))
+    await asyncio.wait_for(recording.wait(), 10)
+    serving.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await serving
+
+    statuses = [
+        s["status"] for s in load_summaries(bare_deps.store).to_pylist() if s["run_id"] == run_id
+    ]
+    assert statuses == ["done"]

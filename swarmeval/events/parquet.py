@@ -42,6 +42,7 @@ SUMMARY_SCHEMA = pa.schema(
     [
         ("run_id", pa.string()),
         ("submission_id", pa.string()),
+        ("suite", pa.string()),
         ("case_id", pa.string()),
         ("case_sha256", pa.string()),
         ("workspace", pa.string()),
@@ -49,6 +50,8 @@ SUMMARY_SCHEMA = pa.schema(
         ("task_args", pa.string()),
         ("epoch", pa.int32()),
         ("epochs", pa.int32()),
+        ("replaces", pa.string()),
+        ("replaced_by", pa.string()),
         ("status", pa.string()),
         ("error", pa.string()),
         ("isolation", pa.string()),
@@ -58,7 +61,10 @@ SUMMARY_SCHEMA = pa.schema(
     ]
 )
 """`task_args` is the variant's axis values as JSON text with sorted keys, so equal variants
-compare equal. `scores` holds each scorer's last score."""
+compare equal. `epochs` is how many the submission asked for per variant; `replaces` and
+`replaced_by` link an interrupted run and its rerun; `suite` is the submission's suite label.
+`scores` holds each scorer's last score. Summaries written before a column existed read it as
+null."""
 
 
 def events_key(run_id: str) -> str:
@@ -120,12 +126,14 @@ async def export_summary(engine: AsyncEngine, run_id: str, store: ObjectStore) -
                 await conn.execute(
                     select(
                         run_specs.c.submission_id,
+                        run_specs.c.suite,
                         run_specs.c.case_id,
                         run_specs.c.case_sha256,
                         run_specs.c.variant,
                         run_specs.c.task_args,
                         run_specs.c.epoch,
                         run_specs.c.epochs,
+                        run_specs.c.replaces,
                         control_runs.c.workspace,
                         control_runs.c.isolation,
                         control_runs.c.started_at,
@@ -140,6 +148,9 @@ async def export_summary(engine: AsyncEngine, run_id: str, store: ObjectStore) -
             .mappings()
             .one()
         )
+        replaced_by = (
+            await conn.execute(select(run_specs.c.run_id).where(run_specs.c.replaces == run_id))
+        ).scalar_one_or_none()
         payloads = (
             await conn.execute(
                 select(events.c.payload)
@@ -159,6 +170,7 @@ async def export_summary(engine: AsyncEngine, run_id: str, store: ObjectStore) -
     row = {
         **spec,
         "run_id": run_id,
+        "replaced_by": replaced_by,
         "task_args": json.dumps(spec["task_args"], sort_keys=True, ensure_ascii=False),
         "scores": list(scores.values()),
     }

@@ -13,7 +13,7 @@ from swarmeval.control.queue import Queue
 from swarmeval.db import async_engine
 from swarmeval.events import ObjectStore
 from swarmeval.worker.run import WorkerDeps
-from swarmeval.worker.worker import Worker
+from swarmeval.worker.worker import Worker, WorkerIdInUse
 
 
 async def serve(
@@ -59,22 +59,27 @@ def main() -> None:
     parser.add_argument(
         "--worker-id",
         default=socket.gethostname(),
-        help="stable across restarts; runs it owned are marked interrupted when it starts",
+        help="unique among running workers, and the same across restarts: on start, runs this "
+        "id owned are marked interrupted and rerun. A second worker with an id in use refuses "
+        "to start",
     )
     parser.add_argument("--max-runs", type=int, default=4, help="runs executed at once")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(
-        serve(
-            database_url(args),
-            object_store(args),
-            sandboxd=args.sandboxd,
-            gateway_http=args.gateway_http,
-            gateway_grpc=args.gateway_grpc,
-            owner_id=args.worker_id,
-            max_runs=args.max_runs,
+    try:
+        asyncio.run(
+            serve(
+                database_url(args),
+                object_store(args),
+                sandboxd=args.sandboxd,
+                gateway_http=args.gateway_http,
+                gateway_grpc=args.gateway_grpc,
+                owner_id=args.worker_id,
+                max_runs=args.max_runs,
+            )
         )
-    )
+    except WorkerIdInUse as err:
+        raise SystemExit(str(err)) from err
 
 
 if __name__ == "__main__":

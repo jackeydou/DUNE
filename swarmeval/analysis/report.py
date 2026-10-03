@@ -1,8 +1,10 @@
 """Trigger rates per case, variant, and scorer over the epochs that finished, read from run
 summaries (docs/services/analysis.md#reports).
 
-Only `done` runs count. Runs that ended any other way are listed per status beside the rates,
-since how interrupted and re-run epochs should count is still open (runtime spec Q6).
+Only `done` runs count. Runs that ended any other way are listed per status beside the rates.
+An interrupted run is rerun at a new epoch by the control plane, so per variant the report also
+says how many epochs were asked for, how many are `done`, and how many were rerun
+(trajectory-first spec Q4).
 """
 
 import math
@@ -49,10 +51,30 @@ class Unscored:
 
 
 @dataclass(frozen=True)
+class Coverage:
+    case_id: str
+    case_sha256: str
+    variant: int
+    task_args: str
+    requested: int
+    """Epochs the submissions asked for, summed over the submissions with a finished run."""
+    done: int
+    replaced: int
+    """Interrupted runs that were rerun at a new epoch."""
+
+    @property
+    def missing(self) -> int:
+        """Requested epochs with no `done` run: failed, cancelled, still running, or interrupted
+        once the variant had used up its reruns."""
+        return self.requested - self.done
+
+
+@dataclass(frozen=True)
 class Report:
     rates: tuple[Rate, ...]
     unscored: tuple[Unscored, ...]
     """Runs left out of the rates because they did not end `done`."""
+    coverage: tuple[Coverage, ...]
 
 
 def load_summaries(store: ObjectStore) -> pa.Table:
@@ -66,16 +88,25 @@ def load_summaries(store: ObjectStore) -> pa.Table:
     return dataset.to_table()
 
 
-def report(summaries: pa.Table, submissions: Sequence[str] = ()) -> Report:
-    """`submissions` narrows the report to those submissions; empty means every run."""
+def report(
+    summaries: pa.Table, submissions: Sequence[str] = (), suites: Sequence[str] = ()
+) -> Report:
+    """`submissions` and `suites` (suite labels) narrow the report to the runs of any of them;
+    both empty means every run."""
     con = duckdb.connect()
     con.register("summaries", summaries)
     runs = """
         WITH runs AS (
-            SELECT * FROM summaries WHERE $all OR list_contains($submissions, submission_id)
+            SELECT * FROM summaries
+            WHERE $all OR list_contains($submissions, submission_id)
+                  OR list_contains($suites, suite)
         )
     """
-    params = {"all": not submissions, "submissions": list(submissions) or [""]}
+    params = {
+        "all": not submissions and not suites,
+        "submissions": list(submissions) or [""],
+        "suites": list(suites) or [""],
+    }
     rows = con.execute(
         runs
         + """
@@ -114,7 +145,30 @@ def report(summaries: pa.Table, submissions: Sequence[str] = ()) -> Report:
             params,
         ).fetchall()
     )
-    return Report(rates=rates, unscored=unscored)
+    coverage = tuple(
+        Coverage(case_id=c, case_sha256=h, variant=v, task_args=t, requested=r, done=d, replaced=x)
+        for c, h, v, t, r, d, x in con.execute(
+            runs
+            + """
+            , requested AS (
+                SELECT case_id, case_sha256, variant, task_args, sum(epochs) AS requested
+                FROM (SELECT DISTINCT submission_id, case_id, case_sha256, variant, task_args,
+                             epochs FROM runs)
+                GROUP BY ALL
+            ), counts AS (
+                SELECT case_id, case_sha256, variant, task_args,
+                       count(*) FILTER (WHERE status = 'done') AS done,
+                       count(replaced_by) AS replaced
+                FROM runs GROUP BY ALL
+            )
+            SELECT case_id, case_sha256, variant, task_args, requested, done, replaced
+            FROM requested JOIN counts USING (case_id, case_sha256, variant, task_args)
+            ORDER BY ALL
+            """,
+            params,
+        ).fetchall()
+    )
+    return Report(rates=rates, unscored=unscored, coverage=coverage)
 
 
 def wilson(rate: float, n: int, z: float = Z95) -> tuple[float, float]:
@@ -135,6 +189,18 @@ def markdown(result: Report) -> str:
             f"{r.epochs} | "
             f"{r.rate:.3f} | {stderr} | [{r.ci_low:.3f}, {r.ci_high:.3f}] |"
         )
+    lines += [
+        "",
+        "Epochs per variant (an interrupted run is rerun at a new epoch, at most `epochs` times):",
+        "",
+        "| case | variant | task_args | requested | done | replaced | missing |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    lines += [
+        f"| {c.case_id}@{c.case_sha256[:8]} | {c.variant} | `{c.task_args}` | {c.requested} | "
+        f"{c.done} | {c.replaced} | {c.missing} |"
+        for c in result.coverage
+    ]
     if result.unscored:
         lines += ["", "Not counted (did not end `done`):", ""]
         lines += [

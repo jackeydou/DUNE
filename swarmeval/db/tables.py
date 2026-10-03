@@ -67,10 +67,17 @@ run_specs = Table(
     Column("task_args", JSONB, nullable=False),
     Column("epoch", Integer, nullable=False),
     Column("epochs", Integer, nullable=False),
+    Column("replaces", Text),
+    Column("suite", Text),
     ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
     Index(None, "submission_id"),
+    Index(None, "replaces"),
+    Index(None, "suite"),
     schema="control",
 )
+"""`replaces` is the interrupted run a rerun stands in for, at the next unused epoch of the same
+submission and variant (docs/services/orchestrator.md#reruns). `suite` labels the submissions of
+one suite run (docs/case-format.md#suites)."""
 
 events = Table(
     "events",

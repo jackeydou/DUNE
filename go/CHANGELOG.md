@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- `swarmeval.control.v1` stubs: `Run.replaces`, the interrupted run a rerun stands in for;
+  `suite` on `SubmitRunsRequest`, `Run`, and `ListRunsRequest`.
 - `internal/netgw`, net-gateway's platform-independent core: first-hit policy (`allow`, `deny`,
   `log_and_deny`), the config file, and TLS SNI and HTTP request-line classification, with Go and
   Python stubs for `swarmeval.netgw.v1.NetEventsService`. No binary uses either: net-gateway is

@@ -10,6 +10,9 @@ from swarmeval.worker.run import service_failure
     ("err", "status"),
     [
         (ModelGatewayError("context too long", UPSTREAM_ERROR_STATUS), "failed"),
+        (ModelGatewayError("model_not_found", 404), "failed"),
+        (ModelGatewayError("invalid_request", 400), "failed"),
+        (ModelGatewayError("internal server error", 500), "interrupted"),
         (ModelGatewayError("run_not_attached", 503), "interrupted"),
         (ModelGatewayError("model-gateway is unreachable"), "interrupted"),
         (ModelGatewayError("the stream failed earlier"), "interrupted"),

@@ -386,7 +386,7 @@ def _axes(
     try:
         axes = _AXES.validate_python(raw)
     except ValidationError as err:
-        raise CaseError(_describe(f"{path} `variants`", err)) from err
+        raise CaseError(describe_errors(f"{path} `variants`", err)) from err
     for name, values in overrides.items():
         if name not in axes:
             raise CaseError(
@@ -462,10 +462,12 @@ def _validate[M: CaseFile | EnvFile](model: type[M], raw: object, where: str) ->
     try:
         return model.model_validate(raw)
     except ValidationError as err:
-        raise CaseError(_describe(where, err)) from err
+        raise CaseError(describe_errors(where, err)) from err
 
 
-def _describe(where: str, err: ValidationError) -> str:
+def describe_errors(where: str, err: ValidationError) -> str:
+    """One line per problem, naming its field. Shared by case, env, and suite files, which
+    docs/case-format.md all documents."""
     lines = [f"{where}: {err.error_count()} problem(s)"]
     for detail in err.errors():
         location = _dotted(detail["loc"]) or "(top level)"
