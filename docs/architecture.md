@@ -24,13 +24,14 @@ models, the `inspect_ai` mapping, and case hooks exist only in Python.
 | [`sandboxd`](services/sandboxd.md) | Go | Sandbox lifecycle through the docker or k8s API; runs tool calls inside sandboxes and reports the file diff and surviving processes after each one | M0 |
 | [`net-gateway`](services/net-gateway.md) | Go | One instance per run: TLS interception, DNS, network policy, pcap | Later: the network capability, outside M0–M5 |
 | [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, timelines, per-variant `.eval`, offline scorers over exported runs | M1 as batch jobs (all but offline scorers are built); service in M4 |
-| [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication and run forwarding built; case and analysis forwarding, console, mTLS next |
+| [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication, run and case forwarding, and mTLS to the Control API built; analysis forwarding and the console next |
 | [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4: sign-in, runs, suites, events, and forks built |
 | [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | M4 |
 
 Users trigger runs with the `swarm` CLI, a client of `edge`; the console follows in M4. Tests
 and operators on the internal network can also call the orchestrator's gRPC Control API
-directly (grpcurl), which has no authentication until services use mTLS.
+directly (grpcurl), with the `operator` certificate where services use
+[mutual TLS](#service-identity).
 
 ## How they talk
 
@@ -73,12 +74,53 @@ flowchart TB
     class CP,W,AN,MG py
 ```
 
-- Services talk gRPC with mTLS. Contracts live in `proto/` and are managed with buf; `edge`
-  serves HTTP/JSON to browsers and the CLI through Connect. mTLS arrives in M4, with `edge`.
-  Until then services talk plain gRPC on the internal network.
+- Services talk gRPC with mutual TLS ([Service identity](#service-identity)). Contracts live in
+  `proto/` and are managed with buf; `edge` serves HTTP/JSON to browsers and the CLI through
+  Connect.
 - Each service owns its data. Another service asks it over gRPC and never reads its tables.
 - The split is by function, never by run. All agent loops of one run, its sequencing, and its
   writes stay in one worker. Different runs spread across workers.
+
+## Service identity
+
+Every service holds one certificate, signed by a CA that belongs to the deployment. The
+certificate names the service in a URI SAN, `spiffe://swarmeval/<service>`, and is both its
+server and its client certificate. A service started with one (`--mtls-cert`, `--mtls-key`,
+`--mtls-ca`, on every service) serves only mutual TLS 1.3 and accepts only the callers below.
+Started without one, it serves plain text and refuses to listen on anything but a loopback
+address, which is how development and the tests run.
+
+| Service | Accepts |
+|---|---|
+| orchestrator control plane (`ControlService`) | `edge`, `operator` |
+| `analysis` (once it is a service) | `edge` |
+| `model-gateway` (HTTP and `RecorderService`) | `worker`, `analysis` |
+| `sandboxd` | `worker` |
+
+`operator` is for tools a person runs on the internal network: `python -m
+swarmeval.control.suite` and grpcurl. `worker`, `edge`, and `operator` certificates are client
+certificates only.
+
+- **Refusals.** A connection with no certificate, or one another CA signed, fails in the TLS
+  handshake. A certificate of the CA that names a service not on the list is refused by
+  `sandboxd` in the handshake too, by the Python gRPC servers with `PERMISSION_DENIED`, and by
+  model-gateway's HTTP API with `403 caller_not_allowed`; each logs who it refused. A
+  certificate that names no service, several, or another trust domain is nobody.
+- **Clients** connect only to a certificate the CA signed for the host they dialed. `edge`, in
+  Go, also requires the certificate to name `control`. The Python clients (the worker, the
+  judge, the suite tool) check the host name only; server certificates name their own service
+  and loopback, so two services of one deployment can pass for each other only on `localhost`.
+- **Issuing.** `swarm-certs --out DIR` (`go/cmd/swarm-certs`, the standard library's
+  `crypto/x509`) writes `ca.crt`, `ca.key`, and `<service>/{ca.crt,tls.crt,tls.key}`, ECDSA
+  P-256. Each service's directory holds what that service needs and no other's key, so it can
+  be mounted alone. Server certificates name the service (`control`, `model-gateway`, …),
+  `localhost`, `127.0.0.1`, and `::1`; `--host SERVICE=NAME` adds a DNS name or address.
+- **Rotation.** Certificates last one year. Running `swarm-certs` again keeps the CA (ten
+  years) and replaces the certificates, so services can be restarted one at a time; a service
+  reads its files once, at start. `--new-ca` replaces the CA, after which every service must
+  restart before any two can talk.
+- The actor edge passes to the control plane is trusted because only `edge` and `operator`
+  can connect ([edge](services/edge.md)).
 
 ## Event flow
 
@@ -200,7 +242,7 @@ build the single-machine column; the k8s column arrives in M5.
 | Worker egress | Outbound internet, for `web_request` | The same, from worker Pods |
 | Postgres | Container in compose, on a persistent volume | Managed service or an operator |
 | Object storage | RustFS container in compose, on a persistent volume | RustFS or a cloud S3 service |
-| Service certificates | Self-signed CA generated at start | cert-manager |
+| Service certificates | `swarm-certs`: a CA of the deployment's own, generated at start | cert-manager |
 | Run takeover | On the same machine | On any node; sandbox Pods outlive workers *(open, runtime spec Q4)* |
 
 On a shared server, SwarmEval must not disturb other workloads: it does not restart the docker

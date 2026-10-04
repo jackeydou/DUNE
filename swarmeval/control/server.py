@@ -18,6 +18,16 @@ from swarmeval.control.queue import Queue
 from swarmeval.control.service import ControlService
 from swarmeval.db import async_engine, migrate
 from swarmeval.events import ObjectStore
+from swarmeval.mtls import (
+    EDGE,
+    OPERATOR,
+    Identity,
+    add_mtls,
+    add_port,
+    check_listen,
+    identity,
+    interceptors,
+)
 from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import (
     add_ControlServiceServicer_to_server,
 )
@@ -26,16 +36,24 @@ MAX_MESSAGE_BYTES = 64 << 20
 """Case bundles arrive in one message; gRPC's default 4 MiB is too small for real cases."""
 
 
-async def serve(url: str, store: ObjectStore, listen: str, *, allow_case_code: bool) -> None:
+CALLERS = (EDGE, OPERATOR)
+"""Who may call the Control API: edge for users, and operators' own tools."""
+
+
+async def serve(
+    url: str, store: ObjectStore, listen: str, *, allow_case_code: bool, mtls: Identity | None
+) -> None:
+    check_listen("--listen", listen, mtls)
     await asyncio.to_thread(migrate, url)
     engine = async_engine(url)
     listener = EventListener(url)
     await listener.start()
     server = grpc.aio.server(
+        interceptors=interceptors(mtls, CALLERS),
         options=[
             ("grpc.max_receive_message_length", MAX_MESSAGE_BYTES),
             ("grpc.max_send_message_length", MAX_MESSAGE_BYTES),
-        ]
+        ],
     )
     service = ControlService(
         queue=Queue(engine),
@@ -45,7 +63,7 @@ async def serve(url: str, store: ObjectStore, listen: str, *, allow_case_code: b
         allow_case_code=allow_case_code,
     )
     add_ControlServiceServicer_to_server(service, server)
-    server.add_insecure_port(listen)
+    add_port(server, listen, mtls)
     await server.start()
     try:
         await server.wait_for_termination()
@@ -60,8 +78,14 @@ def main() -> None:
     add_database(parser)
     add_object_store(parser)
     add_case_code(parser)
-    parser.add_argument("--listen", default="127.0.0.1:7090", help="Control API address")
+    add_mtls(parser)
+    parser.add_argument(
+        "--listen",
+        default="127.0.0.1:7090",
+        help="Control API address. Without --mtls-cert it must be a loopback address",
+    )
     args = parser.parse_args()
+    mtls = identity(args)
     logging.basicConfig(level=logging.INFO)
     asyncio.run(
         serve(
@@ -69,6 +93,7 @@ def main() -> None:
             object_store(args),
             args.listen,
             allow_case_code=args.allow_case_code,
+            mtls=mtls,
         )
     )
 

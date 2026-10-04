@@ -31,7 +31,7 @@ mise run sync
 | `mise run lint` | `ruff format --check .` and `ruff check .` |
 | `mise run typecheck` | `pyright` in strict mode over `swarmeval/` and `tests/` |
 | `mise run test` | `pytest` (asyncio mode `auto`), without tests marked `docker` |
-| `mise run test:docker` | `pytest -m docker`: the Postgres store, migrations, and export against a throwaway `postgres:18-alpine` and `rustfs/rustfs` from testcontainers, the sandboxd client against a sandboxd it builds from `go/` (needs `busybox:latest`), and the public API through an `edge` it builds from `go/`. Run it before a change to `swarmeval/db/`, `swarmeval/events/`, `swarmeval/sandbox/`, `swarmeval/control/`, or edge is done |
+| `mise run test:docker` | `pytest -m docker`: the Postgres store, migrations, and export against a throwaway `postgres:18-alpine` and `rustfs/rustfs` from testcontainers, the sandboxd client against a sandboxd it builds from `go/` (needs `busybox:latest`), the public API through an `edge` it builds from `go/`, and mutual TLS between the Go and Python services with certificates from a `swarm-certs` it builds. Run it before a change to `swarmeval/db/`, `swarmeval/events/`, `swarmeval/sandbox/`, `swarmeval/control/`, or edge is done |
 | `mise run go:lint` | `golangci-lint run` over `go/`, integration tests included |
 | `mise run go:test` | `go test ./...` in `go/` |
 | `mise run go:test-integration` | sandboxd against the local docker daemon (needs `busybox:latest` and `python:3.12-slim`), and edge against a throwaway `postgres:18-alpine` from testcontainers-go |
@@ -91,6 +91,11 @@ uv run python -m swarmeval.control.suite check suites/m1_core.yaml
 uv run python -m swarmeval.control.suite submit suites/m1_core.yaml --control 127.0.0.1:7090
 uv run python -m swarmeval.analysis report --suite m1_core.<hex> $S3
 ```
+
+Everything above listens on loopback in plain text. To listen on another address a service needs
+a certificate: `go run ./cmd/swarm-certs --out certs` writes them, and each service takes its own
+with `--mtls-cert certs/<service>/tls.crt --mtls-key certs/<service>/tls.key --mtls-ca
+certs/<service>/ca.crt` ([architecture.md](architecture.md#service-identity)).
 
 More workers run more runs at once. Start each with its own `--worker-id`; a second worker with
 an id already in use exits. Restart a worker with the same id, so the runs it left unfinished are

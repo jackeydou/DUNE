@@ -21,6 +21,7 @@ import grpc
 from swarmeval.control.bundles import pack
 from swarmeval.control.server import MAX_MESSAGE_BYTES
 from swarmeval.core import LoadedSuite, SuiteError, load_suite
+from swarmeval.mtls import Identity, add_mtls, channel, identity
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import ControlServiceStub
 
@@ -63,10 +64,10 @@ def plan(suite: LoadedSuite) -> str:
     return "\n".join(lines)
 
 
-async def _submit(suite: LoadedSuite, address: str) -> None:
+async def _submit(suite: LoadedSuite, address: str, mtls: Identity | None) -> None:
     options = [("grpc.max_send_message_length", MAX_MESSAGE_BYTES)]
-    async with grpc.aio.insecure_channel(address, options=options) as channel:
-        label, done = await submit(suite, ControlServiceStub(channel))
+    async with channel(address, mtls, options) as control:
+        label, done = await submit(suite, ControlServiceStub(control))
     for s in done:
         print(f"{s.case_id}: submission {s.submission_id}, {s.runs} runs")
     print(f"suite label: {label}")
@@ -81,6 +82,8 @@ def main() -> None:
     send = commands.add_parser("submit", help="submit every case of the suite")
     send.add_argument("suite", type=Path)
     send.add_argument("--control", default="127.0.0.1:7090", help="Control API address")
+    # The Control API accepts the `operator` certificate from tools like this one.
+    add_mtls(send)
     args = parser.parse_args()
     try:
         suite = load_suite(args.suite)
@@ -89,7 +92,7 @@ def main() -> None:
     print(plan(suite))
     if args.command == "submit":
         try:
-            asyncio.run(_submit(suite, args.control))
+            asyncio.run(_submit(suite, args.control, identity(args)))
         except grpc.aio.AioRpcError as err:
             raise SystemExit(
                 f"the Control API refused suite {suite.source}: {err.code().name}: "

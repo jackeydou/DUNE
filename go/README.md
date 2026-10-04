@@ -1,7 +1,7 @@
 # SwarmEval Go services
 
 The Go module `github.com/jackeydou/DUNE/go`. It holds the services that talk to container
-backends, the network, and the public: `sandboxd`, `edge`, and the `swarm` CLI.
+backends, the network, and the public: `sandboxd`, `edge`, the `swarm` CLI, and `swarm-certs`.
 `net-gateway` is deferred; its policy core is in `internal/netgw`.
 How they fit with the rest of SwarmEval is in [docs/architecture.md](../docs/architecture.md).
 
@@ -18,7 +18,8 @@ go run ./cmd/sandboxd --state-dir /var/lib/swarmeval/sandboxd
 | Flag | Default | Meaning |
 |---|---|---|
 | `--state-dir` | required | Key paths live under it. The docker daemon must see it at the same path; run sandboxd in a container with it bind-mounted at an identical path. Scratch: lost with the host |
-| `--listen` | `127.0.0.1:7071` | gRPC address. No authentication, so bind it to the internal network only |
+| `--listen` | `127.0.0.1:7071` | gRPC address. Without a certificate it must be a loopback address |
+| `--mtls-cert`, `--mtls-key`, `--mtls-ca` | none | sandboxd's certificate, its key, and the deployment's CA, from `swarm-certs`. All three or none. With them sandboxd serves mutual TLS and accepts only `worker` certificates ([docs](../docs/architecture.md#service-identity)) |
 | `--runtime` | `auto` | `auto` (runsc when docker offers it, runc otherwise), `runc`, or `runsc` |
 | `--sandbox-network` | `none` | `none`: sandboxes have only loopback. `per-sandbox`: a network per sandbox for net-gateway, which is not built, so a sandbox still reaches nothing ([docs](../docs/services/sandboxd.md#networks)) |
 | `--sandbox-subnets` | `10.231.0.0/16` | With `per-sandbox`, the IPv4 pool that sandbox networks take a `/28` each from. Subnets the docker daemon already has are skipped |
@@ -55,6 +56,8 @@ Requirements and limits:
 
 - Postgres with the shared database; edge creates and migrates the `tenant` schema itself.
 - Without `--tls-cert` / `--tls-key` it listens only on loopback.
+- With `--mtls-cert`, `--mtls-key`, and `--mtls-ca` it calls the Control API over mutual TLS,
+  as `edge`; without them in plain text, which the Control API serves on loopback only.
 - Sign-in throttling is kept in memory, per process.
 
 ## swarm
@@ -68,6 +71,26 @@ go build -o swarm ./cmd/swarm
 ./swarm run ../cases/scorer_misbelief --follow
 ```
 
+## swarm-certs
+
+Writes the certificates services authenticate each other with: a CA of the deployment's own and
+one certificate per service. Who accepts whom, the files, and rotation:
+[docs/architecture.md](../docs/architecture.md#service-identity).
+
+```bash
+go run ./cmd/swarm-certs --out /etc/swarmeval/certs --host control=control.internal
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--out` | required | Directory for `ca.crt`, `ca.key`, and `<service>/{ca.crt,tls.crt,tls.key}`. A CA already there is kept and signs the new certificates |
+| `--service` | all | Issue for this service only; repeatable. One of `edge`, `control`, `worker`, `analysis`, `model-gateway`, `sandboxd`, `operator` |
+| `--host` | none | `SERVICE=NAME`: a DNS name or IP address clients reach a server at, besides its service name and loopback; repeatable |
+| `--new-ca` | off | Replace the CA. Every service must then restart with its new certificate |
+
+Keys are written with mode 0600; `ca.key` signs for every service, so keep it off the service
+hosts once the certificates are issued.
+
 ## Layout
 
 | Path | Holds |
@@ -77,6 +100,8 @@ go build -o swarm ./cmd/swarm
 | `internal/edge` | The public API's handlers, authentication, sign-in throttling, and Control API forwarding |
 | `internal/edge/tenant` | The `tenant` schema: migrations, users, sessions, API tokens, password hashing |
 | `cmd/swarm`, `internal/cli` | The `swarm` command line: config, packing, commands, following runs |
+| `cmd/swarm-certs`, `internal/certs` | The CA and the per-service certificates |
+| `internal/mtls` | Service identities in certificates, and the TLS configuration of a server that lists its callers and of a client that names its server |
 | `internal/sandboxd` | The service and its gRPC adapter |
 | `internal/fsdiff` | Manifests of key paths and their diff |
 | `internal/netgw` | net-gateway's policy engine, config, and traffic classification. Deferred: no binary uses it ([docs](../docs/services/net-gateway.md)) |

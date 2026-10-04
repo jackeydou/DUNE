@@ -6,9 +6,9 @@ web console are its two clients. Their place among the services is in
 [architecture.md](../architecture.md). The plan they are built to is the
 [M4 spec](../../spec/2026-10-03-m4-console/README.md).
 
-**Status:** edge is built with authentication and run forwarding, and the CLI with sign-in,
-runs, suites, events, and forks (M4 Plan steps 2 and 3). Case calls, analysis calls, the
-console, mTLS, and deployment are not built yet. Items marked
+**Status:** edge is built with authentication, run and case forwarding, and mutual TLS to the
+Control API, and the CLI with sign-in, runs, suites, events, forks, and the case library (M4
+Plan steps 2, 3, 4, and 7). Analysis calls, the console, and deployment are not built yet. Items marked
 *(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ## edge
@@ -27,7 +27,8 @@ edge serve --public-url https://swarm.example.com --tls-cert cert.pem --tls-key 
 | `--public-url` | required | The address browsers use to reach edge. Its origin is the only one whose requests are accepted, and an https URL makes the session cookie `Secure`. It is read in canonical form, as browsers send Origin: host in lower case, no default port |
 | `--listen` | `127.0.0.1:7443` | Without a certificate it must be a loopback address: edge refuses to serve plain HTTP to the network, so a deployment without `--tls-cert` puts a TLS-terminating proxy in front |
 | `--tls-cert`, `--tls-key` | none | PEM certificate chain and key. Together or not at all |
-| `--control` | required | The orchestrator's Control API, `host:port`, reached with gRPC over HTTP/2 without TLS until services use mTLS |
+| `--control` | required | The orchestrator's Control API, `host:port`, reached with gRPC over HTTP/2: mutual TLS with `--mtls-cert`, plain text without |
+| `--mtls-cert`, `--mtls-key`, `--mtls-ca` | none | edge's service certificate, its key, and the deployment's CA ([service identity](../architecture.md#service-identity)). All three or none. With them edge connects to the Control API as `edge`, and only to a server whose certificate names `control`. They are not `--tls-cert`, which is the certificate browsers see |
 | `--session-idle` | `24h` | A browser session unused for this long ends |
 | `--session-max-age` | `168h` | A browser session ends this long after sign-in, however active |
 
@@ -131,7 +132,6 @@ Users are disabled, never deleted, so the runs they submitted keep naming someon
 
 - **Forwarding** of analysis calls to `AnalysisService` (M4 Plan step 5). It sits beside the
   case and run services in the public API, nested under neither.
-- **Internal mTLS** (step 7): edge will be the only caller the Control API and analysis accept.
 - **Console assets**, embedded in the binary with `embed.FS` (step 6).
 
 ## swarm CLI

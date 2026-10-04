@@ -3,6 +3,22 @@
 ## [Unreleased]
 
 ### Added
+- Mutual TLS between services (`swarmeval.mtls`). `swarmeval-control`, `swarmeval-worker`,
+  `swarmeval-model-gateway`, `python -m swarmeval.control.suite submit`, and `python -m
+  swarmeval.analysis judge` take `--mtls-cert`, `--mtls-key`, and `--mtls-ca`, the files
+  `swarm-certs` writes. With them the Control API accepts only `edge` and `operator`
+  certificates, and model-gateway (HTTP and `RecorderService`) only `worker` and `analysis`:
+  another service's call is `PERMISSION_DENIED`, or `403 caller_not_allowed` on HTTP, and a
+  connection without a certificate of the deployment's CA fails in the handshake. Clients
+  connect only to certificates that CA signed for the host they dialed.
+
+### Changed
+- Without `--mtls-cert`, `swarmeval-control --listen` and `swarmeval-model-gateway --http` /
+  `--grpc` must be loopback addresses; they exit otherwise. Breaking for a deployment that
+  served plain text on a network address: issue certificates with `swarm-certs`. With
+  `--mtls-cert`, the worker's `--gateway-http` must be an `https` URL.
+
+### Added
 - Case library: `control.cases` and `control.case_revisions` (migration 0010). Every case the
   platform stores or runs has numbered, immutable revisions, each naming a bundle and who made
   it, and every run references one (`control.run_specs.case_revision_id`, `Run.case_revision`).

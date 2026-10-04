@@ -23,6 +23,7 @@ import (
 	apiv1 "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1/apiv1connect"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1/controlv1connect"
+	"github.com/jackeydou/DUNE/go/internal/mtls"
 )
 
 const testBodyTimeout = 500 * time.Millisecond
@@ -129,7 +130,11 @@ func newStack(t *testing.T) *stack {
 		// Short, so a test can outlast them; local requests arrive in well under that.
 		BodyTimeout: testBodyTimeout, UploadTimeout: 5 * time.Second,
 	}
-	edgeSrv.Config.Handler = NewHandler(cfg, store, NewControlClient(controlSrv.URL), quietLog())
+	controlClient, err := NewControlClient(controlSrv.Listener.Addr().String(), mtls.Files{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edgeSrv.Config.Handler = NewHandler(cfg, store, controlClient, quietLog())
 	edgeSrv.Start()
 	t.Cleanup(edgeSrv.Close)
 

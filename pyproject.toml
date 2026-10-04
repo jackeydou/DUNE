@@ -76,6 +76,7 @@ markers = ["docker: needs a local docker daemon (testcontainers)"]
 
 [dependency-groups]
 dev = [
+    "cryptography>=50.0.2",
     "grpcio-tools>=1.84.0",
     "mypy-protobuf>=5.1.0",
     "pyarrow-stubs>=20.0.0.20260819",

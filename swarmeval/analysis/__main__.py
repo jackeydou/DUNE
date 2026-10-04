@@ -42,6 +42,7 @@ from swarmeval.analysis.scan import scan_events, store_scan
 from swarmeval.db import async_engine
 from swarmeval.detect.rules import RuleSetError, load_rules
 from swarmeval.events import DEFAULT_REDUCERS
+from swarmeval.mtls import add_mtls, http_client_tls, identity
 
 
 def main() -> None:
@@ -82,8 +83,10 @@ def main() -> None:
     ask.add_argument(
         "--gateway-url",
         default=os.environ.get("SWARMEVAL_GATEWAY_URL", "http://127.0.0.1:7080"),
-        help="model-gateway's HTTP address (env SWARMEVAL_GATEWAY_URL)",
+        help="model-gateway's HTTP address (env SWARMEVAL_GATEWAY_URL); https with --mtls-cert",
     )
+    # model-gateway accepts the `analysis` certificate for these calls.
+    add_mtls(ask)
     config.add_object_store(ask)
     config.add_database(ask)
 
@@ -271,11 +274,12 @@ async def _judge(args: argparse.Namespace) -> None:
         raise SystemExit(
             "set SWARMEVAL_ANALYSIS_KEY to the key model-gateway's `analysis_key_env` names."
         )
+    verify = http_client_tls("--gateway-url", args.gateway_url, identity(args))
     gateway = Gateway(url=args.gateway_url, key=key)
     engine = async_engine(config.database_url(args))
     yes = 0
     try:
-        async with httpx2.AsyncClient(timeout=600) as http:
+        async with httpx2.AsyncClient(timeout=600, verify=verify) as http:
             for run_id in run_ids:
                 verdict = await judge(
                     run_id,

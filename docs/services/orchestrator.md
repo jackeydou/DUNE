@@ -65,8 +65,11 @@ The sandboxd client is `swarmeval/sandbox/`.
 ### Control API
 
 gRPC service `swarmeval.control.v1.ControlService` (`proto/swarmeval/control/v1/control.proto`)
-on the internal network. It has no authentication until [edge](edge.md) exists in M4 *(RPC names
-proposed)*. Messages may be up to 64 MiB, for case bundles.
+on the internal network *(RPC names proposed)*. With `--mtls-cert`, `--mtls-key`, and `--mtls-ca`
+it accepts only `edge` and `operator` certificates
+([service identity](../architecture.md#service-identity)); without them `--listen` must be a
+loopback address. The worker takes the same three flags to call sandboxd and model-gateway,
+and then `--gateway-http` must be an `https` URL. Messages may be up to 64 MiB, for case bundles.
 
 | RPC | Does | From |
 |---|---|---|

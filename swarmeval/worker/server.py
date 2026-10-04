@@ -6,7 +6,6 @@ import logging
 import math
 import socket
 
-import grpc
 import httpx2
 
 from swarmeval.config import (
@@ -19,6 +18,7 @@ from swarmeval.config import (
 from swarmeval.control.queue import LEASE_S, Queue
 from swarmeval.db import async_engine
 from swarmeval.events import ObjectStore
+from swarmeval.mtls import Identity, add_mtls, channel, http_client_tls, identity
 from swarmeval.worker.run import WorkerDeps
 from swarmeval.worker.worker import Worker, WorkerHalted, WorkerIdInUse, WorkerIdLost
 
@@ -34,13 +34,19 @@ async def serve(
     max_runs: int,
     allow_case_code: bool,
     lease_s: float,
+    mtls: Identity | None,
 ) -> None:
+    verify = http_client_tls("--gateway-http", gateway_http, mtls)
     engine = async_engine(url)
     async with (
-        grpc.aio.insecure_channel(sandboxd) as sandboxd_channel,
-        grpc.aio.insecure_channel(gateway_grpc) as gateway_channel,
-        # No read timeout: a model call lasts as long as the model takes.
-        httpx2.AsyncClient(base_url=gateway_http, timeout=httpx2.Timeout(30.0, read=None)) as http,
+        channel(sandboxd, mtls) as sandboxd_channel,
+        channel(gateway_grpc, mtls) as gateway_channel,
+        httpx2.AsyncClient(
+            base_url=gateway_http,
+            # No read timeout: a model call lasts as long as the model takes.
+            timeout=httpx2.Timeout(30.0, read=None),
+            verify=verify,
+        ) as http,
     ):
         deps = WorkerDeps(
             engine=engine,
@@ -77,9 +83,12 @@ def main() -> None:
     add_database(parser)
     add_object_store(parser)
     add_case_code(parser)
+    add_mtls(parser)
     parser.add_argument("--sandboxd", default="127.0.0.1:7071", help="sandboxd gRPC address")
     parser.add_argument(
-        "--gateway-http", default="http://127.0.0.1:7080", help="model-gateway HTTP base URL"
+        "--gateway-http",
+        default="http://127.0.0.1:7080",
+        help="model-gateway HTTP base URL; https with --mtls-cert",
     )
     parser.add_argument("--gateway-grpc", default="127.0.0.1:7081", help="model-gateway gRPC")
     parser.add_argument(
@@ -111,6 +120,7 @@ def main() -> None:
                 max_runs=args.max_runs,
                 allow_case_code=args.allow_case_code,
                 lease_s=args.lease_s,
+                mtls=identity(args),
             )
         )
     except (WorkerIdInUse, WorkerIdLost, WorkerHalted) as err:

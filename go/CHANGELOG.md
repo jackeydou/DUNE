@@ -3,6 +3,22 @@
 ## [Unreleased]
 
 ### Added
+- `swarm-certs`: writes a CA of the deployment's own and one certificate per service (`edge`,
+  `control`, `worker`, `analysis`, `model-gateway`, `sandboxd`, `operator`), each naming its
+  service in a URI SAN, `spiffe://swarmeval/<service>`. ECDSA P-256, one year; running it again
+  keeps the CA and replaces the certificates, `--new-ca` replaces the CA, `--host
+  SERVICE=NAME` adds a name a server is reached at. Each service's directory holds only that
+  service's key.
+- `sandboxd --mtls-cert --mtls-key --mtls-ca`: serves mutual TLS 1.3 and accepts only `worker`
+  certificates; the handshake fails for any other caller, and the refusal is logged.
+- `edge serve --mtls-cert --mtls-key --mtls-ca`: calls the Control API over mutual TLS as
+  `edge`, and only a server whose certificate names `control`.
+
+### Changed
+- `sandboxd --listen` must be a loopback address unless sandboxd has a certificate; it exits
+  otherwise. Breaking for a deployment that served sandboxd on a network address in plain text.
+
+### Added
 - Case library. edge serves `swarmeval.api.v1.CaseService` (`PushCase`, `UpdateCaseFiles`,
   `GetCase`, `ListCases`, `ListCaseRevisions`, `GetCaseRevision`, `ArchiveCase`,
   `UnarchiveCase`), forwarded to the Control API with the caller as `actor`;

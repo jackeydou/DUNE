@@ -17,11 +17,11 @@ swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent l
                  `honeypot/` (canaries), `scorers/`, `control/` (Control API, queue),
                  `worker/` (run lifecycle), `web/` (`web_request`'s client), `detect/` (detectors),
                  `monitor/` (the online Monitor), `analysis/` (batch jobs over exports), `proto/`
-                 (generated gRPC stubs)
+                 (generated gRPC stubs), `mtls.py` (service certificates and who may call whom)
 tests/           Python tests
 cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pricing/`
 suites/          suites, one file each: `m1_core.yaml`
-go/              the Go module: `cmd/sandboxd`, `internal/`. Its own README, CHANGELOG, BUGFIX
+go/              the Go module: `cmd/` (`sandboxd`, `edge`, `swarm`, `swarm-certs`), `internal/`. Its own README, CHANGELOG, BUGFIX
 proto/           gRPC contracts; buf.yaml and buf.gen.yaml sit at the repo root
 pyproject.toml   uv.lock   mise.toml
 ```

@@ -9,6 +9,7 @@ import (
 	"github.com/jackeydou/DUNE/go/internal/edge/tenant"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1/apiv1connect"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1/controlv1connect"
+	"github.com/jackeydou/DUNE/go/internal/mtls"
 )
 
 // NewHandler serves the public API. Every procedure but sign-in runs behind the authenticator.
@@ -27,11 +28,25 @@ func NewHandler(cfg Config, store *tenant.Store, control controlv1connect.Contro
 	return withBodyDeadline(mux, cfg, log)
 }
 
-// NewControlClient dials the Control API at baseURL (`http://host:port`) with the gRPC protocol
-// over HTTP/2 without TLS, which is how the orchestrator serves it until services use mTLS.
-func NewControlClient(baseURL string) controlv1connect.ControlServiceClient {
+// NewControlClient dials the Control API at address (`host:port`) with the gRPC protocol. With
+// a certificate it connects over mutual TLS, as edge, and only to the service the CA named
+// `control`. Without one it speaks HTTP/2 in plain text, which the Control API serves on
+// loopback only.
+func NewControlClient(address string, identity mtls.Files) (controlv1connect.ControlServiceClient, error) {
 	var protocols http.Protocols
-	protocols.SetUnencryptedHTTP2(true)
-	client := &http.Client{Transport: &http.Transport{Protocols: &protocols}}
-	return controlv1connect.NewControlServiceClient(client, baseURL, connect.WithGRPC())
+	transport := &http.Transport{Protocols: &protocols}
+	scheme := "http"
+	if identity.Enabled() {
+		config, err := identity.Client(mtls.Control)
+		if err != nil {
+			return nil, err
+		}
+		protocols.SetHTTP2(true)
+		transport.TLSClientConfig = config
+		scheme = "https"
+	} else {
+		protocols.SetUnencryptedHTTP2(true)
+	}
+	client := &http.Client{Transport: transport}
+	return controlv1connect.NewControlServiceClient(client, scheme+"://"+address, connect.WithGRPC()), nil
 }

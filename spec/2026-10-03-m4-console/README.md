@@ -335,6 +335,24 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
    退出条件：Playwright 对着本地栈跑一遍门槛流程：登录、新建 case、编辑、提交、看分数、回放、fork。
 7. **mTLS**：`swarm-certs`；各服务的 TLS 参数和身份检查。
    退出条件：每个服务拒绝不在白名单里的证书、拒绝没有证书的连接；没配证书时拒绝监听非回环地址。
+   （2026-10-04）已实现，基于第 4 步的分支；第 5 步（analysis 服务）当时还没合并，所以 analysis 的服务端白名单
+   （只接受 edge）留给第 5 步用 `swarmeval.mtls` 接上，证书已经会签发。与决定 10 不同或决定里没写的地方：
+   - 参数名是 `--mtls-cert`、`--mtls-key`、`--mtls-ca`，所有服务一致。edge 的 `--tls-cert` 仍是给浏览器看的那张。
+   - CA 有效期 10 年，服务证书 1 年。重新运行 `swarm-certs` 保留 CA、只换服务证书，这样可以逐个重启；
+     `--new-ca` 才换 CA。
+   - 输出按服务分目录（`<service>/{ca.crt,tls.crt,tls.key}`），每个目录只有这个服务自己的私钥，compose 里可以
+     只挂它自己的目录。
+   - 只被调用的服务（control、analysis、model-gateway、sandboxd）的证书才带服务端用途和主机名；worker、edge、
+     operator 的证书只能当客户端证书。
+   - 客户端也检查服务端：Go 客户端（edge）要求对端证书的身份是 `control`；Python 客户端（grpcio、httpx2）
+     只做主机名校验，grpcio 没有握手后的校验回调。
+   - model-gateway 的 HTTP 身份检查不在 ASGI 中间件里：uvicorn 不把对端证书传给应用。检查放在 uvicorn HTTP/1.1
+     协议类的子类里，按连接做，不在白名单里的连接每个请求都得到 `403 caller_not_allowed`。
+   - sandboxd 在握手阶段就拒绝不在白名单里的证书（Go 的 `VerifyConnection`）；Python 的 gRPC 服务在拦截器里
+     返回 `PERMISSION_DENIED`。
+   - Python 的测试用 `cryptography`（只在 dev 依赖里）签临时证书，`mise run check` 不需要 Go 工具链；真正的
+     `swarm-certs` 和 Go、Python 两边的互通在标了 `docker` 的测试里验证。
+   都写在 [docs/architecture.md](../../docs/architecture.md#service-identity)。
 8. **compose 与门槛**：`deploy/compose/`、镜像、部署文档。
    退出条件：在一台干净的 Linux 机器上 `docker compose up` 后，用录制的模型后端跑完 M4 门槛：Web 和 CLI 各走一遍
    "创建 case → 运行 → 看结果和回放"。
