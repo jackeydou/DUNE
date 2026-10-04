@@ -18,7 +18,11 @@ PASSWORD="smoke test passphrase"
 URL="https://localhost:${SWARM_PORT}"
 
 compose() { docker compose -f compose.yaml -f compose.smoke.yaml "$@"; }
-cli() { compose run --rm -T cli "$@"; }
+# Quiet: compose would report the state of every dependency before each CLI call.
+cli() { compose --progress quiet run --rm -T cli "$@"; }
+# awk reads to the end: `grep -q` on a pipe closes it at the first match and fails the writer,
+# so everything else here is captured first and searched from a here-string.
+status_of() { cli runs get "$1" | awk '$1 == "status:" { print $2 }'; }
 step() { printf '\n== %s\n' "$*"; }
 fail() { printf 'smoke: FAILED: %s\n' "$*" >&2; exit 1; }
 
@@ -60,17 +64,18 @@ printf '%s\n' "$PASSWORD" | compose exec -T edge edge user create root --admin
 step "CLI: sign in, create the case, run it, read the result and the events"
 printf '%s\n' "$PASSWORD" | cli login --username root
 cli case push cases/scorer_misbelief -m "smoke test"
-cli case list | grep -q 'safety/scorer_misbelief' || fail "the pushed case is not in the library"
+cases=$(cli case list)
+grep -q 'safety/scorer_misbelief' <<<"$cases" || fail "the pushed case is not in the library"
 out=$(cli run --case safety/scorer_misbelief -V scorer_description=accurate --epochs 1 --follow)
 printf '%s\n' "$out"
-run=$(printf '%s\n' "$out" | grep -o 'scorer_misbelief\.[0-9a-f]*\.v[0-9]*\.e[0-9]*' | head -1)
+run=$(grep -o 'scorer_misbelief\.[0-9a-f]*\.v[0-9]*\.e[0-9]*' <<<"$out" | sort -u | head -1)
 [ -n "$run" ] || fail "no run id in the output of swarm run"
-cli runs get "$run" | grep -Eq '^status: +done$' || fail "run $run did not end done"
+[ "$(status_of "$run")" = done ] || fail "run $run did not end done"
 events=$(cli events "$run")
 for scorer in tampered_grader read_answer_key fit_planted_answer fails_spec; do
-  printf '%s\n' "$events" | grep -q "score $scorer = 0" || fail "no '$scorer = 0' score event for $run"
+  grep -q "score $scorer = 0" <<<"$events" || fail "no '$scorer = 0' score event for $run"
 done
-printf '%s\n' "$events" | grep -q 'tool shell' || fail "no tool call among the events of $run"
+grep -q 'tool shell' <<<"$events" || fail "no tool call among the events of $run"
 
 step "API, as the console calls it: session cookie, the run, its events"
 cacert=$(mktemp)
@@ -84,10 +89,11 @@ api() {
 }
 jar=$(mktemp)
 api AuthService/Login "{\"username\":\"root\",\"password\":\"$PASSWORD\"}" --cookie-jar "$jar" >/dev/null
-api RunService/GetRun "{\"runId\":\"$run\"}" --cookie "$jar" | grep -q '"status":"done"' ||
+got=$(api RunService/GetRun "{\"runId\":\"$run\"}" --cookie "$jar")
+grep -q '"status":"done"' <<<"$got" ||
   fail "GetRun with the session cookie did not return the finished run"
-api RunService/ListRuns '{"caseId":"scorer_misbelief"}' --cookie "$jar" | grep -q "$run" ||
-  fail "ListRuns did not list $run"
+listed=$(api RunService/ListRuns '{"caseId":"scorer_misbelief"}' --cookie "$jar")
+grep -q "$run" <<<"$listed" || fail "ListRuns did not list $run"
 if curl --silent --fail --cacert "$cacert" -H 'Content-Type: application/json' \
   --data '{}' "$URL/swarmeval.api.v1.RunService/ListRuns" >/dev/null; then
   fail "a call without credentials was answered"
