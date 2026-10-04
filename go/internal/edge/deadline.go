@@ -10,7 +10,8 @@ import (
 
 // uploadProcedures carry case bundles, so their bodies get UploadTimeout.
 var uploadProcedures = map[string]bool{
-	apiv1connect.RunServiceSubmitRunsProcedure: true,
+	apiv1connect.RunServiceSubmitRunsProcedure:  true,
+	apiv1connect.RunServiceSubmitSuiteProcedure: true,
 }
 
 // withBodyDeadline sets a read deadline on the request's connection (its stream, under HTTP/2)

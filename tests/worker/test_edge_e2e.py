@@ -286,6 +286,14 @@ async def test_the_cli_submits_a_suite_whole_and_reports_mistakes(
     assert code == 1
     assert "cases.0.epochs" in err or "cases[0]" in err, err
 
+    # Review on #20: a link out of the case directory goes up as a link, and is refused.
+    leaky = write_case(tmp_path / "leaky")
+    (tmp_path / "secret.txt").write_text("SECRET")
+    (leaky / "prompts" / "leak.md").symlink_to("../../secret.txt")
+    code, _, err = await cli.run("run", str(leaky))
+    assert code == 1
+    assert "leak.md" in err and "outside the destination" in err, err
+
     code, _, err = await cli.run("runs", "get", "nope")
     assert (code, "no run `nope`" in err) == (1, True), err
 

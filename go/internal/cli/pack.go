@@ -3,6 +3,7 @@ package cli
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -16,10 +17,12 @@ import (
 // maxBundleBytes is edge's limit on a case bundle, and on a suite's bundles in all.
 const maxBundleBytes = 64 << 20
 
-// pack archives a case directory as edge expects it: every regular file (a symlink counts as
-// the file it points to), relative to dir, in sorted order, with `__pycache__` left out, and with
-// times and owners zeroed so the same files always make the same bytes. This is what
-// swarmeval.control.bundles.pack does.
+// pack archives a case directory as swarmeval.control.bundles.pack does: every regular file,
+// relative to dir, in sorted order, with `__pycache__` left out and times and owners zeroed, so
+// the same files always make the same bytes. A symlink to a file is archived as the link, never
+// as the file it points to, so a link out of the case directory uploads nothing from outside it,
+// and the control plane, which refuses such links, sees it for what it is. Links to directories,
+// and links that point nowhere, are left out.
 func pack(dir string) ([]byte, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -40,6 +43,9 @@ func pack(dir string) ([]byte, error) {
 			return nil
 		}
 		target, err := os.Stat(path)
+		if errors.Is(err, fs.ErrNotExist) && d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
@@ -64,7 +70,7 @@ func pack(dir string) ([]byte, error) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	for _, f := range files {
-		if err := addFile(tw, f, rel[f]); err != nil {
+		if err := addEntry(tw, f, rel[f]); err != nil {
 			return nil, err
 		}
 		if buf.Len() > maxBundleBytes {
@@ -77,7 +83,27 @@ func pack(dir string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func addFile(tw *tar.Writer, path, name string) error {
+func addEntry(tw *tar.Writer, path, name string) error {
+	link, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if link.Mode()&fs.ModeSymlink != 0 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return fmt.Errorf("pack %s: %w", path, err)
+		}
+		if err := tw.WriteHeader(&tar.Header{
+			Typeflag: tar.TypeSymlink,
+			Name:     name,
+			Linkname: filepath.ToSlash(target),
+			Mode:     int64(link.Mode().Perm()),
+			ModTime:  time.Unix(0, 0),
+		}); err != nil {
+			return fmt.Errorf("pack %s: %w", path, err)
+		}
+		return nil
+	}
 	src, err := os.Open(path)
 	if err != nil {
 		return err

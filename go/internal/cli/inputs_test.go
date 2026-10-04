@@ -29,7 +29,8 @@ func writeFiles(t *testing.T, root string, files map[string]string) {
 
 type entry struct {
 	name, body string
-	mode       int64
+	link       string
+	typ        byte
 	mtime      int64
 	uid        int
 }
@@ -50,7 +51,7 @@ func untar(t *testing.T, data []byte) []entry {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out = append(out, entry{h.Name, string(body), h.Mode, h.ModTime.Unix(), h.Uid})
+		out = append(out, entry{h.Name, string(body), h.Linkname, h.Typeflag, h.ModTime.Unix(), h.Uid})
 	}
 }
 
@@ -63,9 +64,6 @@ func TestPackIsSortedRelativeAndRepeatable(t *testing.T) {
 		"extensions/__pycache__/m.pyc": "junk",
 		".hidden":                      "h",
 	})
-	if err := os.Symlink(filepath.Join(dir, "prompts", "a.md"), filepath.Join(dir, "link.md")); err != nil {
-		t.Fatal(err)
-	}
 	first, err := pack(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -86,13 +84,49 @@ func TestPackIsSortedRelativeAndRepeatable(t *testing.T) {
 		if e.mtime != 0 || e.uid != 0 {
 			t.Errorf("%s: mtime %d, uid %d; want both zeroed", e.name, e.mtime, e.uid)
 		}
-		if e.name == "link.md" && e.body != "a" {
-			t.Errorf("a symlink packs as %q, want the file it points to", e.body)
-		}
 	}
-	want := []string{".hidden", "case.yaml", "link.md", "prompts/a.md", "prompts/b.md"}
+	want := []string{".hidden", "case.yaml", "prompts/a.md", "prompts/b.md"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("packed %v, want %v", names, want)
+	}
+}
+
+// Review on #20: a symlink was packed as the file it points to, so a link out of the case
+// directory uploaded that file, as a regular member the control plane could not refuse.
+func TestPackKeepsSymlinksAsLinks(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{"case/case.yaml": "id: x", "case/prompts/a.md": "a", "outside/key": "SECRET"})
+	dir := filepath.Join(root, "case")
+	for link, target := range map[string]string{
+		"inside.md": "prompts/a.md",   // a file in the case: kept as a link
+		"leak.md":   "../outside/key", // a file outside: kept as a link, for the control plane to refuse
+		"dirlink":   "prompts",        // a directory: left out, as Python's pack leaves it out
+		"gone.md":   "nope.md",        // nowhere: left out
+	} {
+		if err := os.Symlink(target, filepath.Join(dir, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := pack(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("SECRET")) {
+		t.Fatal("the bundle holds the content of a file outside the case directory")
+	}
+	got := map[string]string{}
+	for _, e := range untar(t, data) {
+		if e.typ == tar.TypeSymlink {
+			got[e.name] = "-> " + e.link
+		} else {
+			got[e.name] = e.body
+		}
+	}
+	want := map[string]string{
+		"case.yaml": "id: x", "prompts/a.md": "a", "inside.md": "-> prompts/a.md", "leak.md": "-> ../outside/key",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("packed %v, want %v", got, want)
 	}
 }
 

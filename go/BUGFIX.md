@@ -1,5 +1,20 @@
 # Bug fixes
 
+## 2026-10-04 — `swarm run` uploads the file a symlink points to, even outside the case
+
+**Symptom.** Found in review on #20: a case directory holding `prompt.md -> ~/.ssh/id_rsa` had
+the key's content packed and sent to edge, as a regular file the control plane could not tell
+from a real one.
+**Root cause.** `pack` followed every symlink with `os.Stat` and archived the target's content.
+Python's `pack`, which it claimed to match, archives the link itself, and `unpack`'s `data`
+filter refuses links that leave the directory.
+**Fix.** A symlink to a file is archived as a symlink with its link text; links to directories
+and dangling links are left out, as in Python. `internal/cli/pack.go`.
+**Guard.** `TestPackKeepsSymlinksAsLinks`; in `tests/worker/test_edge_e2e.py`, `swarm run` on a
+case with an escaping link exits 1 with the control plane's refusal.
+**Touches.** The refusal lives only in `swarmeval.control.bundles.unpack`; the CLI does not check
+links itself. Anything else that packs a case must archive links as links too.
+
 ## 2026-10-04 — A sign-in with a huge username is kept in edge's memory
 
 **Symptom.** Found in review on #19: an unauthenticated `Login` with a username of tens of MiB

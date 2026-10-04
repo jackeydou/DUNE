@@ -41,7 +41,7 @@ edge migrates its `tenant` schema when `serve` or `user create` starts.
   listener).
 - **Request limits.** A `RunService` body may be up to 64 MiB of bundle plus encoding;
   `AuthService` and `UserService` bodies 64 KiB. A body must arrive within 30 seconds of the
-  headers, 5 minutes for `SubmitRuns`; the headers within 10 seconds. The deadline does not limit
+  headers, 5 minutes for `SubmitRuns` and `SubmitSuite`; the headers within 10 seconds. The deadline does not limit
   the answer, so an event stream lasts as long as the run. Idle keep-alive connections close after
   2 minutes.
 - **Run forwarding.** `RunService` calls the Control API's RPC of the same name and maps the run
@@ -164,9 +164,11 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 - **`-V`** values are read as a YAML flow sequence, as `report --compare` reads them:
   `-V model=a,b` is `["a", "b"]`, `-V paraphrased=[],[dm_ab]` is `[[], ["dm_ab"]]`. The control
   plane checks them against the case.
-- **Packing** follows `swarmeval.control.bundles.pack`: every regular file (a symlink packs as
-  its target), sorted, `__pycache__` left out, times and owners zeroed, so the same files always
-  give the same bytes. Over 64 MiB is refused before sending.
+- **Packing** follows `swarmeval.control.bundles.pack`: every regular file, sorted,
+  `__pycache__` left out, times and owners zeroed, so the same files always give the same bytes.
+  A symlink to a file goes up as the link, never as the file it points to; the control plane
+  refuses a link that leaves the case directory or is absolute. Links to directories and links
+  that point nowhere are left out. Over 64 MiB is refused before sending.
 - **Config.** `~/.config/swarm/config.yaml` (`$XDG_CONFIG_HOME/swarm/`, or `$SWARM_CONFIG`) holds
   `endpoint`, `token`, and the id of a token `login` made. It is written mode 0600, through a
   rename. `$SWARM_ENDPOINT` and `$SWARM_TOKEN` override it, and `--endpoint` overrides both.
