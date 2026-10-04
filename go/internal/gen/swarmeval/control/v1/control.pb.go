@@ -33,7 +33,9 @@ type SubmitRunsRequest struct {
 	Epochs int32 `protobuf:"varint,3,opt,name=epochs,proto3" json:"epochs,omitempty"`
 	// Labels the submissions of one suite run, so a report can cover them together: lowercase
 	// letters, digits, `_`, `.`, and `-`, starting with a letter or digit. Empty for none.
-	Suite         string `protobuf:"bytes,4,opt,name=suite,proto3" json:"suite,omitempty"`
+	Suite string `protobuf:"bytes,4,opt,name=suite,proto3" json:"suite,omitempty"`
+	// Who asks, as edge authenticated them; empty for internal tooling. Recorded on the runs.
+	Actor         string `protobuf:"bytes,5,opt,name=actor,proto3" json:"actor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -92,6 +94,13 @@ func (x *SubmitRunsRequest) GetEpochs() int32 {
 func (x *SubmitRunsRequest) GetSuite() string {
 	if x != nil {
 		return x.Suite
+	}
+	return ""
+}
+
+func (x *SubmitRunsRequest) GetActor() string {
+	if x != nil {
+		return x.Actor
 	}
 	return ""
 }
@@ -179,7 +188,13 @@ type Run struct {
 	ForkSeq    int64  `protobuf:"varint,20,opt,name=fork_seq,json=forkSeq,proto3" json:"fork_seq,omitempty"`
 	// For a fork, once its sandboxes are restored: `fs_restored` when every recorded file change
 	// up to the fork point was restored, `fs_partial` when some could not be.
-	Fidelity      string `protobuf:"bytes,21,opt,name=fidelity,proto3" json:"fidelity,omitempty"`
+	Fidelity string `protobuf:"bytes,21,opt,name=fidelity,proto3" json:"fidelity,omitempty"`
+	// The actor of the submission or fork that queued the run; a rerun keeps its predecessor's.
+	// Empty when the request named none.
+	SubmittedBy string `protobuf:"bytes,22,opt,name=submitted_by,json=submittedBy,proto3" json:"submitted_by,omitempty"`
+	// The actor of the CancelRun that cancelled the run, and of the last ResumeRun.
+	CancelledBy   string `protobuf:"bytes,23,opt,name=cancelled_by,json=cancelledBy,proto3" json:"cancelled_by,omitempty"`
+	ResumedBy     string `protobuf:"bytes,24,opt,name=resumed_by,json=resumedBy,proto3" json:"resumed_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -357,6 +372,27 @@ func (x *Run) GetForkSeq() int64 {
 func (x *Run) GetFidelity() string {
 	if x != nil {
 		return x.Fidelity
+	}
+	return ""
+}
+
+func (x *Run) GetSubmittedBy() string {
+	if x != nil {
+		return x.SubmittedBy
+	}
+	return ""
+}
+
+func (x *Run) GetCancelledBy() string {
+	if x != nil {
+		return x.CancelledBy
+	}
+	return ""
+}
+
+func (x *Run) GetResumedBy() string {
+	if x != nil {
+		return x.ResumedBy
 	}
 	return ""
 }
@@ -574,6 +610,7 @@ func (x *ListRunsResponse) GetRuns() []*Run {
 type CancelRunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Actor         string                 `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -611,6 +648,13 @@ func (*CancelRunRequest) Descriptor() ([]byte, []int) {
 func (x *CancelRunRequest) GetRunId() string {
 	if x != nil {
 		return x.RunId
+	}
+	return ""
+}
+
+func (x *CancelRunRequest) GetActor() string {
+	if x != nil {
+		return x.Actor
 	}
 	return ""
 }
@@ -662,6 +706,7 @@ func (x *CancelRunResponse) GetRun() *Run {
 type ResumeRunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Actor         string                 `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -699,6 +744,13 @@ func (*ResumeRunRequest) Descriptor() ([]byte, []int) {
 func (x *ResumeRunRequest) GetRunId() string {
 	if x != nil {
 		return x.RunId
+	}
+	return ""
+}
+
+func (x *ResumeRunRequest) GetActor() string {
+	if x != nil {
+		return x.Actor
 	}
 	return ""
 }
@@ -752,6 +804,7 @@ type ForkRunRequest struct {
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	AtEventId     string                 `protobuf:"bytes,2,opt,name=at_event_id,json=atEventId,proto3" json:"at_event_id,omitempty"`
 	Edits         []*ForkEdit            `protobuf:"bytes,3,rep,name=edits,proto3" json:"edits,omitempty"`
+	Actor         string                 `protobuf:"bytes,4,opt,name=actor,proto3" json:"actor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -805,6 +858,13 @@ func (x *ForkRunRequest) GetEdits() []*ForkEdit {
 		return x.Edits
 	}
 	return nil
+}
+
+func (x *ForkRunRequest) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
 }
 
 type ForkEdit struct {
@@ -1258,16 +1318,17 @@ var File_swarmeval_control_v1_control_proto protoreflect.FileDescriptor
 
 const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\n" +
-	"\"swarmeval/control/v1/control.proto\x12\x14swarmeval.control.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x99\x01\n" +
+	"\"swarmeval/control/v1/control.proto\x12\x14swarmeval.control.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaf\x01\n" +
 	"\x11SubmitRunsRequest\x12\x1f\n" +
 	"\vcase_bundle\x18\x01 \x01(\fR\n" +
 	"caseBundle\x125\n" +
 	"\toverrides\x18\x02 \x01(\v2\x17.google.protobuf.StructR\toverrides\x12\x16\n" +
 	"\x06epochs\x18\x03 \x01(\x05R\x06epochs\x12\x14\n" +
-	"\x05suite\x18\x04 \x01(\tR\x05suite\"R\n" +
+	"\x05suite\x18\x04 \x01(\tR\x05suite\x12\x14\n" +
+	"\x05actor\x18\x05 \x01(\tR\x05actor\"R\n" +
 	"\x12SubmitRunsResponse\x12#\n" +
 	"\rsubmission_id\x18\x01 \x01(\tR\fsubmissionId\x12\x17\n" +
-	"\arun_ids\x18\x02 \x03(\tR\x06runIds\"\xbb\x05\n" +
+	"\arun_ids\x18\x02 \x03(\tR\x06runIds\"\xa0\x06\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12#\n" +
 	"\rsubmission_id\x18\x02 \x01(\tR\fsubmissionId\x12\x17\n" +
@@ -1295,7 +1356,11 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\vforked_from\x18\x13 \x01(\tR\n" +
 	"forkedFrom\x12\x19\n" +
 	"\bfork_seq\x18\x14 \x01(\x03R\aforkSeq\x12\x1a\n" +
-	"\bfidelity\x18\x15 \x01(\tR\bfidelity\"&\n" +
+	"\bfidelity\x18\x15 \x01(\tR\bfidelity\x12!\n" +
+	"\fsubmitted_by\x18\x16 \x01(\tR\vsubmittedBy\x12!\n" +
+	"\fcancelled_by\x18\x17 \x01(\tR\vcancelledBy\x12\x1d\n" +
+	"\n" +
+	"resumed_by\x18\x18 \x01(\tR\tresumedBy\"&\n" +
 	"\rGetRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"=\n" +
 	"\x0eGetRunResponse\x12+\n" +
@@ -1307,19 +1372,22 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\x05suite\x18\x05 \x01(\tR\x05suite\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\x05R\x05limit\"A\n" +
 	"\x10ListRunsResponse\x12-\n" +
-	"\x04runs\x18\x01 \x03(\v2\x19.swarmeval.control.v1.RunR\x04runs\")\n" +
+	"\x04runs\x18\x01 \x03(\v2\x19.swarmeval.control.v1.RunR\x04runs\"?\n" +
 	"\x10CancelRunRequest\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runId\"@\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x14\n" +
+	"\x05actor\x18\x02 \x01(\tR\x05actor\"@\n" +
 	"\x11CancelRunResponse\x12+\n" +
-	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\")\n" +
+	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\"?\n" +
 	"\x10ResumeRunRequest\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runId\"@\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x14\n" +
+	"\x05actor\x18\x02 \x01(\tR\x05actor\"@\n" +
 	"\x11ResumeRunResponse\x12+\n" +
-	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\"}\n" +
+	"\x03run\x18\x01 \x01(\v2\x19.swarmeval.control.v1.RunR\x03run\"\x93\x01\n" +
 	"\x0eForkRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1e\n" +
 	"\vat_event_id\x18\x02 \x01(\tR\tatEventId\x124\n" +
-	"\x05edits\x18\x03 \x03(\v2\x1e.swarmeval.control.v1.ForkEditR\x05edits\"\x85\x02\n" +
+	"\x05edits\x18\x03 \x03(\v2\x1e.swarmeval.control.v1.ForkEditR\x05edits\x12\x14\n" +
+	"\x05actor\x18\x04 \x01(\tR\x05actor\"\x85\x02\n" +
 	"\bForkEdit\x12O\n" +
 	"\x0freplace_message\x18\x01 \x01(\v2$.swarmeval.control.v1.ReplaceMessageH\x00R\x0ereplaceMessage\x12L\n" +
 	"\x0edelete_message\x18\x02 \x01(\v2#.swarmeval.control.v1.DeleteMessageH\x00R\rdeleteMessage\x12R\n" +

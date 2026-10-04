@@ -37,6 +37,9 @@ if TYPE_CHECKING:
 @dataclass
 class Platform:
     control: "ControlServiceAsyncStub"
+    control_address: str
+    """`127.0.0.1:<port>` of the Control API (and RecorderService), for clients in other
+    processes such as edge."""
     worker: Worker
     backend: MockBackend
     store: ObjectStore
@@ -137,6 +140,7 @@ async def _platform(
         )
         yield Platform(
             control=ControlServiceStub(local),
+            control_address=f"127.0.0.1:{port}",
             worker=Worker(deps, owner_id="worker_e2e"),
             backend=backend,
             store=object_store,

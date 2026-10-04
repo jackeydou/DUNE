@@ -24,13 +24,14 @@ models, the `inspect_ai` mapping, and case hooks exist only in Python.
 | [`sandboxd`](services/sandboxd.md) | Go | Sandbox lifecycle through the docker or k8s API; runs tool calls inside sandboxes and reports the file diff and surviving processes after each one | M0 |
 | [`net-gateway`](services/net-gateway.md) | Go | One instance per run: TLS interception, DNS, network policy, pcap | Later: the network capability, outside M0–M5 |
 | [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, timelines, per-variant `.eval`, offline scorers over exported runs | M1 as batch jobs (all but offline scorers are built); service in M4 |
-| [`edge`](services/edge.md) | Go | The only public entry: authentication, tenants, workspace authorization, console backend | M4 |
+| [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication and run forwarding built; case and analysis forwarding, console, mTLS next |
 | [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4 |
 | [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | M4 |
 
-Until M4 there is no public client. Runs are triggered through the orchestrator's gRPC Control
-API (integration tests, grpcurl), which listens on the internal network only and has no
-authentication until `edge` exists.
+Until the CLI and console exist there is no public client. Runs are triggered through `edge`'s
+`RunService` (any HTTP client speaking Connect's JSON protocol, with an API token) or directly
+through the orchestrator's gRPC Control API (integration tests, grpcurl), which listens on the
+internal network only and has no authentication until services use mTLS.
 
 ## How they talk
 
@@ -121,7 +122,7 @@ flowchart LR
 
 | Store | What it holds | Owner |
 |---|---|---|
-| Postgres `tenant` schema | Users, tenants, workspaces | `edge` |
+| Postgres `tenant` schema | Users, browser sessions, API tokens. Workspaces and membership arrive with per-workspace authorization | `edge` |
 | Postgres `control` schema | Run queue, run status, leases (`owner_id`, `lease_until`, `owner_epoch`) | `orchestrator` |
 | Postgres `runs` schema | `events`, `messages`, `agent_state`, `extension_state`, `deliveries`, `checkpoints`, `canaries`, `sandboxes` for every run, keyed by `run_id` ([event-log.md](event-log.md#tables)) | `orchestrator` |
 | Postgres `analysis` schema | Derived results: judge verdicts today; rule matches and offline scores later | `analysis` |

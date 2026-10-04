@@ -43,8 +43,9 @@ inspect-scout 为主（轨迹分析优先 spec 决定 9）；`allow_case_code` �
 #### 2. edge 把调用者身份传给内部服务，只记在控制面的行上
 
 - `SubmitRuns`、`ForkRun`、`CancelRun`、`ResumeRun` 以及 case 的写操作，在内部请求里带 `actor`（用户名）。控制面
-  把它写在 `control.submissions`、`control.runs`、`control.case_revisions` 的对应列上，Control API 的 `Run` 消息
-  和 case 修订会返回这些值。
+  把它写在 `control.run_specs.submitted_by`（提交和 fork；补跑沿用被补跑的那个 run 的值）、`control.runs` 的
+  `cancelled_by` 和 `resumed_by`（最后一次恢复），以及 `control.case_revisions.actor` 上。Control API 的 `Run`
+  消息和 case 修订会返回这些值。
 - 事件流里不记 actor，事件 schema 不变（Open question 1）。
 - 内部服务信任 edge 传来的 `actor`：只有持 edge 证书的调用方能连上它们（决定 10）。
 
@@ -277,6 +278,12 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
    `edge user create`；`RunService` 转发到 `ControlService`；Control API 加 `actor`。
    退出条件：用测试替身的 `ControlService` 和 testcontainers 起的 Postgres 做集成测试，覆盖登录、token、
    未认证被拒、CSRF 被拒、提交、跟随事件、取消、恢复、fork。
+   （2026-10-03）已实现：`edge serve`、`edge user create`；`tenant` 迁移（goose）；三个服务；Control API 的
+   `actor` 和迁移 0009。除了上面的 Go 集成测试，另有一个 Python 端到端测试：构建 edge 二进制，接到真实的
+   grpcio Control API 和 worker 上，用 Connect 的 JSON 协议提交 case、跑完、取回事件流，验证了 connect-go 与
+   grpcio 之间的 gRPC 互通。实现时补上的细节：登录本身也检查 `Origin`（防止跨站种下会话）；`ChangePassword`
+   和登录共用限速；对 Control API 的非调用方错误一律返回 `UNAVAILABLE`，原因只进日志；同时最多 4 个 argon2id
+   计算。都写在 [docs/services/edge.md](../../docs/services/edge.md)。
 3. **CLI**：`go/cmd/swarm`，run 相关命令和账号命令。
    退出条件：对着本地的 edge、control、worker 和录制好的模型后端，`swarm run cases/scorer_misbelief --follow`
    能跑完。

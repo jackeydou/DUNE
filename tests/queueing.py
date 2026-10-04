@@ -35,6 +35,7 @@ async def enqueue(
     epochs: int = 1,
     case_id: str = "c",
     suite: str | None = None,
+    submitted_by: str | None = None,
 ) -> list[str]:
     runs = [
         NewRun(
@@ -49,6 +50,7 @@ async def enqueue(
             epoch=epoch,
             epochs=epochs,
             suite=suite,
+            submitted_by=submitted_by,
         )
         for variant in range(variants)
         for epoch in range(1, epochs + 1)

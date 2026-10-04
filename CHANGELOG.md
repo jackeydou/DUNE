@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- Control API actors: `SubmitRuns`, `CancelRun`, `ResumeRun`, and `ForkRun` take an `actor`, the
+  user edge authenticated. It is recorded on the run (migration 0009: `control.run_specs.
+  submitted_by`, `control.runs.cancelled_by` and `resumed_by`) and returned on `Run`; a rerun
+  keeps its predecessor's submitter. Events are unchanged.
 - Project skeleton: `swarmeval` package and the `mise run check` task
   (ruff, pyright strict, pytest).
 - Agent runtime (`swarmeval.runtime`): a `round_robin` agent loop that records every model call

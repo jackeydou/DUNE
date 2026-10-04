@@ -180,8 +180,12 @@ type Run struct {
 	ForkSeq    int64  `protobuf:"varint,19,opt,name=fork_seq,json=forkSeq,proto3" json:"fork_seq,omitempty"`
 	// For a fork, once its sandboxes are restored: `fs_restored` or `fs_partial`.
 	Fidelity string `protobuf:"bytes,20,opt,name=fidelity,proto3" json:"fidelity,omitempty"`
-	// Who submitted the run, or forked it. Empty for runs submitted before edge existed.
-	SubmittedBy   string `protobuf:"bytes,21,opt,name=submitted_by,json=submittedBy,proto3" json:"submitted_by,omitempty"`
+	// Who submitted the run, or forked it; a rerun keeps its predecessor's. Empty for runs
+	// submitted without edge.
+	SubmittedBy string `protobuf:"bytes,21,opt,name=submitted_by,json=submittedBy,proto3" json:"submitted_by,omitempty"`
+	// Who cancelled the run, and who last resumed it.
+	CancelledBy   string `protobuf:"bytes,22,opt,name=cancelled_by,json=cancelledBy,proto3" json:"cancelled_by,omitempty"`
+	ResumedBy     string `protobuf:"bytes,23,opt,name=resumed_by,json=resumedBy,proto3" json:"resumed_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -359,6 +363,20 @@ func (x *Run) GetFidelity() string {
 func (x *Run) GetSubmittedBy() string {
 	if x != nil {
 		return x.SubmittedBy
+	}
+	return ""
+}
+
+func (x *Run) GetCancelledBy() string {
+	if x != nil {
+		return x.CancelledBy
+	}
+	return ""
+}
+
+func (x *Run) GetResumedBy() string {
+	if x != nil {
+		return x.ResumedBy
 	}
 	return ""
 }
@@ -1270,7 +1288,7 @@ const file_swarmeval_api_v1_run_proto_rawDesc = "" +
 	"\x05suite\x18\x04 \x01(\tR\x05suite\"R\n" +
 	"\x12SubmitRunsResponse\x12#\n" +
 	"\rsubmission_id\x18\x01 \x01(\tR\fsubmissionId\x12\x17\n" +
-	"\arun_ids\x18\x02 \x03(\tR\x06runIds\"\xcd\x05\n" +
+	"\arun_ids\x18\x02 \x03(\tR\x06runIds\"\x8f\x06\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12#\n" +
 	"\rsubmission_id\x18\x02 \x01(\tR\fsubmissionId\x12\x17\n" +
@@ -1298,7 +1316,10 @@ const file_swarmeval_api_v1_run_proto_rawDesc = "" +
 	"forkedFrom\x12\x19\n" +
 	"\bfork_seq\x18\x13 \x01(\x03R\aforkSeq\x12\x1a\n" +
 	"\bfidelity\x18\x14 \x01(\tR\bfidelity\x12!\n" +
-	"\fsubmitted_by\x18\x15 \x01(\tR\vsubmittedBy\"&\n" +
+	"\fsubmitted_by\x18\x15 \x01(\tR\vsubmittedBy\x12!\n" +
+	"\fcancelled_by\x18\x16 \x01(\tR\vcancelledBy\x12\x1d\n" +
+	"\n" +
+	"resumed_by\x18\x17 \x01(\tR\tresumedBy\"&\n" +
 	"\rGetRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"9\n" +
 	"\x0eGetRunResponse\x12'\n" +

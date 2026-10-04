@@ -92,6 +92,9 @@ def to_proto(run: RunRow) -> pb.Run:
         forked_from=run.forked_from or "",
         fork_seq=run.fork_seq or 0,
         fidelity=run.fidelity or "",
+        submitted_by=run.submitted_by or "",
+        cancelled_by=run.cancelled_by or "",
+        resumed_by=run.resumed_by or "",
     )
 
 
@@ -150,6 +153,7 @@ def plan_runs(
     overrides: Mapping[str, Sequence[AxisValue]],
     epochs: int,
     suite: str | None = None,
+    submitted_by: str | None = None,
 ) -> list[NewRun]:
     return [
         NewRun(
@@ -164,6 +168,7 @@ def plan_runs(
             epoch=epoch,
             epochs=epochs,
             suite=suite,
+            submitted_by=submitted_by,
         )
         for variant in loaded.variants
         for epoch in range(1, epochs + 1)
@@ -226,6 +231,7 @@ class ControlService(ControlServiceServicer):
             overrides=overrides,
             epochs=request.epochs or loaded.epochs,
             suite=request.suite or None,
+            submitted_by=request.actor or None,
         )
         await self._queue.enqueue(runs)
         return pb.SubmitRunsResponse(submission_id=submission_id, run_ids=[r.run_id for r in runs])
@@ -250,7 +256,7 @@ class ControlService(ControlServiceServicer):
         self, request: pb.CancelRunRequest, context: Context
     ) -> pb.CancelRunResponse:
         try:
-            run = await self._queue.cancel(request.run_id)
+            run = await self._queue.cancel(request.run_id, request.actor or None)
         except RunNotFound as err:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(err))
         except RunFinished as err:
@@ -265,7 +271,7 @@ class ControlService(ControlServiceServicer):
         self, request: pb.ResumeRunRequest, context: Context
     ) -> pb.ResumeRunResponse:
         try:
-            run = await self._queue.resume(request.run_id)
+            run = await self._queue.resume(request.run_id, request.actor or None)
         except RunNotFound as err:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(err))
         except RunNotPaused as err:
@@ -297,7 +303,9 @@ class ControlService(ControlServiceServicer):
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
         except ForkError as err:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
-        run = await self._queue.fork(source, point.seq, [e.model_dump(mode="json") for e in edits])
+        run = await self._queue.fork(
+            source, point.seq, [e.model_dump(mode="json") for e in edits], request.actor or None
+        )
         return pb.ForkRunResponse(run=to_proto(run))
 
     async def StreamEvents(

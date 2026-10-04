@@ -121,8 +121,10 @@ async def test_a_fork_from_an_alert_goes_on_from_the_sources_state(
                     )
                 )
             ],
+            actor="ada",
         )
     )
+    assert forked.run.submitted_by == "ada"
     fork_id = forked.run.run_id
     assert (fork_id, forked.run.forked_from) == (f"{source_id}.f1", source_id)
     assert forked.run.fork_seq < alert["seq"]

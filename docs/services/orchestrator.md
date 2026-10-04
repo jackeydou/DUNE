@@ -76,6 +76,11 @@ proposed)*. Messages may be up to 64 MiB, for case bundles.
 | `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent | Built |
 | Case CRUD | Read and write `case.yaml` / `env.yaml` for the console | M4 |
 
+`SubmitRuns`, `CancelRun`, `ResumeRun`, and `ForkRun` take an `actor`: the user [edge](edge.md)
+authenticated, empty for internal tooling. It is recorded on the run, not in its events, and `Run`
+returns it as `submitted_by` (a rerun keeps its predecessor's), `cancelled_by`, and `resumed_by`
+(the last resume) ([M4 spec](../../spec/2026-10-03-m4-console/README.md) decision 2).
+
 Run ids are `<case>.<submission>.v<variant>.e<epoch>`. Override numbers travel as protobuf doubles;
 a whole number becomes an int again.
 

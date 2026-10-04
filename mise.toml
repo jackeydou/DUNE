@@ -42,7 +42,7 @@ dir = "go"
 run = "go test ./..."
 
 [tasks."go:test-integration"]
-description = "sandboxd against the local docker daemon. Needs busybox:latest and python:3.12-slim on the host"
+description = "sandboxd against the local docker daemon (needs busybox:latest and python:3.12-slim on the host), and edge against a throwaway Postgres"
 dir = "go"
 run = "go test -tags integration -count=1 ./..."
 

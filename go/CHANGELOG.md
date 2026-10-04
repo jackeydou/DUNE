@@ -3,9 +3,19 @@
 ## [Unreleased]
 
 ### Added
-- `swarmeval.api.v1` stubs, the public API edge will serve: `AuthService` (sessions, API tokens),
-  `UserService`, and `RunService`. connect-go handlers and clients are now generated for every
-  proto package, next to the grpc-go stubs.
+- `edge`: the public entry point. `edge serve` serves `swarmeval.api.v1` with connect-go:
+  `AuthService` (password sign-in to an HttpOnly, SameSite=Strict session cookie; API tokens
+  `swm_…` for the CLI; change password), `UserService` (admins create, disable, and reset users),
+  and `RunService`, forwarded to the Control API with the caller as `actor`. Every RPC but
+  sign-in needs credentials; cookie requests must come from the public URL's origin; sign-ins
+  are throttled per username and address. TLS with `--tls-cert`, or loopback only.
+  `edge user create` makes the first admin. The `tenant` schema (users, sessions, tokens) is
+  migrated by edge with goose. Passwords are argon2id.
+- `swarmeval.api.v1` stubs, the public API: `AuthService`, `UserService`, and `RunService`.
+  connect-go handlers and clients are now generated for every proto package, next to the
+  grpc-go stubs.
+- `swarmeval.control.v1` stubs: `actor` on `SubmitRunsRequest`, `CancelRunRequest`,
+  `ResumeRunRequest`, and `ForkRunRequest`; `Run.submitted_by`, `cancelled_by`, `resumed_by`.
 - `FsChange.mtime_ns`: every reported change carries the path's modification time.
 - `RestoreFiles`: removes paths, creates directories, and writes files in a sandbox's key paths
   before its first `Exec`, then retakes the manifest, so a fork's restored files are its

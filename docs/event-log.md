@@ -165,11 +165,13 @@ since the run's first event.
 
 `control.runs` holds `run_id`, `workspace`, `status`, `owner_id`, `lease_until`, `owner_epoch`,
 `created_at`, `started_at`, `finished_at`, `isolation`, `fidelity` (a fork's, migration 0008),
-and `error`. Every `runs` table references it. `control.run_specs` holds each run's `submission_id`, `case_id`, `case_sha256`, `overrides`,
+`error`, and `cancelled_by` and `resumed_by`, the actors edge named on the last cancel and resume
+(migration 0009). Every `runs` table references it. `control.run_specs` holds each run's `submission_id`, `case_id`, `case_sha256`, `overrides`,
 `variant`, `task_args`, `epoch`, `epochs`, `replaces`, the interrupted run a
 [rerun](services/orchestrator.md#reruns) stands in for, and `suite`, the
 [suite](services/orchestrator.md#suites) label of the submission, and for a [fork](services/orchestrator.md#forks) `forked_from`,
-`fork_seq`, and `fork_edits` (migration 0008).
+`fork_seq`, and `fork_edits` (migration 0008), and `submitted_by`, the actor of the submission or
+fork that queued the run, which a rerun keeps (migration 0009).
 
 An agent's context is the `(gen, len)` of its latest `agent_state` row, followed by the first
 `len` rows of `messages` for that `gen`. Compaction or truncation starts a new `gen`, and old

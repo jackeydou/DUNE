@@ -82,8 +82,12 @@ message Run {
   int64 fork_seq = 19;
   // For a fork, once its sandboxes are restored: `fs_restored` or `fs_partial`.
   string fidelity = 20;
-  // Who submitted the run, or forked it. Empty for runs submitted before edge existed.
+  // Who submitted the run, or forked it; a rerun keeps its predecessor's. Empty for runs
+  // submitted without edge.
   string submitted_by = 21;
+  // Who cancelled the run, and who last resumed it.
+  string cancelled_by = 22;
+  string resumed_by = 23;
 }
 
 message GetRunRequest {

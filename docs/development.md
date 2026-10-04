@@ -31,10 +31,10 @@ mise run sync
 | `mise run lint` | `ruff format --check .` and `ruff check .` |
 | `mise run typecheck` | `pyright` in strict mode over `swarmeval/` and `tests/` |
 | `mise run test` | `pytest` (asyncio mode `auto`), without tests marked `docker` |
-| `mise run test:docker` | `pytest -m docker`: the Postgres store, migrations, and export against a throwaway `postgres:18-alpine` and `rustfs/rustfs` from testcontainers, and the sandboxd client against a sandboxd it builds from `go/` (needs `busybox:latest`). Run it before a change to `swarmeval/db/`, `swarmeval/events/`, or `swarmeval/sandbox/` is done |
+| `mise run test:docker` | `pytest -m docker`: the Postgres store, migrations, and export against a throwaway `postgres:18-alpine` and `rustfs/rustfs` from testcontainers, the sandboxd client against a sandboxd it builds from `go/` (needs `busybox:latest`), and the public API through an `edge` it builds from `go/`. Run it before a change to `swarmeval/db/`, `swarmeval/events/`, `swarmeval/sandbox/`, `swarmeval/control/`, or edge is done |
 | `mise run go:lint` | `golangci-lint run` over `go/`, integration tests included |
 | `mise run go:test` | `go test ./...` in `go/` |
-| `mise run go:test-integration` | sandboxd against the local docker daemon. Needs `busybox:latest` |
+| `mise run go:test-integration` | sandboxd against the local docker daemon (needs `busybox:latest` and `python:3.12-slim`), and edge against a throwaway `postgres:18-alpine` from testcontainers-go |
 | `mise run proto:gen` | Go stubs (grpc-go and connect-go) into `go/internal/gen/` with `buf generate`, and Python stubs with typed `.pyi` into `swarmeval/proto/` with grpcio-tools and mypy-protobuf. Commit both. The public API (`proto/swarmeval/api/`) gets no Python stubs: only edge and its clients use it |
 | `mise run proto:lint` | `buf lint`, `buf format --diff`, and a check that the committed stubs match `proto/` |
 | `mise run proto:breaking` | `buf breaking` against the local `main` branch. Only the public API, `proto/swarmeval/api/`, is checked; `buf.yaml` lists the internal packages it ignores, and a new internal package goes on that list |

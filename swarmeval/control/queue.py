@@ -55,6 +55,7 @@ class NewRun:
     epochs: int
     replaces: str | None = None
     suite: str | None = None
+    submitted_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,9 @@ class RunRow:
     forked_from: str | None
     fork_seq: int | None
     fork_edits: list[JsonValue] | None
+    submitted_by: str | None
+    cancelled_by: str | None
+    resumed_by: str | None
     owner_id: str | None
     owner_epoch: int
     isolation: str | None
@@ -104,6 +108,9 @@ def _joined() -> Select[*tuple[Any, ...]]:
         s.forked_from,
         s.fork_seq,
         s.fork_edits,
+        s.submitted_by,
+        r.cancelled_by,
+        r.resumed_by,
         r.owner_id,
         r.owner_epoch,
         r.isolation,
@@ -156,6 +163,7 @@ class Queue:
                         "epochs": r.epochs,
                         "replaces": r.replaces,
                         "suite": r.suite,
+                        "submitted_by": r.submitted_by,
                     }
                     for r in runs
                 ],
@@ -192,7 +200,7 @@ class Queue:
             rows = await conn.execute(query.limit(limit))
             return [_row(r) for r in rows]
 
-    async def cancel(self, run_id: str) -> RunRow:
+    async def cancel(self, run_id: str, actor: str | None = None) -> RunRow:
         """A queued run finishes now; a running one when its worker sees the status."""
         runs = control_runs.c
         async with self._engine.begin() as conn:
@@ -202,6 +210,7 @@ class Queue:
                 .values(
                     status="cancelled",
                     finished_at=case((runs.owner_id.is_(None), func.now()), else_=None),
+                    cancelled_by=actor,
                 )
                 .returning(runs.run_id)
             )
@@ -233,7 +242,7 @@ class Queue:
             ).scalar_one_or_none()
         return paused or await self.status(run_id)
 
-    async def resume(self, run_id: str) -> RunRow:
+    async def resume(self, run_id: str, actor: str | None = None) -> RunRow:
         """A paused run is `running` again; its worker sees it and goes on."""
         runs = control_runs.c
         async with self._engine.begin() as conn:
@@ -241,7 +250,7 @@ class Queue:
                 await conn.execute(
                     update(control_runs)
                     .where(runs.run_id == run_id, runs.status == "paused")
-                    .values(status="running")
+                    .values(status="running", resumed_by=actor)
                     .returning(runs.run_id)
                 )
             ).scalar_one_or_none()
@@ -291,7 +300,13 @@ class Queue:
             raise RunNotFound(f"no run `{run_id}`.")
         return found
 
-    async def fork(self, source: RunRow, fork_seq: int, edits: list[JsonValue]) -> RunRow:
+    async def fork(
+        self,
+        source: RunRow,
+        fork_seq: int,
+        edits: list[JsonValue],
+        actor: str | None = None,
+    ) -> RunRow:
         """Queues a fork of `source`, which goes on after its event `fork_seq` with `edits`:
         the same case revision, variant, and epoch (so the same seed), as run
         `<source>.f<n>`. Its reports keep it apart from the epochs."""
@@ -325,6 +340,7 @@ class Queue:
                     forked_from=source.run_id,
                     fork_seq=fork_seq,
                     fork_edits=edits,
+                    submitted_by=actor,
                 )
             )
         return await self.get(run_id)
@@ -452,6 +468,7 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
                     s.epochs,
                     s.suite,
                     s.forked_from,
+                    s.submitted_by,
                     control_runs.c.workspace,
                 )
                 .join_from(run_specs, control_runs, s.run_id == control_runs.c.run_id)
@@ -493,6 +510,7 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
             epochs=spec["epochs"],
             replaces=run_id,
             suite=spec["suite"],
+            submitted_by=spec["submitted_by"],
         )
     )
     return rerun_id

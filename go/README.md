@@ -1,8 +1,8 @@
 # SwarmEval Go services
 
 The Go module `github.com/jackeydou/DUNE/go`. It holds the services that talk to container
-backends and the network: `sandboxd` today, and later `edge` and the `swarm` CLI. `net-gateway` is
-deferred; its policy core is in `internal/netgw`.
+backends, the network, and the public: `sandboxd` and `edge` today, and later the `swarm` CLI.
+`net-gateway` is deferred; its policy core is in `internal/netgw`.
 How they fit with the rest of SwarmEval is in [docs/architecture.md](../docs/architecture.md).
 
 ## sandboxd
@@ -38,11 +38,33 @@ Requirements and limits:
 - State is in memory. A restarted sandboxd does not know the sandboxes it created; `DestroyRun`
   still removes their containers and networks by label.
 
+## edge
+
+The public entry point: authenticates callers and serves the public API
+([`proto/swarmeval/api/v1`](../proto/swarmeval/api/v1/)), forwarding run calls to the
+orchestrator's Control API. Behavior, flags, and limits:
+[docs/services/edge.md](../docs/services/edge.md).
+
+```bash
+export SWARMEVAL_DATABASE_URL=postgresql://swarmeval:…@localhost:5432/swarmeval
+go run ./cmd/edge user create root --admin      # password from stdin
+go run ./cmd/edge serve --public-url http://127.0.0.1:7443 --control 127.0.0.1:7090
+```
+
+Requirements and limits:
+
+- Postgres with the shared database; edge creates and migrates the `tenant` schema itself.
+- Without `--tls-cert` / `--tls-key` it listens only on loopback.
+- Sign-in throttling is kept in memory, per process.
+
 ## Layout
 
 | Path | Holds |
 |---|---|
 | `cmd/sandboxd` | The binary: flags, docker connection, gRPC server |
+| `cmd/edge` | The binary: `serve` and `user create` |
+| `internal/edge` | The public API's handlers, authentication, sign-in throttling, and Control API forwarding |
+| `internal/edge/tenant` | The `tenant` schema: migrations, users, sessions, API tokens, password hashing |
 | `internal/sandboxd` | The service and its gRPC adapter |
 | `internal/fsdiff` | Manifests of key paths and their diff |
 | `internal/netgw` | net-gateway's policy engine, config, and traffic classification. Deferred: no binary uses it ([docs](../docs/services/net-gateway.md)) |
@@ -53,6 +75,7 @@ Requirements and limits:
 
 From the repo root: `mise run check` lints and tests this module with everything else.
 `mise run go:test-integration` runs sandboxd against the local docker daemon and needs
-`busybox:latest` and `python:3.12-slim` on the host. `SWARMEVAL_IT_RUNTIME=runc` or `runsc` picks the runtime. On macOS,
+`busybox:latest` and `python:3.12-slim` on the host; it also runs edge against a throwaway
+`postgres:18-alpine`. `SWARMEVAL_IT_RUNTIME=runc` or `runsc` picks the runtime. On macOS,
 Docker Desktop and OrbStack enforce neither owners nor modes on bind mounts, so the `os_user`
 permission test skips there; run it on Linux.

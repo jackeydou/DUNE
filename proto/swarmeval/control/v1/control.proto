@@ -44,6 +44,8 @@ message SubmitRunsRequest {
   // Labels the submissions of one suite run, so a report can cover them together: lowercase
   // letters, digits, `_`, `.`, and `-`, starting with a letter or digit. Empty for none.
   string suite = 4;
+  // Who asks, as edge authenticated them; empty for internal tooling. Recorded on the runs.
+  string actor = 5;
 }
 
 message SubmitRunsResponse {
@@ -82,6 +84,12 @@ message Run {
   // For a fork, once its sandboxes are restored: `fs_restored` when every recorded file change
   // up to the fork point was restored, `fs_partial` when some could not be.
   string fidelity = 21;
+  // The actor of the submission or fork that queued the run; a rerun keeps its predecessor's.
+  // Empty when the request named none.
+  string submitted_by = 22;
+  // The actor of the CancelRun that cancelled the run, and of the last ResumeRun.
+  string cancelled_by = 23;
+  string resumed_by = 24;
 }
 
 message GetRunRequest {
@@ -108,6 +116,7 @@ message ListRunsResponse {
 
 message CancelRunRequest {
   string run_id = 1;
+  string actor = 2;
 }
 
 message CancelRunResponse {
@@ -116,6 +125,7 @@ message CancelRunResponse {
 
 message ResumeRunRequest {
   string run_id = 1;
+  string actor = 2;
 }
 
 message ResumeRunResponse {
@@ -126,6 +136,7 @@ message ForkRunRequest {
   string run_id = 1;
   string at_event_id = 2;
   repeated ForkEdit edits = 3;
+  string actor = 4;
 }
 
 message ForkEdit {

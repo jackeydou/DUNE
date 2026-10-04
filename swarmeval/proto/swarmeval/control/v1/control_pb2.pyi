@@ -28,6 +28,7 @@ class SubmitRunsRequest(_message.Message):
     OVERRIDES_FIELD_NUMBER: _builtins.int
     EPOCHS_FIELD_NUMBER: _builtins.int
     SUITE_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
     case_bundle: _builtins.bytes
     """The case directory as an uncompressed tar archive, with `case.yaml` at its root."""
     epochs: _builtins.int
@@ -36,6 +37,8 @@ class SubmitRunsRequest(_message.Message):
     """Labels the submissions of one suite run, so a report can cover them together: lowercase
     letters, digits, `_`, `.`, and `-`, starting with a letter or digit. Empty for none.
     """
+    actor: _builtins.str
+    """Who asks, as edge authenticated them; empty for internal tooling. Recorded on the runs."""
     @_builtins.property
     def overrides(self) -> _struct_pb2.Struct:
         """Variant axis → list of values, replacing that axis's values in the case."""
@@ -47,10 +50,11 @@ class SubmitRunsRequest(_message.Message):
         overrides: _struct_pb2.Struct | None = ...,
         epochs: _builtins.int = ...,
         suite: _builtins.str = ...,
+        actor: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["overrides", b"overrides"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_bundle", b"case_bundle", "epochs", b"epochs", "overrides", b"overrides", "suite", b"suite"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "case_bundle", b"case_bundle", "epochs", b"epochs", "overrides", b"overrides", "suite", b"suite"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -104,6 +108,9 @@ class Run(_message.Message):
     FORKED_FROM_FIELD_NUMBER: _builtins.int
     FORK_SEQ_FIELD_NUMBER: _builtins.int
     FIDELITY_FIELD_NUMBER: _builtins.int
+    SUBMITTED_BY_FIELD_NUMBER: _builtins.int
+    CANCELLED_BY_FIELD_NUMBER: _builtins.int
+    RESUMED_BY_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     submission_id: _builtins.str
     case_id: _builtins.str
@@ -130,6 +137,13 @@ class Run(_message.Message):
     """For a fork, once its sandboxes are restored: `fs_restored` when every recorded file change
     up to the fork point was restored, `fs_partial` when some could not be.
     """
+    submitted_by: _builtins.str
+    """The actor of the submission or fork that queued the run; a rerun keeps its predecessor's.
+    Empty when the request named none.
+    """
+    cancelled_by: _builtins.str
+    """The actor of the CancelRun that cancelled the run, and of the last ResumeRun."""
+    resumed_by: _builtins.str
     @_builtins.property
     def task_args(self) -> _struct_pb2.Struct:
         """The variant's axis values."""
@@ -164,10 +178,13 @@ class Run(_message.Message):
         forked_from: _builtins.str = ...,
         fork_seq: _builtins.int = ...,
         fidelity: _builtins.str = ...,
+        submitted_by: _builtins.str = ...,
+        cancelled_by: _builtins.str = ...,
+        resumed_by: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["created_at", b"created_at", "finished_at", b"finished_at", "started_at", b"started_at", "task_args", b"task_args"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "case_sha256", b"case_sha256", "created_at", b"created_at", "epoch", b"epoch", "epochs", b"epochs", "error", b"error", "fidelity", b"fidelity", "finished_at", b"finished_at", "fork_seq", b"fork_seq", "forked_from", b"forked_from", "isolation", b"isolation", "owner_id", b"owner_id", "replaces", b"replaces", "run_id", b"run_id", "started_at", b"started_at", "status", b"status", "submission_id", b"submission_id", "suite", b"suite", "task_args", b"task_args", "variant", b"variant", "workspace", b"workspace"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["cancelled_by", b"cancelled_by", "case_id", b"case_id", "case_sha256", b"case_sha256", "created_at", b"created_at", "epoch", b"epoch", "epochs", b"epochs", "error", b"error", "fidelity", b"fidelity", "finished_at", b"finished_at", "fork_seq", b"fork_seq", "forked_from", b"forked_from", "isolation", b"isolation", "owner_id", b"owner_id", "replaces", b"replaces", "resumed_by", b"resumed_by", "run_id", b"run_id", "started_at", b"started_at", "status", b"status", "submission_id", b"submission_id", "submitted_by", b"submitted_by", "suite", b"suite", "task_args", b"task_args", "variant", b"variant", "workspace", b"workspace"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -270,15 +287,18 @@ class CancelRunRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     RUN_ID_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
+    actor: _builtins.str
     def __init__(
         self,
         *,
         run_id: _builtins.str = ...,
+        actor: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["run_id", b"run_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "run_id", b"run_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -309,15 +329,18 @@ class ResumeRunRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     RUN_ID_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
+    actor: _builtins.str
     def __init__(
         self,
         *,
         run_id: _builtins.str = ...,
+        actor: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["run_id", b"run_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "run_id", b"run_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -350,8 +373,10 @@ class ForkRunRequest(_message.Message):
     RUN_ID_FIELD_NUMBER: _builtins.int
     AT_EVENT_ID_FIELD_NUMBER: _builtins.int
     EDITS_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     at_event_id: _builtins.str
+    actor: _builtins.str
     @_builtins.property
     def edits(self) -> _containers.RepeatedCompositeFieldContainer[Global___ForkEdit]: ...
     def __init__(
@@ -360,10 +385,11 @@ class ForkRunRequest(_message.Message):
         run_id: _builtins.str = ...,
         at_event_id: _builtins.str = ...,
         edits: _abc.Iterable[Global___ForkEdit] | None = ...,
+        actor: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["at_event_id", b"at_event_id", "edits", b"edits", "run_id", b"run_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "at_event_id", b"at_event_id", "edits", b"edits", "run_id", b"run_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
