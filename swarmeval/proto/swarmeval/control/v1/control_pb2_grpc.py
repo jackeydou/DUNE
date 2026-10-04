@@ -41,6 +41,11 @@ class ControlServiceStub:
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsRequest.SerializeToString,
                 response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsResponse.FromString,
                 _registered_method=True)
+        self.SubmitSuite = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/SubmitSuite',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteResponse.FromString,
+                _registered_method=True)
         self.GetRun = channel.unary_unary(
                 '/swarmeval.control.v1.ControlService/GetRun',
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetRunRequest.SerializeToString,
@@ -55,6 +60,16 @@ class ControlServiceStub:
                 '/swarmeval.control.v1.ControlService/CancelRun',
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunRequest.SerializeToString,
                 response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunResponse.FromString,
+                _registered_method=True)
+        self.ResumeRun = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/ResumeRun',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunResponse.FromString,
+                _registered_method=True)
+        self.ForkRun = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/ForkRun',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ForkRunRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ForkRunResponse.FromString,
                 _registered_method=True)
         self.StreamEvents = channel.unary_stream(
                 '/swarmeval.control.v1.ControlService/StreamEvents',
@@ -71,6 +86,16 @@ class ControlServiceServicer:
     def SubmitRuns(self, request, context):
         """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
         A case that does not load is INVALID_ARGUMENT, with the loader's message.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SubmitSuite(self, request, context):
+        """Loads a suite with the case bundles it names and queues every case's runs in one
+        transaction, each case its own submission under one suite label: a suite with a case that
+        does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+        the suite entry at fault.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -97,6 +122,26 @@ class ControlServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ResumeRun(self, request, context):
+        """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+        not paused is FAILED_PRECONDITION.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ForkRun(self, request, context):
+        """A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+        happened in, with `edits` applied: the same case
+        revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+        epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+        event before the first turn, or an edit that does not fit the state there is
+        FAILED_PRECONDITION.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StreamEvents(self, request, context):
         """A run's events with seq greater than `after_seq`, live while the run is going. The stream
         ends once the run has finished and every event was sent.
@@ -113,6 +158,11 @@ def add_ControlServiceServicer_to_server(servicer, server):
                     request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsRequest.FromString,
                     response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsResponse.SerializeToString,
             ),
+            'SubmitSuite': grpc.unary_unary_rpc_method_handler(
+                    servicer.SubmitSuite,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteResponse.SerializeToString,
+            ),
             'GetRun': grpc.unary_unary_rpc_method_handler(
                     servicer.GetRun,
                     request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetRunRequest.FromString,
@@ -127,6 +177,16 @@ def add_ControlServiceServicer_to_server(servicer, server):
                     servicer.CancelRun,
                     request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunRequest.FromString,
                     response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunResponse.SerializeToString,
+            ),
+            'ResumeRun': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResumeRun,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunResponse.SerializeToString,
+            ),
+            'ForkRun': grpc.unary_unary_rpc_method_handler(
+                    servicer.ForkRun,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ForkRunRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ForkRunResponse.SerializeToString,
             ),
             'StreamEvents': grpc.unary_stream_rpc_method_handler(
                     servicer.StreamEvents,
@@ -163,6 +223,33 @@ class ControlService:
             '/swarmeval.control.v1.ControlService/SubmitRuns',
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsRequest.SerializeToString,
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SubmitSuite(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/SubmitSuite',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -244,6 +331,60 @@ class ControlService:
             '/swarmeval.control.v1.ControlService/CancelRun',
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunRequest.SerializeToString,
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.CancelRunResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResumeRun(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/ResumeRun',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ResumeRunResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ForkRun(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/ForkRun',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ForkRunRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ForkRunResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -6,6 +6,7 @@ written (see docs/event-log.md). The runtime never builds Inspect objects itself
 
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import Field, JsonValue
@@ -21,6 +22,7 @@ from swarmeval.runtime.messages import (
 
 HookName = Literal[
     "on_run_start",
+    "on_resume",
     "before_turn",
     "compact_context",
     "before_model_request",
@@ -67,6 +69,10 @@ class FsChange(Frozen):
     """For an ambiguous change: calls whose processes were alive in the window."""
     content_stored: bool = False
     """The new content is in the blob store under `after_sha256`."""
+    mtime_us: int | None = None
+    """Modification time after the change (before it for a delete), as the sandbox's file
+    system reports it, in microseconds since the Unix epoch: within JSON's exact integers, which
+    nanoseconds are not. Anything a process set with `touch -d`. `None` before event schema 6."""
 
 
 class ProcessInfo(Frozen):
@@ -231,7 +237,8 @@ class IsolationProbeRecord(Frozen):
 
 class InterventionRecord(Frozen):
     kind: Literal["intervention"] = "intervention"
-    hook: HookName | Literal["tool"]
+    hook: HookName | Literal["tool", "fork"]
+    """`fork`: an edit a fork made to what its source left (docs/services/orchestrator.md#forks)."""
     action: str
     target_event_id: str | None
     before_sha256: str | None
@@ -300,13 +307,15 @@ class ScoreRecord(Frozen):
 
 class LimitRecord(Frozen):
     kind: Literal["limit"] = "limit"
-    limit: Literal["max_turns", "max_tokens"]
+    limit: Literal["max_turns", "max_tokens", "wall_clock"]
     value: int
 
 
 class LifecycleRecord(Frozen):
     kind: Literal["lifecycle"] = "lifecycle"
-    status: Literal["started", "finished", "stopped", "limit", "failed"]
+    status: Literal["started", "paused", "resumed", "finished", "stopped", "limit", "failed"]
+    """`paused` and `resumed` mark a pause in the middle of the run; the last lifecycle event
+    is its outcome."""
     reason: str | None = None
     hook: HookName | Literal["tool", "spawn"] | None = None
     error: str | None = None
@@ -379,6 +388,8 @@ class CommittedEvent(Frozen):
     """Instance id of the extension that caused this event, if any."""
     parent_id: str | None
     record: Record
+    ts: datetime | None = None
+    """When the event was sealed; what timing detectors read."""
 
 
 def new_event_id() -> str:
@@ -420,6 +431,67 @@ class DeliveryChange:
     """For `delayed`: the recipient's own turn at whose start the message is delivered."""
 
 
+class AgentCheckpoint(Frozen):
+    gen: int
+    length: int
+    turn: int
+    """The agent's own turns started."""
+    finished: bool
+    last_input: str
+    """The parent of the agent's next model call."""
+
+
+class MailCheckpoint(Frozen):
+    """A routed message not yet delivered: due at the recipient's next turn, or held."""
+
+    recipient: str
+    send_seq: int
+    send_event_id: str
+    send: MessageSendRecord
+    content: str
+    """What will be delivered, after `before_deliver`."""
+    due_turn: int | None
+    parent_id: str
+
+
+class QueuedCheckpoint(Frozen):
+    """An injection or a post an extension asked for, not yet taken by the loop."""
+
+    event_id: str
+    content: str
+    agent_id: str | None = None
+    """For an injection."""
+    instance_id: str | None = None
+    """For a post: the extension that posted."""
+    channel: str | None = None
+    sender: str | None = None
+    """For a post."""
+
+
+class ExtensionCheckpoint(Frozen):
+    state: JsonValue
+    rng_uses: int
+
+
+class Checkpoint(Frozen):
+    """The loop's state at the start of a run-wide turn, once the observers have caught up:
+    everything a fork needs besides the messages, which `agents` locate by generation and
+    length. Committed into `runs.checkpoints` with the seq of the last event before the turn."""
+
+    turn: int
+    """Run-wide turns started before this one."""
+    round: tuple[str, ...]
+    """Agents left in the current `round_robin` round, the one about to step first."""
+    tokens_used: int
+    agents: dict[str, AgentCheckpoint]
+    extensions: dict[str, ExtensionCheckpoint]
+    mail: tuple[MailCheckpoint, ...] = ()
+    queued: tuple[QueuedCheckpoint, ...] = ()
+    spawned: int = 0
+    """Extension work started with `ctx.spawn` and still running. A fork cannot carry a
+    coroutine over, so it refuses such a checkpoint."""
+
+
 @dataclass(frozen=True)
 class ExtensionSnapshot:
     """An extension instance's committed state, and how many of its hook calls have drawn from
@@ -444,6 +516,14 @@ class Transaction:
         default_factory=dict[str, ExtensionSnapshot]
     )
     deliveries: list[DeliveryChange] = field(default_factory=list[DeliveryChange])
+    checkpoint: Checkpoint | None = None
+    inherited: dict[tuple[str, int], tuple[ChatMessage, ...]] = field(
+        default_factory=dict[tuple[str, int], tuple[ChatMessage, ...]]
+    )
+    """A fork's copy of its source's contexts: `(agent, gen)` to the messages, written at those
+    generation numbers, before `new_generations`."""
+    inherited_mail: list[MailCheckpoint] = field(default_factory=list[MailCheckpoint])
+    """Mail a fork carries over; opens its `runs.deliveries` rows as its source had them."""
 
     def extend(self, other: "Transaction") -> None:
         self.events.extend(other.events)
@@ -452,6 +532,9 @@ class Transaction:
         self.agent_states.extend(other.agent_states)
         self.extension_states.update(other.extension_states)
         self.deliveries.extend(other.deliveries)
+        assert other.checkpoint is None and not other.inherited and not other.inherited_mail, (
+            "only the loop commits checkpoints and a fork's start, never in an extended txn"
+        )
 
     def is_empty(self) -> bool:
         return not (
@@ -461,4 +544,7 @@ class Transaction:
             or self.agent_states
             or self.extension_states
             or self.deliveries
+            or self.checkpoint
+            or self.inherited
+            or self.inherited_mail
         )

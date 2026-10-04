@@ -16,11 +16,13 @@ class RunWriter:
     are called synchronously while the commit lock is held, so they must not block.
     """
 
-    def __init__(self, store: RunStore) -> None:
+    def __init__(self, store: RunStore, *, last_event_id: str | None = None) -> None:
+        """`last_event_id` is the parent of the run's first event: `None`, or for a fork the
+        source's event it goes on from, as a cross-run reference."""
         self._store = store
         self._lock = asyncio.Lock()
         self._subscribers: list[Subscriber] = []
-        self._last_event_id: str | None = None
+        self._last_event_id = last_event_id
 
     @property
     def store(self) -> RunStore:

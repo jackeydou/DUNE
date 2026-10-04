@@ -204,14 +204,15 @@ async def test_a_submitted_case_runs_scores_and_exports(platform: Platform, tmp_
 
 async def test_a_cancelled_queued_run_never_starts(platform: Platform, tmp_path: Path) -> None:
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")), epochs=2)
+        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")), epochs=2, actor="ada")
     )
     first, second = submitted.run_ids
 
-    cancelled = await platform.control.CancelRun(pb.CancelRunRequest(run_id=first))
+    cancelled = await platform.control.CancelRun(pb.CancelRunRequest(run_id=first, actor="grace"))
     await platform.control.CancelRun(pb.CancelRunRequest(run_id=second))
 
     assert cancelled.run.status == "cancelled"
+    assert (cancelled.run.submitted_by, cancelled.run.cancelled_by) == ("ada", "grace")
     assert await platform.worker.drain() == {}
     with pytest.raises(grpc.aio.AioRpcError) as info:
         await platform.control.CancelRun(pb.CancelRunRequest(run_id=first))

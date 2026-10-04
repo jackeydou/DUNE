@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+package swarmeval.api.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1;apiv1";
+
+// RunService submits evaluation runs and follows them. edge forwards each call to the
+// orchestrator's Control API and records the caller as the actor of every change. Run statuses,
+// reruns, and forks: docs/services/orchestrator.md.
+service RunService {
+  // Validates a case bundle and queues one run per variant and epoch. A case that does not load
+  // is INVALID_ARGUMENT, with the loader's message.
+  rpc SubmitRuns(SubmitRunsRequest) returns (SubmitRunsResponse);
+  // Loads a suite with the case directories it names and queues every case's runs, each case
+  // its own submission under one suite label. A suite with a case that does not load queues
+  // nothing; INVALID_ARGUMENT names the entry. The format: docs/case-format.md#suites.
+  rpc SubmitSuite(SubmitSuiteRequest) returns (SubmitSuiteResponse);
+  // An unknown run is NOT_FOUND.
+  rpc GetRun(GetRunRequest) returns (GetRunResponse);
+  // Newest first.
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  // A queued run never starts; a running one stops at its next step, keeps its events, and is
+  // not scored. A finished run is FAILED_PRECONDITION.
+  rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+  // A run paused for a person goes on from where it stopped. A run that is not paused is
+  // FAILED_PRECONDITION.
+  rpc ResumeRun(ResumeRunRequest) returns (ResumeRunResponse);
+  // A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+  // happened in, with `edits` applied. An unknown run or event is NOT_FOUND; a run that did not
+  // end `done` or `cancelled`, an event before the first turn, or an edit that does not fit the
+  // state there is FAILED_PRECONDITION.
+  rpc ForkRun(ForkRunRequest) returns (ForkRunResponse);
+  // A run's events with seq greater than `after_seq`, live while the run is going. The stream
+  // ends once the run has finished and every event was sent.
+  rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
+}
+
+message SubmitRunsRequest {
+  // The case directory as an uncompressed tar archive, with `case.yaml` at its root. At most
+  // 64 MiB.
+  bytes case_bundle = 1;
+  // Variant axis → list of values, replacing that axis's values in the case.
+  google.protobuf.Struct overrides = 2;
+  // Runs per variant. Zero means the case's `epochs`.
+  int32 epochs = 3;
+  // Labels the submissions of one suite run: lowercase letters, digits, `_`, `.`, and `-`,
+  // starting with a letter or digit. Empty for none.
+  string suite = 4;
+}
+
+message SubmitRunsResponse {
+  string submission_id = 1;
+  repeated string run_ids = 2;
+}
+
+message SubmitSuiteRequest {
+  // The suite file as written.
+  string suite_yaml = 1;
+  // Each `cases[].path` of the suite, as written there, → that case directory as an
+  // uncompressed tar archive with `case.yaml` at its root. At most 64 MiB in all.
+  map<string, bytes> case_bundles = 2;
+}
+
+message SuiteSubmission {
+  string case_id = 1;
+  string submission_id = 2;
+  repeated string run_ids = 3;
+}
+
+message SubmitSuiteResponse {
+  // `<suite id>.<8 hex>`: ListRuns and reports take it as `suite`.
+  string suite = 1;
+  // One per suite entry, in the suite's order.
+  repeated SuiteSubmission submissions = 2;
+}
+
+message Run {
+  string run_id = 1;
+  string submission_id = 2;
+  string case_id = 3;
+  string workspace = 4;
+  // `queued`, `running`, `paused`, `interrupted`, `done`, `failed`, or `cancelled`.
+  string status = 5;
+  int32 variant = 6;
+  // The variant's axis values.
+  google.protobuf.Struct variant_values = 7;
+  int32 epoch = 8;
+  int32 epochs = 9;
+  // sha256 of the case bundle the run used.
+  string case_sha256 = 10;
+  // Container runtime the run's sandboxes got: `runc` or `runsc`. Empty until they exist.
+  string isolation = 11;
+  // Why the run failed or was interrupted.
+  string error = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp started_at = 14;
+  google.protobuf.Timestamp finished_at = 15;
+  // The interrupted run this one reruns at a new epoch; empty for a run the submission asked for.
+  string replaces = 16;
+  // The suite label of the run's submission; empty for none.
+  string suite = 17;
+  // For a fork: the run it goes on from, and the last of that run's events it starts after.
+  string forked_from = 18;
+  int64 fork_seq = 19;
+  // For a fork, once its sandboxes are restored: `fs_restored` or `fs_partial`.
+  string fidelity = 20;
+  // Who submitted the run, or forked it; a rerun keeps its predecessor's. Empty for runs
+  // submitted without edge.
+  string submitted_by = 21;
+  // Who cancelled the run, and who last resumed it.
+  string cancelled_by = 22;
+  string resumed_by = 23;
+}
+
+message GetRunRequest {
+  string run_id = 1;
+}
+
+message GetRunResponse {
+  Run run = 1;
+}
+
+message ListRunsRequest {
+  // Filters; empty matches everything.
+  string submission_id = 1;
+  string case_id = 2;
+  string status = 3;
+  string suite = 4;
+  // Zero means 100.
+  int32 limit = 5;
+}
+
+message ListRunsResponse {
+  repeated Run runs = 1;
+}
+
+message CancelRunRequest {
+  string run_id = 1;
+}
+
+message CancelRunResponse {
+  Run run = 1;
+}
+
+message ResumeRunRequest {
+  string run_id = 1;
+}
+
+message ResumeRunResponse {
+  Run run = 1;
+}
+
+message ForkRunRequest {
+  string run_id = 1;
+  string at_event_id = 2;
+  repeated ForkEdit edits = 3;
+}
+
+message ForkEdit {
+  oneof edit {
+    ReplaceMessage replace_message = 1;
+    DeleteMessage delete_message = 2;
+    ReplaceDelivery replace_delivery = 3;
+  }
+}
+
+// The text of message `index` in an agent's context at the fork point.
+message ReplaceMessage {
+  string agent_id = 1;
+  int32 index = 2;
+  string content = 3;
+}
+
+// A user message (a delivery or an injection) in an agent's context at the fork point.
+message DeleteMessage {
+  string agent_id = 1;
+  int32 index = 2;
+}
+
+// Other content for a message routed to `recipient` but not yet delivered at the fork point.
+message ReplaceDelivery {
+  string send_event_id = 1;
+  string recipient = 2;
+  string content = 3;
+}
+
+message ForkRunResponse {
+  Run run = 1;
+}
+
+message StreamEventsRequest {
+  string run_id = 1;
+  int64 after_seq = 2;
+}
+
+message StreamEventsResponse {
+  int64 seq = 1;
+  string event_id = 2;
+  // The Inspect event type, or an InfoEvent's `swarmeval.<kind>` source.
+  string type = 3;
+  // Empty for events no agent caused.
+  string agent_id = 4;
+  // The stored Inspect event, as JSON. Event format: docs/event-log.md.
+  string payload_json = 5;
+  // The event on one line, as the judge and the timeline show it, cut at 2,000 characters.
+  string line = 6;
+}

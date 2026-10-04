@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import grpc
 import pytest
+import yaml
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.analysis import load_summaries, report
@@ -112,3 +113,85 @@ async def test_a_rerun_keeps_its_suite_label(engine: AsyncEngine, submission: st
 
     assert rerun is not None
     assert (await queue.get(rerun)).suite == "core.0000aaaa"
+
+
+async def _refused(control: "ControlServiceAsyncStub", request: pb.SubmitSuiteRequest) -> str:
+    with pytest.raises(grpc.aio.AioRpcError) as info:
+        await control.SubmitSuite(request)
+    assert info.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+    return str(info.value.details())
+
+
+async def test_a_suite_with_a_broken_case_queues_nothing(
+    control: "ControlServiceAsyncStub", tmp_path: Path
+) -> None:
+    write(tmp_path / "a", model_case())
+    suite = {
+        "schema_version": 1,
+        "id": "broken",
+        "cases": [{"path": "../a/case"}, {"path": "../a/case", "variants": {"nope": [1]}}],
+    }
+    bundle = pack(tmp_path / "a" / "case")
+    before = len((await control.ListRuns(pb.ListRunsRequest(case_id="demo", limit=1000))).runs)
+
+    details = await _refused(
+        control,
+        pb.SubmitSuiteRequest(suite_yaml=yaml.safe_dump(suite), case_bundles={"../a/case": bundle}),
+    )
+
+    assert "`cases[1]` (../a/case)" in details and "nope" in details
+    after = len((await control.ListRuns(pb.ListRunsRequest(case_id="demo", limit=1000))).runs)
+    assert after == before
+
+
+async def test_a_suite_needs_exactly_the_bundles_it_names(
+    control: "ControlServiceAsyncStub", tmp_path: Path
+) -> None:
+    write(tmp_path / "a", model_case())
+    bundle = pack(tmp_path / "a" / "case")
+    suite = yaml.safe_dump({"schema_version": 1, "id": "s", "cases": [{"path": "../a/case"}]})
+
+    missing = await _refused(control, pb.SubmitSuiteRequest(suite_yaml=suite))
+    extra = await _refused(
+        control,
+        pb.SubmitSuiteRequest(
+            suite_yaml=suite, case_bundles={"../a/case": bundle, "../b/case": bundle}
+        ),
+    )
+    not_tar = await _refused(
+        control, pb.SubmitSuiteRequest(suite_yaml=suite, case_bundles={"../a/case": b"x"})
+    )
+
+    assert "`../a/case`" in missing and "no bundle" in missing
+    assert "`../b/case`" in extra
+    assert "`../a/case`" in not_tar and "tar" in not_tar
+
+
+async def test_one_case_twice_is_two_submissions_from_one_bundle(
+    control: "ControlServiceAsyncStub", tmp_path: Path
+) -> None:
+    write(tmp_path / "a", model_case())
+    suite = {
+        "schema_version": 1,
+        "id": "twice",
+        "epochs": 1,
+        "cases": [
+            {"path": "../a/case", "variants": {"framing": ["a"]}},
+            {"path": "../a/case", "variants": {"framing": ["b"]}},
+        ],
+    }
+
+    response = await control.SubmitSuite(
+        pb.SubmitSuiteRequest(
+            suite_yaml=yaml.safe_dump(suite),
+            case_bundles={"../a/case": pack(tmp_path / "a" / "case")},
+            actor="ada",
+        )
+    )
+
+    first, second = response.submissions
+    assert first.submission_id != second.submission_id
+    runs = (await control.ListRuns(pb.ListRunsRequest(suite=response.suite))).runs
+    assert sorted(r.task_args.fields["framing"].string_value for r in runs) == ["a", "b"]
+    assert {r.submitted_by for r in runs} == {"ada"}
+    assert len({r.case_sha256 for r in runs}) == 1

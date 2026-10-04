@@ -20,9 +20,12 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	ControlService_SubmitRuns_FullMethodName   = "/swarmeval.control.v1.ControlService/SubmitRuns"
+	ControlService_SubmitSuite_FullMethodName  = "/swarmeval.control.v1.ControlService/SubmitSuite"
 	ControlService_GetRun_FullMethodName       = "/swarmeval.control.v1.ControlService/GetRun"
 	ControlService_ListRuns_FullMethodName     = "/swarmeval.control.v1.ControlService/ListRuns"
 	ControlService_CancelRun_FullMethodName    = "/swarmeval.control.v1.ControlService/CancelRun"
+	ControlService_ResumeRun_FullMethodName    = "/swarmeval.control.v1.ControlService/ResumeRun"
+	ControlService_ForkRun_FullMethodName      = "/swarmeval.control.v1.ControlService/ForkRun"
 	ControlService_StreamEvents_FullMethodName = "/swarmeval.control.v1.ControlService/StreamEvents"
 )
 
@@ -36,12 +39,27 @@ type ControlServiceClient interface {
 	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
 	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(ctx context.Context, in *SubmitRunsRequest, opts ...grpc.CallOption) (*SubmitRunsResponse, error)
+	// Loads a suite with the case bundles it names and queues every case's runs in one
+	// transaction, each case its own submission under one suite label: a suite with a case that
+	// does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+	// the suite entry at fault.
+	SubmitSuite(ctx context.Context, in *SubmitSuiteRequest, opts ...grpc.CallOption) (*SubmitSuiteResponse, error)
 	GetRun(ctx context.Context, in *GetRunRequest, opts ...grpc.CallOption) (*GetRunResponse, error)
 	// Newest first.
 	ListRuns(ctx context.Context, in *ListRunsRequest, opts ...grpc.CallOption) (*ListRunsResponse, error)
 	// A queued run never starts; a running one stops at its owner's next step, keeps its events,
 	// and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
 	CancelRun(ctx context.Context, in *CancelRunRequest, opts ...grpc.CallOption) (*CancelRunResponse, error)
+	// A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+	// not paused is FAILED_PRECONDITION.
+	ResumeRun(ctx context.Context, in *ResumeRunRequest, opts ...grpc.CallOption) (*ResumeRunResponse, error)
+	// A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+	// happened in, with `edits` applied: the same case
+	// revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+	// epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+	// event before the first turn, or an edit that does not fit the state there is
+	// FAILED_PRECONDITION.
+	ForkRun(ctx context.Context, in *ForkRunRequest, opts ...grpc.CallOption) (*ForkRunResponse, error)
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error)
@@ -59,6 +77,16 @@ func (c *controlServiceClient) SubmitRuns(ctx context.Context, in *SubmitRunsReq
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SubmitRunsResponse)
 	err := c.cc.Invoke(ctx, ControlService_SubmitRuns_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) SubmitSuite(ctx context.Context, in *SubmitSuiteRequest, opts ...grpc.CallOption) (*SubmitSuiteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SubmitSuiteResponse)
+	err := c.cc.Invoke(ctx, ControlService_SubmitSuite_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +123,26 @@ func (c *controlServiceClient) CancelRun(ctx context.Context, in *CancelRunReque
 	return out, nil
 }
 
+func (c *controlServiceClient) ResumeRun(ctx context.Context, in *ResumeRunRequest, opts ...grpc.CallOption) (*ResumeRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResumeRunResponse)
+	err := c.cc.Invoke(ctx, ControlService_ResumeRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) ForkRun(ctx context.Context, in *ForkRunRequest, opts ...grpc.CallOption) (*ForkRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForkRunResponse)
+	err := c.cc.Invoke(ctx, ControlService_ForkRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *controlServiceClient) StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ControlService_ServiceDesc.Streams[0], ControlService_StreamEvents_FullMethodName, cOpts...)
@@ -124,12 +172,27 @@ type ControlServiceServer interface {
 	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
 	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(context.Context, *SubmitRunsRequest) (*SubmitRunsResponse, error)
+	// Loads a suite with the case bundles it names and queues every case's runs in one
+	// transaction, each case its own submission under one suite label: a suite with a case that
+	// does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+	// the suite entry at fault.
+	SubmitSuite(context.Context, *SubmitSuiteRequest) (*SubmitSuiteResponse, error)
 	GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error)
 	// Newest first.
 	ListRuns(context.Context, *ListRunsRequest) (*ListRunsResponse, error)
 	// A queued run never starts; a running one stops at its owner's next step, keeps its events,
 	// and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
 	CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error)
+	// A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+	// not paused is FAILED_PRECONDITION.
+	ResumeRun(context.Context, *ResumeRunRequest) (*ResumeRunResponse, error)
+	// A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+	// happened in, with `edits` applied: the same case
+	// revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+	// epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+	// event before the first turn, or an edit that does not fit the state there is
+	// FAILED_PRECONDITION.
+	ForkRun(context.Context, *ForkRunRequest) (*ForkRunResponse, error)
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error
@@ -146,6 +209,9 @@ type UnimplementedControlServiceServer struct{}
 func (UnimplementedControlServiceServer) SubmitRuns(context.Context, *SubmitRunsRequest) (*SubmitRunsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SubmitRuns not implemented")
 }
+func (UnimplementedControlServiceServer) SubmitSuite(context.Context, *SubmitSuiteRequest) (*SubmitSuiteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SubmitSuite not implemented")
+}
 func (UnimplementedControlServiceServer) GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRun not implemented")
 }
@@ -154,6 +220,12 @@ func (UnimplementedControlServiceServer) ListRuns(context.Context, *ListRunsRequ
 }
 func (UnimplementedControlServiceServer) CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelRun not implemented")
+}
+func (UnimplementedControlServiceServer) ResumeRun(context.Context, *ResumeRunRequest) (*ResumeRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResumeRun not implemented")
+}
+func (UnimplementedControlServiceServer) ForkRun(context.Context, *ForkRunRequest) (*ForkRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForkRun not implemented")
 }
 func (UnimplementedControlServiceServer) StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error {
 	return status.Error(codes.Unimplemented, "method StreamEvents not implemented")
@@ -193,6 +265,24 @@ func _ControlService_SubmitRuns_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ControlServiceServer).SubmitRuns(ctx, req.(*SubmitRunsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_SubmitSuite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitSuiteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).SubmitSuite(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_SubmitSuite_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).SubmitSuite(ctx, req.(*SubmitSuiteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -251,6 +341,42 @@ func _ControlService_CancelRun_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ControlService_ResumeRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResumeRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).ResumeRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_ResumeRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).ResumeRun(ctx, req.(*ResumeRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_ForkRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForkRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).ForkRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_ForkRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).ForkRun(ctx, req.(*ForkRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ControlService_StreamEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamEventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -274,6 +400,10 @@ var ControlService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ControlService_SubmitRuns_Handler,
 		},
 		{
+			MethodName: "SubmitSuite",
+			Handler:    _ControlService_SubmitSuite_Handler,
+		},
+		{
 			MethodName: "GetRun",
 			Handler:    _ControlService_GetRun_Handler,
 		},
@@ -284,6 +414,14 @@ var ControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelRun",
 			Handler:    _ControlService_CancelRun_Handler,
+		},
+		{
+			MethodName: "ResumeRun",
+			Handler:    _ControlService_ResumeRun_Handler,
+		},
+		{
+			MethodName: "ForkRun",
+			Handler:    _ControlService_ForkRun_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

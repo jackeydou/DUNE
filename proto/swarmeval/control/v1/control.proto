@@ -13,12 +13,27 @@ service ControlService {
   // Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
   // A case that does not load is INVALID_ARGUMENT, with the loader's message.
   rpc SubmitRuns(SubmitRunsRequest) returns (SubmitRunsResponse);
+  // Loads a suite with the case bundles it names and queues every case's runs in one
+  // transaction, each case its own submission under one suite label: a suite with a case that
+  // does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+  // the suite entry at fault.
+  rpc SubmitSuite(SubmitSuiteRequest) returns (SubmitSuiteResponse);
   rpc GetRun(GetRunRequest) returns (GetRunResponse);
   // Newest first.
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
   // A queued run never starts; a running one stops at its owner's next step, keeps its events,
   // and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
   rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+  // A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+  // not paused is FAILED_PRECONDITION.
+  rpc ResumeRun(ResumeRunRequest) returns (ResumeRunResponse);
+  // A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+  // happened in, with `edits` applied: the same case
+  // revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+  // epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+  // event before the first turn, or an edit that does not fit the state there is
+  // FAILED_PRECONDITION.
+  rpc ForkRun(ForkRunRequest) returns (ForkRunResponse);
   // A run's events with seq greater than `after_seq`, live while the run is going. The stream
   // ends once the run has finished and every event was sent.
   rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
@@ -34,11 +49,36 @@ message SubmitRunsRequest {
   // Labels the submissions of one suite run, so a report can cover them together: lowercase
   // letters, digits, `_`, `.`, and `-`, starting with a letter or digit. Empty for none.
   string suite = 4;
+  // Who asks, as edge authenticated them; empty for internal tooling. Recorded on the runs.
+  string actor = 5;
 }
 
 message SubmitRunsResponse {
   string submission_id = 1;
   repeated string run_ids = 2;
+}
+
+message SubmitSuiteRequest {
+  // The suite file as written.
+  string suite_yaml = 1;
+  // Each `cases[].path` of the suite, as written there, → that case directory as a tar
+  // archive. A path the suite names more than once is sent once. The whole request is at most
+  // 64 MiB.
+  map<string, bytes> case_bundles = 2;
+  string actor = 3;
+}
+
+message SuiteSubmission {
+  string case_id = 1;
+  string submission_id = 2;
+  repeated string run_ids = 3;
+}
+
+message SubmitSuiteResponse {
+  // `<suite id>.<8 hex>`, for reports over the whole suite.
+  string suite = 1;
+  // One per suite entry, in the suite's order.
+  repeated SuiteSubmission submissions = 2;
 }
 
 message Run {
@@ -66,6 +106,18 @@ message Run {
   string replaces = 17;
   // The suite label of the run's submission; empty for none.
   string suite = 18;
+  // For a fork: the run it goes on from, and the last of that run's events it starts after.
+  string forked_from = 19;
+  int64 fork_seq = 20;
+  // For a fork, once its sandboxes are restored: `fs_restored` when every recorded file change
+  // up to the fork point was restored, `fs_partial` when some could not be.
+  string fidelity = 21;
+  // The actor of the submission or fork that queued the run; a rerun keeps its predecessor's.
+  // Empty when the request named none.
+  string submitted_by = 22;
+  // The actor of the CancelRun that cancelled the run, and of the last ResumeRun.
+  string cancelled_by = 23;
+  string resumed_by = 24;
 }
 
 message GetRunRequest {
@@ -92,9 +144,58 @@ message ListRunsResponse {
 
 message CancelRunRequest {
   string run_id = 1;
+  string actor = 2;
 }
 
 message CancelRunResponse {
+  Run run = 1;
+}
+
+message ResumeRunRequest {
+  string run_id = 1;
+  string actor = 2;
+}
+
+message ResumeRunResponse {
+  Run run = 1;
+}
+
+message ForkRunRequest {
+  string run_id = 1;
+  string at_event_id = 2;
+  repeated ForkEdit edits = 3;
+  string actor = 4;
+}
+
+message ForkEdit {
+  oneof edit {
+    ReplaceMessage replace_message = 1;
+    DeleteMessage delete_message = 2;
+    ReplaceDelivery replace_delivery = 3;
+  }
+}
+
+// The text of message `index` in an agent's context at the fork point.
+message ReplaceMessage {
+  string agent_id = 1;
+  int32 index = 2;
+  string content = 3;
+}
+
+// A user message (a delivery or an injection) in an agent's context at the fork point.
+message DeleteMessage {
+  string agent_id = 1;
+  int32 index = 2;
+}
+
+// Other content for a message routed to `recipient` but not yet delivered at the fork point.
+message ReplaceDelivery {
+  string send_event_id = 1;
+  string recipient = 2;
+  string content = 3;
+}
+
+message ForkRunResponse {
   Run run = 1;
 }
 
@@ -111,4 +212,7 @@ message StreamEventsResponse {
   string agent_id = 4;
   // The stored Inspect event, as JSON.
   string payload_json = 5;
+  // The event on one line, as the judge and the timeline show it (swarmeval.events.render),
+  // cut at 2,000 characters.
+  string line = 6;
 }

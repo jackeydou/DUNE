@@ -25,15 +25,15 @@ defines a second event structure. It extends Inspect in two ways only:
 | SwarmEval event | Inspect type |
 |---|---|
 | `llm.request` / `llm.response` | `ModelEvent`. The gateway's record goes in `metadata.swarmeval.gateway`: request hash, backend raw response, `reasoning_passback`, sampling actually sent, weight hash, latency, attempts |
-| `tool.call` / `tool.result` | `ToolEvent`. The file changes and surviving processes sandboxd saw go in `metadata.swarmeval.exec`; a `web_request`'s exchange goes in `metadata.swarmeval.web` (schema version 3) |
+| `tool.call` / `tool.result` | `ToolEvent`. The file changes (from schema version 6 with each path's `mtime_us`) and surviving processes sandboxd saw go in `metadata.swarmeval.exec`; a `web_request`'s exchange goes in `metadata.swarmeval.web` (schema version 3) |
 | A command an extension ran through `ctx.sandbox` | `SandboxEvent` |
 | `isolation_probe`: a command of the [isolation self-check](services/orchestrator.md#isolation-self-check) | `SandboxEvent`, with `metadata.swarmeval.probe` holding `step` (`plant`, `check`, `clean`) and, for `check`, `findings` (`probe`, `peer`, `outcome`, `detail`) beside `exec` (schema version 4). `sandbox_id` is the sandbox it ran in |
 | Interrupted tool call | `InterruptEvent` |
-| Recovery point, pause | `CheckpointEvent` |
-| Budget or limit hit | `SampleLimitEvent` |
+| Recovery point | `CheckpointEvent` |
+| Budget or limit hit | `SampleLimitEvent`: `turn`, `token`, or for `wall_clock` `working` |
 | Score | `ScoreEvent` / `Score`, with `Score.metadata.swarmeval` holding `meaning`, `direction` (`1 = triggered`), and `event_ids` |
-| `msg.send` / `msg.deliver`, `net.*`, `env.state`, `monitor.*`, `run.lifecycle` | `InfoEvent(source="swarmeval.<type>")` |
-| Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert`, `final_diff`, `transcript_check` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record |
+| `msg.send` / `msg.deliver`, `net.*`, `env.state` | `InfoEvent(source="swarmeval.<type>")` |
+| Runtime records with no Inspect type: `lifecycle`, `intervention`, `extension`, `alert`, `final_diff`, `transcript_check` | `InfoEvent(source="swarmeval.<kind>")`, `data` is the record. A pause is a `lifecycle` event with `status: paused`, then one with `resumed` (schema version 6); a Monitor's hit is an `alert` |
 
 One record is one event. The conversion is `swarmeval.events.convert.to_event`.
 
@@ -91,12 +91,17 @@ parent; when several things fed into it, the parent is the last one, and the res
 | `msg.send` | The `ModelEvent` that called `send_message`; for a message an extension posted, the `post` intervention |
 | `msg.deliver` | The last `before_deliver` intervention on it for that recipient (a rewrite or a hold), whose content or timing it carries; with none, its `msg.send` *(proposed)* |
 | `intervention` from a hook's return value | The hook's trigger (below): for a rewrite or a gate decision, the event it changed or decided on |
-| `intervention` from an action (`stop`, `inject`) | The action's `cause`: an event the extension names, such as an alert it just raised; without one, the hook's trigger |
+| `intervention` from an action (`stop`, `pause`, `inject`, `post`) | The action's `cause`: an event the extension names, such as an alert it just raised; without one, the hook's trigger |
 | `alert` | The last of its `event_ids`; with none, the hook's trigger |
 | `extension` (`ctx.emit`), an extension's `SandboxEvent`, an extension's own `ModelEvent` | The hook's trigger |
 | `limit` | `lifecycle` `started` |
 | `lifecycle` `finished`, `stopped`, `limit` | The event that ended the run: the `limit` event, or the intervention that stopped it (a `before_turn` `Stop`, or `ctx.actions.stop`). Otherwise, as for a cancel or a finish, `started` |
 | `lifecycle` `failed` | `started`. After a failed self-check, the last probe |
+| A fork's first event (schema version 7) | Its source's event at `fork_seq`, as `<source run>:<event id>` |
+| What a fork carries over from its source (an agent's next model call, a carried delivery, a queued injection) | The source event it named there, as `<source run>:<event id>` |
+| A fork's `intervention` (`hook: fork`) | The fork's `lifecycle` `started` |
+| `lifecycle` `paused` | The `pause` intervention that asked for it (`ctx.actions.pause`), whose own parent is the Monitor's `alert` when a Monitor paused |
+| `lifecycle` `resumed` | The `paused` event |
 | `final_diff`, a scoring script's `SandboxEvent` | The run's last `lifecycle` event |
 | `score`, `transcript_check` | The last event in its `event_ids`; with none, the run's last `lifecycle` event |
 
@@ -109,7 +114,7 @@ A hook's trigger is the event that caused the call, given to the hook as `ctx.tr
 | `after_tool_result` | The `ToolEvent` |
 | `before_deliver` | The `msg.send` |
 | `before_turn`, `compact_context`, `before_model_request`, `after_turn` | The agent's last admitted event, the parent its next model call would get |
-| `on_run_start`, `on_run_end` | `lifecycle` `started` |
+| `on_run_start`, `on_resume`, `on_run_end` | `lifecycle` `started` |
 
 A `before_deliver` intervention's `after` is the verdict with the recipient:
 `{"recipient", "kind": "deliver", "content"}`, `{"recipient", "kind": "drop", "reason"}`, or
@@ -141,6 +146,8 @@ of `events` are never rewritten.
 | `agent_state` | `id`, indexed on `(run_id, agent_id, seq, id)` | `gen`, `len`, `turn`, `status`, `tokens_used` | Append only, one row per state change |
 | `extension_state` | `id`, indexed on `(run_id, instance_id, seq, id)` | An extension instance's state, `jsonb`, and `rng_uses`, how many of its calls have drawn from `ctx.rng` (migration 0007; `0` for older rows) | Append only |
 | `deliveries` | `(run_id, msg_seq, recipient)` | `status`, `delivered_seq`, `due_turn` | Updated. The store writes it from `msg.send` and `msg.deliver` events and from the `before_deliver` verdicts the loop passes, each in their transaction |
+| `checkpoints` | `(run_id, turn)`, indexed on `(run_id, seq)` | `seq`, the last event before the turn, and `state jsonb`: the loop's state at the start of each run-wide turn once the observers caught up ([below](#checkpoints)) (migration 0008) | Append only |
+| `canaries` | `run_id` | The run's file and sandbox canary tokens, written before its sandboxes exist, so a fork plants the same (migration 0008) | Once |
 | `sandboxes` | `(run_id, sandbox_id)` | Container id, recovery fidelity | Updated. Not built yet |
 
 A `deliveries` row starts `pending` when its send commits. `before_deliver` may make it `dropped`,
@@ -157,16 +164,31 @@ type, or an `InfoEvent`'s `swarmeval.<kind>` source. `working_start` in the payl
 since the run's first event.
 
 `control.runs` holds `run_id`, `workspace`, `status`, `owner_id`, `lease_until`, `owner_epoch`,
-`created_at`, `started_at`, `finished_at`, `isolation`, and `error`. Every `runs` table references
-it. `control.run_specs` holds each run's `submission_id`, `case_id`, `case_sha256`, `overrides`,
+`created_at`, `started_at`, `finished_at`, `isolation`, `fidelity` (a fork's, migration 0008),
+`error`, and `cancelled_by` and `resumed_by`, the actors edge named on the last cancel and resume
+(migration 0009). Every `runs` table references it. `control.run_specs` holds each run's `submission_id`, `case_id`, `case_sha256`, `overrides`,
 `variant`, `task_args`, `epoch`, `epochs`, `replaces`, the interrupted run a
 [rerun](services/orchestrator.md#reruns) stands in for, and `suite`, the
-[suite](services/orchestrator.md#suites) label of the submission.
+[suite](services/orchestrator.md#suites) label of the submission, and for a [fork](services/orchestrator.md#forks) `forked_from`,
+`fork_seq`, and `fork_edits` (migration 0008), and `submitted_by`, the actor of the submission or
+fork that queued the run, which a rerun keeps (migration 0009).
 
-An agent's context at step *k* is the `(gen, len)` from its last `agent_state` row with
-`seq ≤ k`, followed by the first `len` rows of `messages` for that `gen`. Compaction or truncation
-starts a new `gen`, and old generations are kept. Recovery reads the latest row, and fork reads
-the row at step *k*. It is the same query, and its cost does not depend on run length.
+An agent's context is the `(gen, len)` of its latest `agent_state` row, followed by the first
+`len` rows of `messages` for that `gen`. Compaction or truncation starts a new `gen`, and old
+generations are kept. Recovery (M3) reads the latest row.
+
+### Checkpoints
+
+A fork reads its source's state from `checkpoints`, not from the other tables cut at a `seq`:
+rows committed without an event carry the previous event's `seq`, so a `seq` cutoff cannot tell
+the rows before a turn from the first ones of it. A checkpoint (`swarmeval.runtime.records.
+Checkpoint`) holds the run-wide `turn` count, `round`, the agents left in the current
+`round_robin` round, `tokens_used`, per agent its `gen`, `len`, own `turn`, `finished`, and
+`last_input` (the parent of its next model call), every extension instance's state and
+`rng_uses`, the routed mail not yet delivered (send, content after `before_deliver`, `due_turn`,
+parent), the injections and posts extensions queued, and how many `ctx.spawn` tasks were still
+running (a fork refuses a checkpoint with any). Messages are not copied: `gen` and `len`
+locate them in `messages`, which is append only.
 
 Derived results, such as later rule matches and judge verdicts, go to separate tables and never
 touch `events` (see [analysis](services/analysis.md#outputs)).
@@ -215,6 +237,12 @@ and the judge look at content.
 Added in schema version 4 (with `isolation_probe`); older runs simply lack it. The `send` and
 `delivery` checks and `deliveries` are from schema version 5.
 
+A fork's transcript also holds its sources' events up to the fork point (`lineage`), which explain
+the contexts it copied at their generation numbers; their own requests, responses, sends, and
+deliveries were checked in the source and are not checked again. A fork's `edit_context`
+intervention starts a generation the way a compaction does, and its `deliver` intervention
+counts as the last rewrite of that message for that recipient.
+
 ## Hash chain
 
 Each run has one chain, extended by its only writer:
@@ -223,6 +251,10 @@ Each run has one chain, extended by its only writer:
 hash[seq] = sha256( prev_hash || uint64_be(seq) || JCS(payload) )
 prev_hash of the first event = sha256("swarmeval:" || run_id)
 ```
+
+A fork's chain links into its source's: its first event has `seq` = `fork_seq` + 1 and, as
+`prev_hash`, the source's hash at `fork_seq` (`ChainStart`). `working_start` keeps counting from
+the source's first event. Verifying a fork's rows needs that one hash of the source.
 
 `JCS` is the RFC 8785 JSON Canonicalization Scheme. `jsonb` does not keep the bytes it was given,
 so the hash has to be over a form that can be recomputed from the stored value. `payload` is the
@@ -294,7 +326,9 @@ How a run becomes a `.eval` (`swarmeval.events.export_run`):
    an `EvalScore` in `results` with a `mean` metric.
 5. Build the `EvalLog` from a `RunHeader` the worker supplies (case id, variant index and axis
    values, epoch, agent models). `eval.model` is the first agent's model; every agent's model is
-   in `eval.metadata.swarmeval.models`. A run whose last lifecycle event is `failed` has status
+   in `eval.metadata.swarmeval.models`; `eval.metadata.swarmeval.deterministic` is `false` for
+   an `async` run, whose event order is recorded but not reproducible. A fork's sample metadata
+   names `forked_from` and `fork_seq`. A run whose last lifecycle event is `failed` has status
    `error`.
 6. Write the log with `inspect_ai` to a scratch file and upload it with `pyarrow.fs`.
 

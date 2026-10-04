@@ -7,7 +7,8 @@ its interventions. A routed message is pending for its recipient until a `msg.de
 it commits. The store keeps the same state in `runs.deliveries`.
 """
 
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
@@ -16,6 +17,7 @@ from swarmeval.runtime.messages import UserMessage
 from swarmeval.runtime.records import (
     CommittedEvent,
     EventDraft,
+    MailCheckpoint,
     MessageDeliverRecord,
     MessageSendRecord,
 )
@@ -52,12 +54,15 @@ class Unrouted:
 
 @dataclass(frozen=True)
 class _Mail:
-    send: CommittedEvent
+    send_seq: int
+    send_event_id: str
     record: MessageSendRecord
     content: str
     due_turn: int | None
     """`None`: the recipient's next turn."""
     parent_id: str
+    due_at: float | None = None
+    """Held until then as well, on the bus's clock (`async` only)."""
     """What the delivered content is from: the last `before_deliver` intervention on it, or
     the send."""
 
@@ -70,7 +75,10 @@ def delivered_message(record: MessageDeliverRecord) -> UserMessage:
 
 
 class MessageBus:
-    def __init__(self, channels: Sequence[ChannelSpec]) -> None:
+    def __init__(
+        self, channels: Sequence[ChannelSpec], clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._clock = clock
         self._channels = {c.id: c for c in channels}
         self._unrouted: list[Unrouted] = []
         self._mail: dict[str, list[_Mail]] = {}
@@ -101,35 +109,91 @@ class MessageBus:
         return found
 
     def route(
-        self, item: Unrouted, content: str, *, due_turn: int | None, parent_id: str | None
+        self,
+        item: Unrouted,
+        content: str,
+        *,
+        due_turn: int | None,
+        parent_id: str | None,
+        hold_s: float = 0.0,
     ) -> None:
-        """Queues `content` for the recipient, at its next turn or at `due_turn`. `parent_id` is
-        the last intervention that decided it, if any."""
+        """Queues `content` for the recipient, at its next turn or at `due_turn`, and not before
+        `hold_s` seconds from now. `parent_id` is the last intervention that decided it, if
+        any."""
         self._mail.setdefault(item.recipient, []).append(
-            _Mail(item.send, item.record, content, due_turn, parent_id or item.send.event_id)
+            _Mail(
+                item.send.seq,
+                item.send.event_id,
+                item.record,
+                content,
+                due_turn,
+                parent_id or item.send.event_id,
+                self._clock() + hold_s if hold_s else None,
+            )
         )
+
+    def snapshot(self) -> tuple[MailCheckpoint, ...]:
+        """Mail routed and not yet delivered, per recipient in send order. Nothing is unrouted
+        between turns: a send is routed in the step that made it."""
+        assert not self._unrouted, "snapshots are taken between turns, after routing"
+        assert all(m.due_at is None for mail in self._mail.values() for m in mail), (
+            "mail held by time exists only under `async`, which takes no checkpoints"
+        )
+        return tuple(
+            MailCheckpoint(
+                recipient=recipient,
+                send_seq=m.send_seq,
+                send_event_id=m.send_event_id,
+                send=m.record,
+                content=m.content,
+                due_turn=m.due_turn,
+                parent_id=m.parent_id,
+            )
+            for recipient, mail in self._mail.items()
+            for m in mail
+        )
+
+    def restore(self, mail: Sequence[MailCheckpoint]) -> None:
+        """A fork's carried mail, as its source's `snapshot` left it."""
+        for m in mail:
+            self._mail.setdefault(m.recipient, []).append(
+                _Mail(m.send_seq, m.send_event_id, m.send, m.content, m.due_turn, m.parent_id)
+            )
 
     def has_mail(self, agent_id: str, turn: int) -> bool:
         """Whether a message is due for `agent_id` at its turn `turn`."""
-        return any(_due(m, turn) for m in self._mail.get(agent_id, ()))
+        now = self._clock()
+        return any(_due(m, turn, now) for m in self._mail.get(agent_id, ()))
+
+    def next_due_in(self, agent_id: str) -> float | None:
+        """Seconds until the next message held by time for `agent_id` comes due; `None` when
+        none is."""
+        now = self._clock()
+        held = [
+            m.due_at - now
+            for m in self._mail.get(agent_id, ())
+            if m.due_at is not None and m.due_turn is None
+        ]
+        return max(0.0, min(held)) if held else None
 
     def take(self, agent_id: str, turn: int) -> list[Delivery]:
         """Every message due for `agent_id` at its turn `turn`, in send order; delayed ones not
         yet due stay. The caller commits the drafts with the messages; until then a crash
         leaves them undelivered in the store."""
         mail = self._mail.pop(agent_id, [])
-        held = [m for m in mail if not _due(m, turn)]
+        now = self._clock()
+        held = [m for m in mail if not _due(m, turn, now)]
         if held:
             self._mail[agent_id] = held
         deliveries: list[Delivery] = []
         for m in mail:
-            if not _due(m, turn):
+            if not _due(m, turn, now):
                 continue
             record = MessageDeliverRecord(
                 channel=m.record.channel,
                 sender=m.record.sender,
                 recipient=agent_id,
-                send_seq=m.send.seq,
+                send_seq=m.send_seq,
                 content=m.content,
             )
             deliveries.append(
@@ -178,5 +242,7 @@ class MessageBus:
         )
 
 
-def _due(mail: _Mail, turn: int) -> bool:
-    return mail.due_turn is None or mail.due_turn <= turn
+def _due(mail: _Mail, turn: int, now: float) -> bool:
+    return (mail.due_turn is None or mail.due_turn <= turn) and (
+        mail.due_at is None or mail.due_at <= now
+    )

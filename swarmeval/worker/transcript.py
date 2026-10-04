@@ -97,14 +97,21 @@ def check_transcript(
         compared += len(context)
         mismatches.extend(_walk(agent_id, gen, context, prompts[agent_id], sources, explained))
     requests = 0
+    inherited = transcript.inherited
     for call in transcript.model_calls:
         if call.agent_id is None or call.gen is None or call.length is None:
+            continue
+        if call.event_id in inherited:
             continue
         requests += 1
         mismatch = _check_request(call, call.agent_id, call.gen, call.length, transcript, tools)
         if mismatch is not None:
             mismatches.append(mismatch)
-    mismatches.extend(m for c in transcript.model_calls if (m := _check_response(c)) is not None)
+    mismatches.extend(
+        m
+        for c in transcript.model_calls
+        if c.event_id not in inherited and (m := _check_response(c)) is not None
+    )
     mismatches.extend(_check_sends(transcript, explained))
     mismatches.extend(_check_deliveries(transcript, explained))
     return TranscriptCheckRecord(
@@ -138,7 +145,7 @@ def _index(transcript: RunTranscript) -> _Sources:
             case ("after_model_response" | "after_tool_result", "rewrite"):
                 assert record.target_event_id is not None, "transforms name what they changed"
                 sources.rewrites[record.target_event_id] = i
-            case ("compact_context", "compact"):
+            case ("compact_context", "compact") | ("fork", "edit_context"):
                 sources.compactions.append((i.event_id, _CONTEXT.validate_python(record.after)))
             case (_, "inject") if isinstance(record.after, dict) and "messages" in record.after:
                 decision = Inject.model_validate(record.after)
@@ -341,6 +348,8 @@ def _check_sends(transcript: RunTranscript, explained: list[str]) -> list[Transc
     }
     found: list[TranscriptMismatch] = []
     for send in transcript.sends:
+        if send.event_id in transcript.inherited:
+            continue
         record = send.record
         if send.agent_id is None:
             post = posts.get(send.parent_id or "")
@@ -391,13 +400,19 @@ def _check_deliveries(transcript: RunTranscript, explained: list[str]) -> list[T
     sends = {s.seq: s for s in transcript.sends}
     decided: dict[tuple[str, str], list[Recorded[InterventionRecord]]] = {}
     for i in transcript.interventions:
-        if i.record.hook == "before_deliver" and isinstance(i.record.after, dict):
+        if (
+            i.record.hook in ("before_deliver", "fork")
+            and i.record.action != "edit_context"
+            and isinstance(i.record.after, dict)
+        ):
             recipient = str(i.record.after["recipient"])
             key = (i.record.target_event_id or "", recipient)
             decided.setdefault(key, []).append(i)
     found: list[TranscriptMismatch] = []
     undelivered = dict(decided)
     for delivery in transcript.deliveries:
+        if delivery.event_id in transcript.inherited:
+            continue
         record = delivery.record
         send = sends.get(record.send_seq)
         if send is None:

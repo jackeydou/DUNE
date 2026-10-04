@@ -15,7 +15,8 @@ from swarmeval.proto.swarmeval.sandbox.v1.sandbox_pb2_grpc import (
 from swarmeval.runtime.messages import ToolCall
 from swarmeval.runtime.records import Exec
 from swarmeval.runtime.tools import SHELL, exec_output
-from swarmeval.sandbox import RunSandboxes, SandboxdError
+from swarmeval.sandbox import RestoreEntry, RunSandboxes, SandboxdError
+from swarmeval.sandbox.client import RESTORE_BATCH_BYTES
 
 Context = grpc.aio.ServicerContext[Any, Any]
 
@@ -65,6 +66,12 @@ class FakeSandboxd(SandboxServiceServicer):
             await context.abort(self.exec_error, "sandbox box_a of run run_1 not found")
         for item in self.exec_items:
             yield item
+
+    async def RestoreFiles(
+        self, request: pb.RestoreFilesRequest, context: Context
+    ) -> pb.RestoreFilesResponse:
+        self.requests.append(request)
+        return pb.RestoreFilesResponse(unowned=["/workspace/small.txt"])
 
     async def ReadFile(self, request: pb.ReadFileRequest, context: Context) -> pb.ReadFileResponse:
         self.requests.append(request)
@@ -305,3 +312,23 @@ def test_shell_runs_its_command_with_sh_and_the_given_timeout() -> None:
     args = SHELL.args.model_validate_json('{"cmd": "echo hi", "timeout_s": 5}')
 
     assert SHELL.build(args) == Exec(argv=("sh", "-c", "echo hi"), timeout_s=5)
+
+
+async def test_restore_batches_paths_and_content_and_reports_unowned_paths(rig: Rig) -> None:
+    big = RestoreEntry("/workspace/big.bin", 0o644, 0, b"x" * (RESTORE_BATCH_BYTES - 100))
+    small = RestoreEntry("/workspace/small.txt", 0o600, 1000, b"y" * 20)
+    many = [f"/workspace/gone/{i:05}" for i in range(RESTORE_BATCH_BYTES // 40)]
+
+    unowned = await rig.client.restore(
+        "box_a", remove=many, dirs=[RestoreEntry("/workspace/d", 0o700, 1000)], files=[big, small]
+    )
+
+    requests = rig.server.requests
+    assert all(r.ByteSize() <= RESTORE_BATCH_BYTES + 4096 for r in requests)
+    assert [p for r in requests for p in r.remove] == many
+    assert [(f.path, f.mode, f.uid) for r in requests for f in r.files] == [
+        ("/workspace/big.bin", 0o644, 0),
+        ("/workspace/small.txt", 0o600, 1000),
+    ]
+    assert [(d.path, d.uid) for r in requests for d in r.dirs] == [("/workspace/d", 1000)]
+    assert unowned == ["/workspace/small.txt"] * len(requests)

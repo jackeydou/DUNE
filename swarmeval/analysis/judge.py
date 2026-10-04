@@ -18,8 +18,8 @@ from pydantic import BaseModel, Field, JsonValue, ValidationError
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from swarmeval.analysis.render import event_line
 from swarmeval.db import judge_verdicts
+from swarmeval.events.render import event_line
 from swarmeval.gateway.model.wire import (
     CALL_ID_HEADER,
     ChatRequest,

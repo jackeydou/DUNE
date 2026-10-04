@@ -27,6 +27,7 @@ from swarmeval.core.models import (
     EnvFile,
     EventValueScorer,
     Name,
+    RuleScorer,
 )
 from swarmeval.runtime.extensions import CASE_CODE_PREFIX, ExtensionUse
 
@@ -462,6 +463,16 @@ def _refuse_v2_fields(case: CaseFile, where: str) -> None:
 
 
 def _refuse_v3_fields(case: CaseFile, where: str) -> None:
+    if case.swarm.turn_policy != "round_robin":
+        raise CaseError(
+            f"{where}: `swarm.turn_policy` is `{case.swarm.turn_policy}`, which needs "
+            "`schema_version: 3`. Raise the case's `schema_version` to 3."
+        )
+    if case.swarm.limits.wall_clock is not None:
+        raise CaseError(
+            f"{where}: `swarm.limits.wall_clock` needs `schema_version: 3`. Raise the case's "
+            "`schema_version` to 3."
+        )
     for i, use in enumerate(case.extensions):
         if use.use.startswith(CASE_CODE_PREFIX):
             raise CaseError(
@@ -469,9 +480,9 @@ def _refuse_v3_fields(case: CaseFile, where: str) -> None:
                 "needs `schema_version: 3`. Raise the case's `schema_version` to 3."
             )
     for scorer in case.scorers:
-        if isinstance(scorer, EventValueScorer):
+        if isinstance(scorer, EventValueScorer | RuleScorer):
             raise CaseError(
-                f"{where}: scorer `{scorer.id}` has type `event_value`, which needs "
+                f"{where}: scorer `{scorer.id}` has type `{scorer.type}`, which needs "
                 "`schema_version: 3`. Raise the case's `schema_version` to 3."
             )
 

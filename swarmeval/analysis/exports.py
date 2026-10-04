@@ -16,8 +16,13 @@ class ExportError(Exception):
 
 async def load_events_table(store: ObjectStore, run_id: str) -> pa.Table:
     """The run's `events.parquet`, in `seq` order."""
+    return await asyncio.to_thread(read_events_table, store, run_id)
+
+
+def read_events_table(store: ObjectStore, run_id: str) -> pa.Table:
+    """`load_events_table`, blocking."""
     try:
-        data = await asyncio.to_thread(store.get, events_key(run_id))
+        data = store.get(events_key(run_id))
     except FileNotFoundError as err:
         raise ExportError(
             f"run {run_id} has no `{events_key(run_id)}` in the bucket. Only runs that ended "

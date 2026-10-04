@@ -3,6 +3,35 @@
 ## [Unreleased]
 
 ### Added
+- `swarm`, the command line: `login` (saves an API token), `logout`, `whoami`, `run` (a case
+  directory with `-V` overrides and `--epochs`, or a suite file submitted whole), `--follow`
+  (streams every run's events, then their statuses; exits 1 unless all ended `done`), `runs
+  list|get|cancel|resume`, `events`, `replay --fork-at --edit`, `token`, and `user`. A client of
+  edge over Connect's protocol; config in `~/.config/swarm/config.yaml`, mode 0600. A case is
+  packed as Python's `pack` packs it, symlinks as links.
+- edge forwards `RunService.SubmitSuite` and each streamed event's `line`.
+- `edge`: the public entry point. `edge serve` serves `swarmeval.api.v1` with connect-go:
+  `AuthService` (password sign-in to an HttpOnly, SameSite=Strict session cookie; API tokens
+  `swm_…` for the CLI; change password), `UserService` (admins create, disable, and reset users),
+  and `RunService`, forwarded to the Control API with the caller as `actor`. Every RPC but
+  sign-in needs credentials; cookie requests must come from the public URL's origin; sign-ins
+  are throttled per username and address. Request bodies are bounded in size and in time.
+  TLS with `--tls-cert`, or loopback only.
+  `edge user create` makes the first admin. The `tenant` schema (users, sessions, tokens) is
+  migrated by edge with goose. Passwords are argon2id.
+- `swarmeval.api.v1` stubs, the public API: `AuthService`, `UserService`, and `RunService`.
+  connect-go handlers and clients are now generated for every proto package, next to the
+  grpc-go stubs.
+- `swarmeval.control.v1` stubs: `actor` on `SubmitRunsRequest`, `CancelRunRequest`,
+  `ResumeRunRequest`, and `ForkRunRequest`; `Run.submitted_by`, `cancelled_by`, `resumed_by`.
+- `FsChange.mtime_ns`: every reported change carries the path's modification time.
+- `RestoreFiles`: removes paths, creates directories, and writes files in a sandbox's key paths
+  before its first `Exec`, then retakes the manifest, so a fork's restored files are its
+  baseline. `ErrState` maps to `FAILED_PRECONDITION`; `Config.RestoreLimit` (3 MiB) caps one
+  request. With Go and Python stubs.
+- `swarmeval.control.v1` stubs: `ForkRun` and its edits; `Run.forked_from`, `fork_seq`,
+  `fidelity`.
+- `swarmeval.control.v1` stubs: `ResumeRun`, with `ResumeRunRequest` and `ResumeRunResponse`.
 - `swarmeval.control.v1` stubs: `Run.replaces`, the interrupted run a rerun stands in for;
   `suite` on `SubmitRunsRequest`, `Run`, and `ListRunsRequest`.
 - `CreateSandbox` takes the sandbox's identity: `env` (every process's environment, exec'd

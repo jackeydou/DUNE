@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- Control API `SubmitSuite`: a suite file and one bundle per `cases[].path`, loaded by the
+  control plane and queued in one transaction under one suite label, so a suite with a broken
+  case queues nothing. `swarmeval.core.load_suite_text` loads a suite from its text with any
+  mapping from entry paths to case directories.
+- `StreamEvents` sends each event's `line`, the one-line text the judge reads.
+- Control API actors: `SubmitRuns`, `CancelRun`, `ResumeRun`, and `ForkRun` take an `actor`, the
+  user edge authenticated. It is recorded on the run (migration 0009: `control.run_specs.
+  submitted_by`, `control.runs.cancelled_by` and `resumed_by`) and returned on `Run`; a rerun
+  keeps its predecessor's submitter. Events are unchanged.
 - Project skeleton: `swarmeval` package and the `mise run check` task
   (ruff, pyright strict, pytest).
 - Agent runtime (`swarmeval.runtime`): a `round_robin` agent loop that records every model call
@@ -197,6 +206,41 @@
   between two values of an axis, the other axes held equal, with a 95% Newcombe hybrid score
   interval (`swarmeval.analysis.compare`).
 - pyright checks case extensions (`cases/*/extensions`).
+- `swarmeval.detect`: detectors over events, shared by the Monitor, the `rule` scorer, and the
+  `detect` job: `protected_path_write`, `canary`, `cross_sandbox`, `rule`, `zero_width`,
+  `acrostic`, `fixed_format_numbers`. They read an `EventView`, built from a committed event
+  (`view_of`) or an `events.parquet` row (`view_of_row`), and hand their state out as JSON.
+- `swarmeval.monitor` extension: detectors on every committed event; each hit is an `alert`
+  parented to the event, then `on_hit` (`pause`, `stop`, `inject`) up to `max_actions` times
+  with the alert as cause. Its config is checked when the case loads.
+- `ctx.actions.pause(reason, cause=)`: the run pauses at its next hook point, between
+  `lifecycle` `paused` and `resumed` events, while the worker holds its row at `paused`
+  (`QueuePauser`); `RunLoop` takes a `Pauser`. Control API `ResumeRun`; a cancel while paused
+  stops the run. `RunInfo.agents`.
+- `rule` scorer (case schema 3): one detector over the run's events after the agents stop.
+- `python -m swarmeval.analysis detect --detectors FILE`: the detectors over exported runs,
+  one line per hit.
+- Forks: Control API `ForkRun(run_id, at_event_id, edits)` queues `<source>.f<n>`, which goes on
+  from the source's state at the start of the turn the event happened in, with edits
+  (`ReplaceMessage`, `DeleteMessage`, `ReplaceDelivery`), each a `hook: fork` intervention. The
+  loop commits a `Checkpoint` at every turn start (`runs.checkpoints`, migration 0008); a fork
+  copies the source's contexts at their generation numbers, restores agent, extension, and mail
+  state, and its chain links into the source's (`ChainStart`). The worker restores sandboxes from
+  the recorded file changes through sandboxd's `RestoreFiles` and records `fidelity`
+  (`fs_restored` or `fs_partial`). Canary tokens are kept per run (`runs.canaries`) so a fork
+  plants the same. `on_resume` hook (`ResumeInfo`). Parents into the source are
+  `<run>:<event id>`; `trace` follows them, the transcript check reads the source's events up
+  to the fork point, reports list forks apart from the rates, and an interrupted fork gets no
+  rerun.
+- Turn policies (case schema 3): `event_driven`, where an agent that steps goes on until it
+  answers without a tool call, and `async`, every agent in its own task
+  (`swarmeval.runtime.concurrency`): `max_turns` per agent, `Delay(seconds=…)` and the
+  `swarmeval.bus.delay` `seconds` option, a pause holding every agent, no checkpoints, and
+  `deterministic: false` in the `.eval`. `limits.wall_clock` for any policy, paused time left
+  out, ends the run with a `wall_clock` limit.
+- Detectors `message_timing`, `file_timestamps`, and `shared_file`. File changes carry
+  `mtime_us` from sandboxd; views carry the event's time (`CommittedEvent.ts`) and a tool
+  call's arguments (`tool_arguments`).
 - Run leases: a claim sets `control.runs.lease_until`, and the worker renews the lease of every
   run it holds each third of `--lease-s` (default 30 s, `swarmeval-worker`). A run a renewal no
   longer finds is stopped at once. A failed renewal is retried every twelfth of the lease, no
@@ -210,8 +254,23 @@
   leases existed have none and never expire.
 
 ### Changed
-- `case.yaml` schema version 3: `case:` extension references and the `event_value` scorer need
-  it; older cases load unchanged and refuse them, naming the field.
+- `python -m swarmeval.control.suite submit` sends the suite through `SubmitSuite`, so it is
+  queued whole or not at all; `submit()` no longer takes a label, and `SubmitError` is gone.
+- `swarmeval.analysis.render` moved to `swarmeval.events.render`, so the control plane can render
+  event lines without importing analysis.
+- `LoadedSuite.path` is now `source` (a description for messages), and `SuiteEntry` has the
+  entry's `path` as written.
+- Event schema version 6: `lifecycle` events may be `paused` and `resumed` mid-run. Version 5
+  runs read unchanged.
+- Event schema version 7: a fork's cross-run parents (`<run>:<event id>`), `hook: fork`
+  interventions, and its `started` reason. Version 6 runs read unchanged.
+- `runtime/specs.py` holds `AgentSpec`, `RunSpec`, `Limits`, `RunOutcome`, and
+  `RunConfigError`; tool execution moved to `runtime/execute.py`. `RunWriter` takes the parent of
+  a run's first event; `PostgresRunStore` takes where its chain starts.
+- Rule sets and their matcher moved to `swarmeval.detect.rules` and `swarmeval.detect.search`
+  (`one_line` too); `swarmeval.honeypot.sightings` and `delivered` take an `EventView`.
+- `case.yaml` schema version 3: `case:` extension references and the `event_value` and `rule`
+  scorers need it; older cases load unchanged and refuse them, naming the field.
 - A worker restarting with its old id also asks its sandboxd to remove the sandboxes of the runs
   it finishes (`Worker.recover`). Before, their containers were left on the host.
 - `Queue.finish` raises `FencedError` when the caller's `owner_epoch` is stale, instead of

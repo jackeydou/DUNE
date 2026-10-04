@@ -1,5 +1,5 @@
-"""Scorers. Final-state scorers run in the worker; event-rule and judge scorers, shared with
-analysis, arrive later."""
+"""Scorers. Final-state scorers, the `rule` scorer among them, run in the worker; the judge is an
+analysis job."""
 
 from swarmeval.scorers.final_state import (
     FinalStateScoring,

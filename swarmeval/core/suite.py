@@ -4,7 +4,7 @@
 suite that loads submits no case the control plane would refuse.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, Self
@@ -77,6 +77,8 @@ class SuiteFile(_Strict):
 
 @dataclass(frozen=True)
 class SuiteEntry:
+    path: str
+    """The entry's `path`, as the suite file writes it."""
     dir: Path
     overrides: Mapping[str, Sequence[AxisValue]]
     epochs: int
@@ -90,7 +92,8 @@ class SuiteEntry:
 
 @dataclass(frozen=True)
 class LoadedSuite:
-    path: Path
+    source: str
+    """Where the suite came from, for messages: its file, or what a caller named it."""
     id: str
     entries: tuple[SuiteEntry, ...]
 
@@ -98,31 +101,42 @@ class LoadedSuite:
 def load_suite(path: Path) -> LoadedSuite:
     path = path.resolve()
     try:
-        raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError as err:
         raise SuiteError(f"suite file {path} does not exist.") from err
+    return load_suite_text(
+        text, source=str(path), case_dir=lambda entry: (path.parent / entry).resolve()
+    )
+
+
+def load_suite_text(text: str, *, source: str, case_dir: Callable[[str], Path]) -> LoadedSuite:
+    """Loads a suite from its text. `case_dir` maps an entry's `path`, as written, to the case
+    directory: next to the suite file on disk, or where the control plane unpacked the bundle
+    sent for it. It raises `SuiteError` for a path it has no directory for."""
+    try:
+        raw: object = yaml.safe_load(text)
     except yaml.YAMLError as err:
-        raise SuiteError(f"{path} is not valid YAML: {err}") from err
+        raise SuiteError(f"{source} is not valid YAML: {err}") from err
     if isinstance(raw, dict):
         mapping: dict[object, object] = raw  # pyright: ignore[reportUnknownVariableType]
         version = mapping.get("schema_version", 1)
         if version != 1:
             raise SuiteError(
-                f"{path} has `schema_version: {version}`. This SwarmEval reads 1. Upgrade "
+                f"{source} has `schema_version: {version}`. This SwarmEval reads 1. Upgrade "
                 "SwarmEval, or write the suite for a supported version."
             )
     try:
         suite = SuiteFile.model_validate(raw)
     except ValidationError as err:
-        raise SuiteError(describe_errors(str(path), err)) from err
+        raise SuiteError(describe_errors(source, err)) from err
     entries: list[SuiteEntry] = []
     for i, entry in enumerate(suite.cases):
-        case_dir = (path.parent / entry.path).resolve()
+        directory = case_dir(entry.path)
         overrides: dict[str, list[AxisValue]] = dict(entry.variants)
         if suite.models is not None:
             overrides[MODEL_AXIS] = list(suite.models)
         try:
-            loaded = load_case(case_dir, overrides)
+            loaded = load_case(directory, overrides)
         except CaseError as err:
             hint = (
                 f" The suite's `models` fill each case's `{MODEL_AXIS}` axis; declare it under "
@@ -130,13 +144,14 @@ def load_suite(path: Path) -> LoadedSuite:
                 if suite.models is not None and f"`{MODEL_AXIS}` is not an axis" in str(err)
                 else ""
             )
-            raise SuiteError(f"{path} `cases[{i}]` ({entry.path}): {err}{hint}") from err
+            raise SuiteError(f"{source} `cases[{i}]` ({entry.path}): {err}{hint}") from err
         entries.append(
             SuiteEntry(
-                dir=case_dir,
+                path=entry.path,
+                dir=directory,
                 overrides=overrides,
                 epochs=entry.epochs or suite.epochs or 0,
                 case=loaded,
             )
         )
-    return LoadedSuite(path=path, id=suite.id, entries=tuple(entries))
+    return LoadedSuite(source=source, id=suite.id, entries=tuple(entries))
