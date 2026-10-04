@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `swarmeval.api.v1` stubs, the public API edge will serve: `AuthService` (sessions, API tokens),
+  `UserService`, and `RunService`. connect-go handlers and clients are now generated for every
+  proto package, next to the grpc-go stubs.
 - `FsChange.mtime_ns`: every reported change carries the path's modification time.
 - `RestoreFiles`: removes paths, creates directories, and writes files in a sandbox's key paths
   before its first `Exec`, then retakes the manifest, so a fork's restored files are its

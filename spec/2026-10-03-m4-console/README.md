@@ -270,8 +270,9 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
 每一步一个 PR，各自满足 AGENTS.md 的"完成标准"：`mise run check` 通过、更新 CHANGELOG 和 docs、有测试。测试不调
 真模型、不连真实互联网。
 
-1. **spec 与对外 proto**：本 spec；`proto/swarmeval/api/v1`；connect-go 和 Connect-ES 的代码生成；`buf breaking`
-   进 `mise run check`。
+1. **spec 与对外 proto**：本 spec；`proto/swarmeval/api/v1` 的 `AuthService`、`UserService`、`RunService`；connect-go
+   的代码生成；`buf breaking` 进 `mise run check`。`CaseService`、`AnalysisService` 随第 4、5 步加入，Connect-ES
+   的生成随第 6 步。
 2. **edge：认证与 run 转发**：`go/cmd/edge`、`go/internal/edge`；goose 迁移；用户、会话、token、登录限速；
    `edge user create`；`RunService` 转发到 `ControlService`；Control API 加 `actor`。
    退出条件：用测试替身的 `ControlService` 和 testcontainers 起的 Postgres 做集成测试，覆盖登录、token、

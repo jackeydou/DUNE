@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package swarmeval.api.v1;
+
+import "swarmeval/api/v1/auth.proto";
+
+option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1;apiv1";
+
+// UserService manages accounts. Every RPC needs the admin role; a member's call is
+// PERMISSION_DENIED. Usernames are 1 to 64 characters of lowercase letters, digits, `.`, `_`,
+// and `-`, starting with a letter or digit. Passwords are 12 to 1024 characters.
+service UserService {
+  // An existing username is ALREADY_EXISTS.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  // Sorted by username.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  // Disabling ends the user's sessions at once and stops their API tokens working until the user
+  // is enabled again. An admin cannot disable themselves (FAILED_PRECONDITION).
+  rpc SetUserDisabled(SetUserDisabledRequest) returns (SetUserDisabledResponse);
+  // Sets a new password and ends the user's sessions. API tokens stay valid.
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+}
+
+message CreateUserRequest {
+  string username = 1;
+  string password = 2;
+  Role role = 3;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message ListUsersRequest {}
+
+message ListUsersResponse {
+  repeated User users = 1;
+}
+
+message SetUserDisabledRequest {
+  string username = 1;
+  bool disabled = 2;
+}
+
+message SetUserDisabledResponse {
+  User user = 1;
+}
+
+message ResetPasswordRequest {
+  string username = 1;
+  string new_password = 2;
+}
+
+message ResetPasswordResponse {}

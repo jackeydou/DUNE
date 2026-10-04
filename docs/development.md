@@ -26,7 +26,7 @@ mise run sync
 
 | Task | What it runs |
 |---|---|
-| `mise run check` | `lint`, `typecheck`, `test`, `go:lint`, `go:test`, `proto:lint`. Must pass before a change is done |
+| `mise run check` | `lint`, `typecheck`, `test`, `go:lint`, `go:test`, `proto:lint`, `proto:breaking`. Must pass before a change is done |
 | `mise run fmt` | `ruff format`, `golangci-lint fmt`, and `buf format` in place |
 | `mise run lint` | `ruff format --check .` and `ruff check .` |
 | `mise run typecheck` | `pyright` in strict mode over `swarmeval/` and `tests/` |
@@ -35,8 +35,9 @@ mise run sync
 | `mise run go:lint` | `golangci-lint run` over `go/`, integration tests included |
 | `mise run go:test` | `go test ./...` in `go/` |
 | `mise run go:test-integration` | sandboxd against the local docker daemon. Needs `busybox:latest` |
-| `mise run proto:gen` | Go stubs into `go/internal/gen/` with `buf generate`, and Python stubs with typed `.pyi` into `swarmeval/proto/` with grpcio-tools and mypy-protobuf. Commit both |
+| `mise run proto:gen` | Go stubs (grpc-go and connect-go) into `go/internal/gen/` with `buf generate`, and Python stubs with typed `.pyi` into `swarmeval/proto/` with grpcio-tools and mypy-protobuf. Commit both. The public API (`proto/swarmeval/api/`) gets no Python stubs: only edge and its clients use it |
 | `mise run proto:lint` | `buf lint`, `buf format --diff`, and a check that the committed stubs match `proto/` |
+| `mise run proto:breaking` | `buf breaking` against the local `main` branch. Only the public API, `proto/swarmeval/api/`, is checked; `buf.yaml` lists the internal packages it ignores, and a new internal package goes on that list |
 
 ## Running a case
 
