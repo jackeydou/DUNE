@@ -286,6 +286,10 @@ should stay the same across restarts, because on start the worker marks the runs
 `interrupted`, which [reruns](#reruns) them, gives a run cancelled while it ran its `finished_at`
 and summary, and asks its sandboxd to remove both kinds' sandboxes. Under a new id, the old id's
 runs wait for their leases to run out and are [taken over](#leases-fencing-and-takeover).
+On SIGTERM, as on Ctrl-C, the worker cancels its runs, which removes their sandboxes, and
+exits 0; the control plane stops the same way (`swarmeval.config.run_service`). With
+`--stay-halted`, a worker that a failed self-check halted stays up idle instead of exiting,
+for deployments that restart whatever exits ([deployment.md](../deployment.md#when-a-worker-stops)).
 
 ### Several workers
 
@@ -662,6 +666,9 @@ run. The tables were shaped for recovery from the start, so none of this needed 
   created them, so a sandboxd on another node finds none, and they are left, labeled with the run,
   until the old worker's id restarts on that node *(proposed)*. A run claimed before leases
   existed has no lease, never runs out, and is still finished when its worker id restarts.
+  Each takeover adds one to the run's `takeovers` (`control.runs`, migration 0012), which `Run`
+  returns and `swarm runs get` shows; a claim from the queue and a restart of the owner's own
+  id are not takeovers.
 
   With resuming, a takeover will do the following instead:
   1. Reconcile the run's containers through sandboxd `ListRun`. Live ones are adopted, not

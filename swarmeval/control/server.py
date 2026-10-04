@@ -12,6 +12,7 @@ from swarmeval.config import (
     add_object_store,
     database_url,
     object_store,
+    run_service,
 )
 from swarmeval.control.live import EventListener
 from swarmeval.control.queue import Queue
@@ -87,7 +88,7 @@ def main() -> None:
     args = parser.parse_args()
     mtls = identity(args)
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(
+    run_service(
         serve(
             database_url(args),
             object_store(args),

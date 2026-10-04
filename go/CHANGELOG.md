@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `Run.takeovers` in `swarmeval.api.v1` and `swarmeval.control.v1`, forwarded by edge. `swarm
+  runs get` shows `taken over` for a run a worker took over after its owner's lease ran out,
+  and `fidelity` for a run that has one and is not a fork.
 - `swarm login --ca-file`, config `ca_file`, and `$SWARM_CA_FILE`: a PEM file the CLI trusts
   for edge besides the system's authorities, for an edge with a self-signed certificate.
 - `swarm-certs --public-host NAME`: also writes `public/{tls.crt,tls.key}`, a self-signed

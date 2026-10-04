@@ -98,6 +98,8 @@ class RunRow:
     resumed_by: str | None
     owner_id: str | None
     owner_epoch: int
+    takeovers: int
+    """Times a worker claimed the run after its owner's lease ran out."""
     isolation: str | None
     fidelity: str | None
     error: str | None
@@ -132,6 +134,7 @@ def _joined() -> Select[*tuple[Any, ...]]:
         r.resumed_by,
         r.owner_id,
         r.owner_epoch,
+        r.takeovers,
         r.isolation,
         r.fidelity,
         r.error,
@@ -365,6 +368,7 @@ class Queue:
                     .values(
                         owner_id=owner_id,
                         owner_epoch=runs.owner_epoch + 1,
+                        takeovers=runs.takeovers + 1,
                         lease_until=_lease_end(lease_s),
                     )
                     .returning(runs.run_id, stale.c.previous_owner, stale.c.expired_at)

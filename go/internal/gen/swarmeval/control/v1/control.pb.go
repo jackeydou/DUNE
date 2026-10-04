@@ -463,7 +463,10 @@ type Run struct {
 	CancelledBy string `protobuf:"bytes,23,opt,name=cancelled_by,json=cancelledBy,proto3" json:"cancelled_by,omitempty"`
 	ResumedBy   string `protobuf:"bytes,24,opt,name=resumed_by,json=resumedBy,proto3" json:"resumed_by,omitempty"`
 	// The case library revision the run uses; `case_sha256` is that revision's bundle.
-	CaseRevision  int32 `protobuf:"varint,25,opt,name=case_revision,json=caseRevision,proto3" json:"case_revision,omitempty"`
+	CaseRevision int32 `protobuf:"varint,25,opt,name=case_revision,json=caseRevision,proto3" json:"case_revision,omitempty"`
+	// Times a worker claimed the run after its owner's lease ran out
+	// (docs/services/orchestrator.md#leases-fencing-and-takeover).
+	Takeovers     int32 `protobuf:"varint,26,opt,name=takeovers,proto3" json:"takeovers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -669,6 +672,13 @@ func (x *Run) GetResumedBy() string {
 func (x *Run) GetCaseRevision() int32 {
 	if x != nil {
 		return x.CaseRevision
+	}
+	return 0
+}
+
+func (x *Run) GetTakeovers() int32 {
+	if x != nil {
+		return x.Takeovers
 	}
 	return 0
 }
@@ -2835,7 +2845,7 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\rcase_revision\x18\x04 \x01(\x05R\fcaseRevision\"t\n" +
 	"\x13SubmitSuiteResponse\x12\x14\n" +
 	"\x05suite\x18\x01 \x01(\tR\x05suite\x12G\n" +
-	"\vsubmissions\x18\x02 \x03(\v2%.swarmeval.control.v1.SuiteSubmissionR\vsubmissions\"\xc5\x06\n" +
+	"\vsubmissions\x18\x02 \x03(\v2%.swarmeval.control.v1.SuiteSubmissionR\vsubmissions\"\xe3\x06\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12#\n" +
 	"\rsubmission_id\x18\x02 \x01(\tR\fsubmissionId\x12\x17\n" +
@@ -2868,7 +2878,8 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\fcancelled_by\x18\x17 \x01(\tR\vcancelledBy\x12\x1d\n" +
 	"\n" +
 	"resumed_by\x18\x18 \x01(\tR\tresumedBy\x12#\n" +
-	"\rcase_revision\x18\x19 \x01(\x05R\fcaseRevision\"&\n" +
+	"\rcase_revision\x18\x19 \x01(\x05R\fcaseRevision\x12\x1c\n" +
+	"\ttakeovers\x18\x1a \x01(\x05R\ttakeovers\"&\n" +
 	"\rGetRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"=\n" +
 	"\x0eGetRunResponse\x12+\n" +

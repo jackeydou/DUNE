@@ -100,4 +100,29 @@ if curl --silent --fail --cacert "$cacert" -H 'Content-Type: application/json' \
 fi
 rm -f "$cacert" "$jar"
 
+step "a worker restarted in the middle of a run removes its sandboxes, and the run is rerun"
+model=$(compose ps -q recorded-model)
+docker pause "$model" >/dev/null # the run's first model call now hangs
+held=$(cli run --case safety/scorer_misbelief -V scorer_description=accurate --epochs 1 | tail -1)
+sandboxes() { docker ps -aq --filter "label=swarmeval.run_id=$held" | wc -l | tr -d ' '; }
+for _ in $(seq 60); do
+  [ "$(sandboxes)" -gt 0 ] && break
+  sleep 1
+done
+[ "$(sandboxes)" -gt 0 ] || fail "run $held never got a sandbox"
+compose stop worker
+[ "$(sandboxes)" -eq 0 ] || fail "the stopped worker left $(sandboxes) sandbox(es) of $held behind"
+code=$(docker inspect "$(compose ps -aq worker)" --format '{{.State.ExitCode}}')
+[ "$code" -eq 0 ] || fail "the worker exited $code on stop, so it was killed before it cleaned up"
+docker unpause "$model" >/dev/null
+compose start worker
+rerun="${held%.e1}.e2"
+for _ in $(seq 60); do
+  # Until the worker is back, the rerun does not exist and `runs get` fails.
+  [ "$(status_of "$rerun" 2>/dev/null || true)" = done ] && break
+  sleep 1
+done
+[ "$(status_of "$held")" = interrupted ] || fail "run $held is not interrupted"
+[ "$(status_of "$rerun")" = done ] || fail "the rerun $rerun did not end done"
+
 step "passed: case created, run $run done, result and events read through the CLI and the API"

@@ -435,7 +435,9 @@ type Run struct {
 	// For a fork: the run it goes on from, and the last of that run's events it starts after.
 	ForkedFrom string `protobuf:"bytes,18,opt,name=forked_from,json=forkedFrom,proto3" json:"forked_from,omitempty"`
 	ForkSeq    int64  `protobuf:"varint,19,opt,name=fork_seq,json=forkSeq,proto3" json:"fork_seq,omitempty"`
-	// For a fork, once its sandboxes are restored: `fs_restored` or `fs_partial`.
+	// How much of the state the run goes on from was kept. For a fork, once its sandboxes are
+	// restored: `fs_restored` or `fs_partial`. Empty for a run that never went on from saved
+	// state.
 	Fidelity string `protobuf:"bytes,20,opt,name=fidelity,proto3" json:"fidelity,omitempty"`
 	// Who submitted the run, or forked it; a rerun keeps its predecessor's. Empty for runs
 	// submitted without edge.
@@ -444,7 +446,10 @@ type Run struct {
 	CancelledBy string `protobuf:"bytes,22,opt,name=cancelled_by,json=cancelledBy,proto3" json:"cancelled_by,omitempty"`
 	ResumedBy   string `protobuf:"bytes,23,opt,name=resumed_by,json=resumedBy,proto3" json:"resumed_by,omitempty"`
 	// The case library revision the run uses; `case_sha256` is that revision's bundle.
-	CaseRevision  int32 `protobuf:"varint,24,opt,name=case_revision,json=caseRevision,proto3" json:"case_revision,omitempty"`
+	CaseRevision int32 `protobuf:"varint,24,opt,name=case_revision,json=caseRevision,proto3" json:"case_revision,omitempty"`
+	// Times a worker took the run over because its owner stopped renewing its lease. A run
+	// taken over ends `interrupted` and is rerun; the rerun names it in `replaces`.
+	Takeovers     int32 `protobuf:"varint,25,opt,name=takeovers,proto3" json:"takeovers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -643,6 +648,13 @@ func (x *Run) GetResumedBy() string {
 func (x *Run) GetCaseRevision() int32 {
 	if x != nil {
 		return x.CaseRevision
+	}
+	return 0
+}
+
+func (x *Run) GetTakeovers() int32 {
+	if x != nil {
+		return x.Takeovers
 	}
 	return 0
 }
@@ -1584,7 +1596,7 @@ const file_swarmeval_api_v1_run_proto_rawDesc = "" +
 	"\rcase_revision\x18\x04 \x01(\x05R\fcaseRevision\"p\n" +
 	"\x13SubmitSuiteResponse\x12\x14\n" +
 	"\x05suite\x18\x01 \x01(\tR\x05suite\x12C\n" +
-	"\vsubmissions\x18\x02 \x03(\v2!.swarmeval.api.v1.SuiteSubmissionR\vsubmissions\"\xb4\x06\n" +
+	"\vsubmissions\x18\x02 \x03(\v2!.swarmeval.api.v1.SuiteSubmissionR\vsubmissions\"\xd2\x06\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12#\n" +
 	"\rsubmission_id\x18\x02 \x01(\tR\fsubmissionId\x12\x17\n" +
@@ -1616,7 +1628,8 @@ const file_swarmeval_api_v1_run_proto_rawDesc = "" +
 	"\fcancelled_by\x18\x16 \x01(\tR\vcancelledBy\x12\x1d\n" +
 	"\n" +
 	"resumed_by\x18\x17 \x01(\tR\tresumedBy\x12#\n" +
-	"\rcase_revision\x18\x18 \x01(\x05R\fcaseRevision\"&\n" +
+	"\rcase_revision\x18\x18 \x01(\x05R\fcaseRevision\x12\x1c\n" +
+	"\ttakeovers\x18\x19 \x01(\x05R\ttakeovers\"&\n" +
 	"\rGetRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"9\n" +
 	"\x0eGetRunResponse\x12'\n" +

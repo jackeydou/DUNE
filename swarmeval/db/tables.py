@@ -46,6 +46,7 @@ control_runs = Table(
     Column("owner_id", Text),
     Column("lease_until", DateTime(timezone=True)),
     Column("owner_epoch", BigInteger, nullable=False, server_default="0"),
+    Column("takeovers", Integer, nullable=False, server_default="0"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("started_at", DateTime(timezone=True)),
     Column("finished_at", DateTime(timezone=True)),

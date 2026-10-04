@@ -3,6 +3,20 @@
 ## [Unreleased]
 
 ### Added
+- `Run.takeovers` (migration 0012, `control.runs.takeovers`): how many times a worker claimed
+  the run after its owner's lease ran out. The Control API returns it.
+- `swarmeval-worker --stay-halted`: a worker that a failed isolation self-check halted stays
+  up without claiming runs instead of exiting, so a restart policy does not put it back on
+  the broken host. The compose stack sets it.
+
+### Changed
+- `swarmeval-worker` and `swarmeval-control` stop on SIGTERM as on Ctrl-C and exit 0: the
+  worker cancels its runs, which removes their sandboxes. Before, a worker that was a
+  container's first process ignored SIGTERM, was killed when the grace period ended, and left
+  its sandboxes until a worker with its id started again.
+- compose: the worker has a 1 minute `stop_grace_period`.
+
+### Added
 - Single-machine deployment, `deploy/compose/`: `docker compose up` runs edge, the control
   plane, a worker, model-gateway, sandboxd, Postgres, and RustFS, with mutual TLS between the
   services from certificates generated at start, platform services on a network with no route

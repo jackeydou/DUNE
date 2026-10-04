@@ -161,6 +161,9 @@ message Run {
   string resumed_by = 24;
   // The case library revision the run uses; `case_sha256` is that revision's bundle.
   int32 case_revision = 25;
+  // Times a worker claimed the run after its owner's lease ran out
+  // (docs/services/orchestrator.md#leases-fencing-and-takeover).
+  int32 takeovers = 26;
 }
 
 message GetRunRequest {

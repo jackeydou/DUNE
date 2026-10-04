@@ -96,6 +96,7 @@ def to_proto(run: RunRow) -> pb.Run:
         forked_from=run.forked_from or "",
         fork_seq=run.fork_seq or 0,
         fidelity=run.fidelity or "",
+        takeovers=run.takeovers,
         submitted_by=run.submitted_by or "",
         cancelled_by=run.cancelled_by or "",
         resumed_by=run.resumed_by or "",

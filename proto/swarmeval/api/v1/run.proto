@@ -120,7 +120,9 @@ message Run {
   // For a fork: the run it goes on from, and the last of that run's events it starts after.
   string forked_from = 18;
   int64 fork_seq = 19;
-  // For a fork, once its sandboxes are restored: `fs_restored` or `fs_partial`.
+  // How much of the state the run goes on from was kept. For a fork, once its sandboxes are
+  // restored: `fs_restored` or `fs_partial`. Empty for a run that never went on from saved
+  // state.
   string fidelity = 20;
   // Who submitted the run, or forked it; a rerun keeps its predecessor's. Empty for runs
   // submitted without edge.
@@ -130,6 +132,9 @@ message Run {
   string resumed_by = 23;
   // The case library revision the run uses; `case_sha256` is that revision's bundle.
   int32 case_revision = 24;
+  // Times a worker took the run over because its owner stopped renewing its lease. A run
+  // taken over ends `interrupted` and is rerun; the rerun names it in `replaces`.
+  int32 takeovers = 25;
 }
 
 message GetRunRequest {

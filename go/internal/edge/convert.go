@@ -72,6 +72,7 @@ func runProto(r *controlv1.Run) *apiv1.Run {
 		ForkedFrom:    r.GetForkedFrom(),
 		ForkSeq:       r.GetForkSeq(),
 		Fidelity:      r.GetFidelity(),
+		Takeovers:     r.GetTakeovers(),
 		SubmittedBy:   r.GetSubmittedBy(),
 		CancelledBy:   r.GetCancelledBy(),
 		ResumedBy:     r.GetResumedBy(),

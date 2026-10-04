@@ -141,6 +141,31 @@ The files must be readable by uid 10001.
   `compose.override.yaml`. Do not use `--scale`: two workers with one id cannot run, and the
   second exits ([orchestrator](services/orchestrator.md#several-workers)).
 
+## When a worker stops
+
+What the stack does follows what a worker's exit means
+([orchestrator](services/orchestrator.md#leases-fencing-and-takeover)); resuming a run where it
+stopped is not built, so every case below ends in a rerun.
+
+| What happens | What the stack does | The runs it was executing |
+|---|---|---|
+| `docker compose stop`, `restart`, `down`, or an upgrade | The worker gets SIGTERM, removes its runs' sandboxes, and exits 0, within `stop_grace_period` (1 minute) | Stay `running` until a worker with the same id starts: it marks them `interrupted` at once, and they are rerun as new epochs |
+| The worker crashes or is killed | `restart: unless-stopped` starts it again under the same id | The same, and the restarted worker removes the sandboxes the dead one left |
+| The worker stays down and another worker runs | Nothing | After the lease runs out (30 s), the other worker takes each run over, removes its sandboxes if they are on its host, and marks it `interrupted`; `swarm runs get` then shows `taken over` |
+| A run's isolation self-check fails | The worker claims nothing more, finishes its other runs, and stays up idle (`--stay-halted`), logging why | That run is `failed`. Queued runs wait |
+
+- **The worker id is fixed** (`SWARM_WORKER_ID`), not the container's hostname, which changes
+  whenever the container is recreated. With a new id every restart would leave the old id's
+  runs to wait out their leases, and with one worker nobody would take them over.
+- **A halted worker is not restarted**, because it did not exit. The host let one sandbox
+  reach another or the network; a restarted worker would claim the next queued run and fail
+  it the same way, and failed runs are never rerun. Fix the host, then `docker compose restart
+  worker`.
+- **`docker compose down` while runs are going** leaves them `running` in the database. They
+  are interrupted and rerun at the next `up`.
+- sandboxd keeps sandboxes in memory only; restarted, it has forgotten them, and runs using
+  them end `interrupted` and are rerun.
+
 ## Smoke test
 
 `deploy/compose/smoke.sh` (`mise run deploy:smoke`) is the M4 gate for what is built. It
@@ -154,7 +179,10 @@ brings the stack up under its own project name and port (17443) with a recorded 
 3. with the CLI: signs in, pushes the case to the library, runs one variant with `--follow`,
    and reads the run's status, its four scores, and its events;
 4. with the API as the console calls it (Connect JSON, session cookie, `Origin`): signs in,
-   reads the run and the run list, and checks that a call without credentials is refused.
+   reads the run and the run list, and checks that a call without credentials is refused;
+5. stops the worker in the middle of a run, and checks that it exited 0 with the run's
+   sandboxes removed, and that once it is started again the run is `interrupted` and its rerun
+   ends `done`.
 
 It needs only docker, calls no model and nothing outside the machine, and removes everything it
 made. `KEEP=1` leaves the stack up. The console's half of the gate (create a case in the

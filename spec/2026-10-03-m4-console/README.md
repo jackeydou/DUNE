@@ -376,3 +376,20 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
      流程和测试也没有开），留给导出保留策略定下来时一起做。
    都写在 [docs/deployment.md](../../docs/deployment.md)。
 9. **M3 衔接**（M3 合并后）：决定 12。
+   （2026-10-04）已实现现在能实现的部分，基于第 8 步的分支。决定 12 的四项里：
+   - **接管次数**：已实现。`control.runs.takeovers`（迁移 0012）在 `claim_expired` 里加一，Control API 和对外
+     `Run` 都返回，`swarm runs get` 显示。排队后的第一次认领、同一个 worker id 重启后收尾，都不算接管。
+     迁移编号是 0012：0011 被同时在做的第 5 步（`analysis.jobs`）占用，两者谁后合并，谁把 `down_revision` 指向
+     另一个。
+   - **恢复保真度**：对外 `Run.fidelity` 和 `swarm runs get` 已经能显示任何取值，但现在只有 fork 会写它。M3 合并
+     的是租约和接管（#14），恢复执行（`exact`、`fs_preserved`、`lost`）还没做，所以没有值可显示。
+   - **回放渲染 `CheckpointEvent` 和基础设施暂停**：没做。这两种事件现在都不产生（M3 的恢复和"基础设施故障时
+     暂停"都没实现），它们的字段还没定；控制台（第 6 步）也还没合并。等事件有了再渲染。事件的单行文本对未知
+     类型有通用的兜底，到时不会显示不出来。
+   - **compose 的 worker 重启策略**：已实现。worker id 固定，`restart: unless-stopped`，重启后立刻把自己留下的
+     run 标成 `interrupted` 并补跑；`stop_grace_period` 1 分钟。为了让它成立，另改了两处 worker 行为：
+     收到 SIGTERM 时和 Ctrl-C 一样先清掉沙箱再以 0 退出（原来作为容器的 1 号进程会忽略 SIGTERM，10 秒后被
+     杀掉，沙箱留在宿主机上）；新增 `--stay-halted`，隔离自检失败而停机的 worker 不退出、空转等人处理（退出就会
+     被重启策略拉起来，在同一台坏掉的宿主机上把队列里的 run 一个个跑成 `failed`，而 `failed` 不会补跑）。
+     不带这个参数时行为不变。
+   都写在 [docs/deployment.md](../../docs/deployment.md#when-a-worker-stops)。

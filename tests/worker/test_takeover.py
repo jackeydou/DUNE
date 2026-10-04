@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.analysis import load_summaries
 from swarmeval.control.queue import FINISHED, Queue, RunRow
+from swarmeval.control.service import to_proto
 from swarmeval.db import control_runs
 from swarmeval.events import ObjectStore
 from swarmeval.sandbox import BlobStore
@@ -114,6 +115,9 @@ async def test_a_dead_workers_run_is_taken_over_and_rerun(
     assert "worker `w_dead` stopped renewing its lease" in taken.error
     assert "worker `w_taker` took the run over" in taken.error
     assert (rerun.status, rerun.replaces) == ("done", run_id)
+    # The run that changed hands says so, also through the Control API; its rerun started clean.
+    assert (taken.takeovers, rerun.takeovers) == (1, 0)
+    assert to_proto(taken).takeovers == 1
     assert executed == [rerun_id]
     assert removed == [run_id]
     assert await _summaries(bare_deps.store, submission, 2) == {

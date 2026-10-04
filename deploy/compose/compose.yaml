@@ -161,13 +161,20 @@ services:
       certs: { condition: service_completed_successfully }
     networks: [platform]
 
+  # Restarts keep the worker's id, so a restarted worker finishes the runs it left as
+  # `interrupted` at once and they are rerun; under another id they would wait for their leases
+  # to run out. On `stop` it removes its runs' sandboxes first, hence the grace period. A worker
+  # that found the host broken stays up idle (--stay-halted): restarted, it would fail the next
+  # queued run the same way. docs/deployment.md#when-a-worker-stops.
   worker:
     <<: *python
     environment: *store
+    stop_grace_period: 1m
     command:
       - swarmeval-worker
       - --worker-id=${SWARM_WORKER_ID:-worker-1}
       - --max-runs=${SWARM_MAX_RUNS:-4}
+      - --stay-halted
       - --s3-scheme=http
       - --sandboxd=sandboxd:7071
       - --gateway-http=https://model-gateway:7080

@@ -164,7 +164,7 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 | `run CASE_DIR` | Packs the directory and submits it, with `-V axis=values` (repeatable), `--epochs`, and `--suite`. The directory is stored in the case library as `case push` stores it. Prints the submission, the revision its runs use, and the run ids |
 | `run --case WORKSPACE/CASE[@REVISION]` | Submits a revision already in the library, the newest without `@REVISION`, with the same flags |
 | `run SUITE_FILE` | Packs every case directory the suite's `cases[].path` names, relative to the file, and submits the suite whole (`SubmitSuite`). Prints each submission and the suite label |
-| `runs list`, `get`, `cancel`, `resume` | `list` filters by `--submission`, `--case`, `--status`, `--suite`, `--limit` |
+| `runs list`, `get`, `cancel`, `resume` | `list` filters by `--submission`, `--case`, `--status`, `--suite`, `--limit`. `get` also shows what a run reruns, what it was forked from and with what fidelity, and how often it was taken over from a worker whose lease ran out |
 | `events RUN` | Prints `[event_id] #seq agent line` per event, as the judge reads them, until the run finishes; `--after SEQ` skips earlier ones |
 | `replay RUN --fork-at EVENT` | `ForkRun`, with `--edit FILE`: a YAML or JSON list of edits in protobuf's JSON form (`replace_message`, `delete_message`, `replace_delivery`) |
 | `case list` | The library's cases as `WORKSPACE/CASE`, each with its newest revision; `--workspace`, and `--archived` to include archived ones |
