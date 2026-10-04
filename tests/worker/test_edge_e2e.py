@@ -8,6 +8,7 @@ import base64
 import json
 import os
 import re
+import secrets
 import struct
 import subprocess
 from collections.abc import AsyncIterator, Iterator
@@ -17,6 +18,7 @@ from typing import Any
 
 import httpx2
 import pytest
+import yaml
 
 from swarmeval.control.bundles import pack
 from tests.containers import free_port, go_build, wait_listening
@@ -301,3 +303,83 @@ async def test_the_cli_submits_a_suite_whole_and_reports_mistakes(
     assert (code, out.strip()) == (0, "token revoked")
     code, _, err = await cli.run("whoami")
     assert code == 1 and "swarm login" in err
+
+
+async def test_the_cli_keeps_a_case_in_the_library_and_runs_a_revision(
+    platform: Platform, edge: Edge, admin: str, cli: Cli, tmp_path: Path
+) -> None:
+    """M4 spec, Plan step 4: push, list, revisions, pull, run by revision, archive."""
+    platform.backend.respond = lambda _: completion("done")
+    await cli.run("login", "--endpoint", edge.url, "-u", admin, stdin=PASSWORD + "\n")
+    workspace = f"ws-{secrets.token_hex(4)}"
+    name = f"{workspace}/smoke"
+    case = write_case(tmp_path / "case")
+    spec = yaml.safe_load((case / "case.yaml").read_text())
+    (case / "case.yaml").write_text(yaml.safe_dump({**spec, "workspace": workspace}))
+    (case / "scorers" / "check.sh").chmod(0o755)
+
+    code, out, err = await cli.run("case", "push", str(case), "-m", "first")
+    assert (code, out.strip()) == (0, f"{name}@1 pushed"), err
+    assert (await cli.run("case", "push", str(case)))[1].strip() == f"{name}@1 unchanged, already"
+    (case / "task.md").write_text("Make the tests pass, twice.")
+    assert (await cli.run("case", "push", str(case)))[1].strip() == f"{name}@2 pushed"
+
+    code, out, _ = await cli.run("case", "list", "--workspace", workspace, "--json")
+    (listed,) = json.loads(out)["cases"]
+    assert (listed["caseId"], listed["latest"]["revision"], listed["latest"]["createdBy"]) == (
+        "smoke",
+        2,
+        admin,
+    )
+    code, out, _ = await cli.run("case", "revisions", name, "--json")
+    assert [(r["revision"], r.get("note", "")) for r in json.loads(out)["revisions"]] == [
+        (2, ""),
+        (1, "first"),
+    ]
+
+    pulled = tmp_path / "pulled"
+    code, out, err = await cli.run("case", "pull", f"{name}@1", str(pulled))
+    assert code == 0, err
+    assert (pulled / "task.md").read_text() == "Make the tests pass."
+    assert (pulled / "scorers" / "check.sh").stat().st_mode & 0o777 == 0o755
+    assert sorted(p.name for p in pulled.iterdir()) == sorted(p.name for p in case.iterdir())
+    code, _, err = await cli.run("case", "pull", f"{name}@1", str(pulled))
+    assert code == 1 and "not empty" in err
+
+    code, out, err = await cli.run("run", "--case", f"{name}@1")
+    assert code == 0, err
+    assert re.match(r"submission [0-9a-f]{8}: 1 runs of revision 1\n", out), out
+    run_id = out.splitlines()[1]
+    outcomes = await platform.worker.drain()
+    assert outcomes[run_id].status == "done", outcomes[run_id].error
+    got = json.loads((await cli.run("runs", "get", run_id, "--json"))[1])
+    assert (got["caseRevision"], got["workspace"], got["status"]) == (1, workspace, "done")
+
+    # The console's edit, as it sends it: a stale base is 409 `aborted`, naming the newest.
+    signed_in = await edge.call(
+        "AuthService/LoginForToken", {"username": admin, "password": PASSWORD, "tokenName": "ui"}
+    )
+    auth = {"Authorization": f"Bearer {signed_in.json()['token']}"}
+    edit = {
+        "workspace": workspace,
+        "caseId": "smoke",
+        "baseRevision": 1,
+        "changes": [{"path": "task.md", "content": base64.b64encode(b"From the web.").decode()}],
+    }
+    stale = await edge.call("CaseService/UpdateCaseFiles", edit, **auth)
+    assert (stale.status_code, stale.json()["code"]) == (409, "aborted"), stale.text
+    assert "is at revision 2" in stale.json()["message"]
+    saved = await edge.call("CaseService/UpdateCaseFiles", {**edit, "baseRevision": 2}, **auth)
+    assert saved.status_code == 200, saved.text
+    assert (saved.json()["revision"]["revision"], saved.json()["revision"]["createdBy"]) == (
+        3,
+        admin,
+    )
+
+    assert (await cli.run("case", "archive", name))[0] == 0
+    code, _, err = await cli.run("run", "--case", name)
+    assert code == 1 and "archived" in err, err
+    assert json.loads((await cli.run("case", "list", "--workspace", workspace, "--json"))[1]) == {}
+    assert (await cli.run("case", "unarchive", name))[0] == 0
+    code, out, _ = await cli.run("case", "list", "--workspace", workspace)
+    assert f"{name}  3" in out, out

@@ -17,6 +17,7 @@ from sqlalchemy import (
     MetaData,
     Table,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -58,6 +59,38 @@ control_runs = Table(
     schema="control",
 )
 
+cases = Table(
+    "cases",
+    metadata,
+    Column("id", BigInteger, Identity(always=True), primary_key=True),
+    Column("workspace", Text, nullable=False),
+    Column("case_id", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("archived_at", DateTime(timezone=True)),
+    UniqueConstraint("workspace", "case_id"),
+    schema="control",
+)
+"""The case library: one row per `case.yaml` `workspace` and `id`. An archived case takes no
+pushes, edits, or runs (docs/services/orchestrator.md#case-library; migration 0010)."""
+
+case_revisions = Table(
+    "case_revisions",
+    metadata,
+    Column("id", BigInteger, Identity(always=True), primary_key=True),
+    Column("case_pk", BigInteger, nullable=False),
+    Column("revision", Integer, nullable=False),
+    Column("bundle_sha256", Text, nullable=False),
+    Column("actor", Text),
+    Column("note", Text),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    ForeignKeyConstraint(["case_pk"], [cases.c.id]),
+    UniqueConstraint("case_pk", "revision"),
+    schema="control",
+)
+"""A case's revisions, numbered from 1. A row is never updated or deleted: runs reference it.
+`bundle_sha256` names the bundle in object storage; two revisions of a case may share one, when
+the case went back to earlier content."""
+
 run_specs = Table(
     "run_specs",
     metadata,
@@ -65,6 +98,7 @@ run_specs = Table(
     Column("submission_id", Text, nullable=False),
     Column("case_id", Text, nullable=False),
     Column("case_sha256", Text, nullable=False),
+    Column("case_revision_id", BigInteger, nullable=False),
     Column("overrides", JSONB, nullable=False),
     Column("variant", Integer, nullable=False),
     Column("task_args", JSONB, nullable=False),
@@ -77,17 +111,20 @@ run_specs = Table(
     Column("fork_edits", JSONB),
     Column("submitted_by", Text),
     ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
+    ForeignKeyConstraint(["case_revision_id"], [case_revisions.c.id]),
+    Index(None, "case_revision_id"),
     Index(None, "submission_id"),
     Index(None, "replaces"),
     Index(None, "suite"),
     Index(None, "forked_from"),
     schema="control",
 )
-"""`replaces` is the interrupted run a rerun stands in for, at the next unused epoch of the same
-submission and variant (docs/services/orchestrator.md#reruns). `suite` labels the submissions of
-one suite run (docs/case-format.md#suites). `forked_from`, `fork_seq`, and `fork_edits` make a
-fork: a run that goes on from its source's state after event `fork_seq`, with the edits applied
-(docs/services/orchestrator.md#forks; migration 0008)."""
+"""`case_revision_id` is the case library revision the run uses, and `case_sha256` that revision's
+bundle. `replaces` is the interrupted run a rerun stands in for, at the next unused epoch of the
+same submission and variant (docs/services/orchestrator.md#reruns). `suite` labels the
+submissions of one suite run (docs/case-format.md#suites). `forked_from`, `fork_seq`, and
+`fork_edits` make a fork: a run that goes on from its source's state after event `fork_seq`, with
+the edits applied (docs/services/orchestrator.md#forks; migration 0008)."""
 
 events = Table(
     "events",

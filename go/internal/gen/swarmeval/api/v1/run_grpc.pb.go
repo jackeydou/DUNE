@@ -37,8 +37,10 @@ const (
 // orchestrator's Control API and records the caller as the actor of every change. Run statuses,
 // reruns, and forks: docs/services/orchestrator.md.
 type RunServiceClient interface {
-	// Validates a case bundle and queues one run per variant and epoch. A case that does not load
-	// is INVALID_ARGUMENT, with the loader's message.
+	// Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+	// CaseService.PushCase pushes it, or a revision already there. A case that does not load is
+	// INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+	// archived case is FAILED_PRECONDITION.
 	SubmitRuns(ctx context.Context, in *SubmitRunsRequest, opts ...grpc.CallOption) (*SubmitRunsResponse, error)
 	// Loads a suite with the case directories it names and queues every case's runs, each case
 	// its own submission under one suite label. A suite with a case that does not load queues
@@ -169,8 +171,10 @@ type RunService_StreamEventsClient = grpc.ServerStreamingClient[StreamEventsResp
 // orchestrator's Control API and records the caller as the actor of every change. Run statuses,
 // reruns, and forks: docs/services/orchestrator.md.
 type RunServiceServer interface {
-	// Validates a case bundle and queues one run per variant and epoch. A case that does not load
-	// is INVALID_ARGUMENT, with the loader's message.
+	// Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+	// CaseService.PushCase pushes it, or a revision already there. A case that does not load is
+	// INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+	// archived case is FAILED_PRECONDITION.
 	SubmitRuns(context.Context, *SubmitRunsRequest) (*SubmitRunsResponse, error)
 	// Loads a suite with the case directories it names and queues every case's runs, each case
 	// its own submission under one suite label. A suite with a case that does not load queues

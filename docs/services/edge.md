@@ -36,12 +36,12 @@ edge migrates its `tenant` schema when `serve` or `user create` starts.
 - **Public API.** `swarmeval.api.v1` in [`proto/swarmeval/api/v1/`](../../proto/swarmeval/api/v1/),
   separate from the internal protos so that internal changes never break outside clients
   (M4 spec decision 1); `mise run proto:breaking` guards it. Defined so far: `AuthService`,
-  `UserService`, `RunService`. Connect (connect-go) serves one definition as JSON to the
+  `UserService`, `RunService`, `CaseService`. Connect (connect-go) serves one definition as JSON to the
   browser and as gRPC to the CLI, over HTTP/1.1 or HTTP/2 (unencrypted HTTP/2 on a loopback
   listener).
-- **Request limits.** A `RunService` body may be up to 64 MiB of bundle plus encoding;
-  `AuthService` and `UserService` bodies 64 KiB. A body must arrive within 30 seconds of the
-  headers, 5 minutes for `SubmitRuns` and `SubmitSuite`; the headers within 10 seconds. The deadline does not limit
+- **Request limits.** A `RunService` or `CaseService` body may be up to 64 MiB of bundle plus
+  encoding; `AuthService` and `UserService` bodies 64 KiB. A body must arrive within 30 seconds
+  of the headers, 5 minutes for `SubmitRuns`, `SubmitSuite`, `PushCase`, and `UpdateCaseFiles`; the headers within 10 seconds. The deadline does not limit
   the answer, so an event stream lasts as long as the run. Idle keep-alive connections close after
   2 minutes.
 - **Run forwarding.** `RunService` calls the Control API's RPC of the same name and maps the run
@@ -53,6 +53,16 @@ edge migrates its `tenant` schema when `serve` or `user create` starts.
   `StreamEvents` is relayed message by message, each event with its `line`. A bundle over 64 MiB,
   or a suite whose file and bundles pass 64 MiB in all, is refused before the control plane sees
   it.
+- **Case forwarding.** `CaseService` is the [case library](orchestrator.md#case-library):
+  `PushCase`, `UpdateCaseFiles`, `GetCase`, `ListCases`, `ListCaseRevisions`, `GetCaseRevision`,
+  `ArchiveCase`, `UnarchiveCase`, each forwarded to the Control API's RPC of the same name. The
+  writes carry the caller's username as `actor`; a revision returns it as `created_by`.
+  `RunService.SubmitRuns` takes a bundle or `case` (workspace, case id, revision; 0 = newest),
+  and `Run`, `SubmitRunsResponse`, and each `SuiteSubmission` name the `case_revision` used. An
+  edit against a revision that is no longer the newest comes back `ABORTED` (HTTP 409 over
+  Connect) with the newest revision's number in the message, which is how the console learns
+  that someone else changed the case. A pushed bundle over 64 MiB, or an edit whose written
+  files pass 64 MiB in all, is refused before the control plane sees it.
 - **Errors.** Control API errors that are about the caller's request (`INVALID_ARGUMENT`,
   `NOT_FOUND`, `FAILED_PRECONDITION`, `ALREADY_EXISTS`, `ABORTED`, `OUT_OF_RANGE`,
   `RESOURCE_EXHAUSTED`, `CANCELLED`, `DEADLINE_EXCEEDED`) go back with their message. Anything
@@ -119,9 +129,8 @@ Users are disabled, never deleted, so the runs they submitted keep naming someon
 
 ### Not built yet
 
-- **Forwarding** of case calls to the Control API and of analysis calls to `AnalysisService`
-  (M4 Plan steps 4 and 5). The two sit side by side in the public API, and neither is nested
-  under the other.
+- **Forwarding** of analysis calls to `AnalysisService` (M4 Plan step 5). It sits beside the
+  case and run services in the public API, nested under neither.
 - **Internal mTLS** (step 7): edge will be the only caller the Control API and analysis accept.
 - **Console assets**, embedded in the binary with `embed.FS` (step 6).
 
@@ -141,6 +150,8 @@ swarm run cases/collusion_pricing -V model=qwen3-8b,glm-5 --epochs 20 --follow
 swarm run suites/m1_core.yaml
 swarm runs list --suite m1_core.3fa1b2c4
 swarm events collusion_pricing.fb47ae64.v0.e1        # one line per event, until the run ends
+swarm case push cases/collusion_pricing -m "tighter threshold"
+swarm run --case safety/collusion_pricing@3          # a revision in the library
 swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 ```
 
@@ -149,11 +160,17 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 | `login` | Signs in with a username and password (asked on a terminal, otherwise the first line of stdin) and saves a new API token named `swarm CLI on <hostname>`; or `--token` saves one you have, after checking it |
 | `logout` | Revokes the token `login` made and forgets it. A token given with `--token` is only forgotten |
 | `whoami` | Who the token signs in as |
-| `run CASE_DIR` | Packs the directory and submits it, with `-V axis=values` (repeatable), `--epochs`, and `--suite`. Prints the submission and its run ids |
+| `run CASE_DIR` | Packs the directory and submits it, with `-V axis=values` (repeatable), `--epochs`, and `--suite`. The directory is stored in the case library as `case push` stores it. Prints the submission, the revision its runs use, and the run ids |
+| `run --case WORKSPACE/CASE[@REVISION]` | Submits a revision already in the library, the newest without `@REVISION`, with the same flags |
 | `run SUITE_FILE` | Packs every case directory the suite's `cases[].path` names, relative to the file, and submits the suite whole (`SubmitSuite`). Prints each submission and the suite label |
 | `runs list`, `get`, `cancel`, `resume` | `list` filters by `--submission`, `--case`, `--status`, `--suite`, `--limit` |
 | `events RUN` | Prints `[event_id] #seq agent line` per event, as the judge reads them, until the run finishes; `--after SEQ` skips earlier ones |
 | `replay RUN --fork-at EVENT` | `ForkRun`, with `--edit FILE`: a YAML or JSON list of edits in protobuf's JSON form (`replace_message`, `delete_message`, `replace_delivery`) |
+| `case list` | The library's cases as `WORKSPACE/CASE`, each with its newest revision; `--workspace`, and `--archived` to include archived ones |
+| `case push CASE_DIR` | Stores the directory as the next revision of the case its `case.yaml` names, `-m NOTE` for the revision list. Prints `WORKSPACE/CASE@N pushed`, or `unchanged, already` when the directory is the newest revision. Runs nothing |
+| `case pull WORKSPACE/CASE[@REVISION] [DIR]` | Writes the revision's files, with their modes and links, to `DIR` (default `./CASE`), which must be empty or new |
+| `case revisions WORKSPACE/CASE` | Revision, bundle hash, time, author, and note, newest first |
+| `case archive`, `case unarchive` | An archived case leaves the list and takes no pushes, edits, or runs; nothing is deleted |
 | `token create`, `list`, `revoke` | Your API tokens; `create --expires 720h` |
 | `user create`, `list`, `disable`, `enable`, `reset-password` | Admins only. Passwords are asked twice on a terminal, read once from a pipe |
 
@@ -169,6 +186,9 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
   A symlink to a file goes up as the link, never as the file it points to; the control plane
   refuses a link that leaves the case directory or is absolute. Links to directories and links
   that point nowhere are left out. Over 64 MiB is refused before sending.
+- **Pulling** writes regular files first and links last, and refuses any path that is not
+  inside the directory, so nothing is ever written through a link. A pulled directory packs
+  back to the same files.
 - **Config.** `~/.config/swarm/config.yaml` (`$XDG_CONFIG_HOME/swarm/`, or `$SWARM_CONFIG`) holds
   `endpoint`, `token`, and the id of a token `login` made. It is written mode 0600, through a
   rename. `$SWARM_ENDPOINT` and `$SWARM_TOKEN` override it, and `--endpoint` overrides both.
@@ -176,7 +196,8 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
   `swarm: <what>: <edge's message>`, with a hint for a missing sign-in or an unreachable edge, and
   exit 1.
 - **Not built.** `swarm view` arrives with the console (step 6); `query`, `report`, and `export`
-  with the analysis service (step 5); `case` with the case library (step 4). `env up` and the
+  with the analysis service (step 5). Editing a case's files in place is the console's
+  (`UpdateCaseFiles`); from the CLI, pull, edit, and push. `env up` and the
   `otel` / `docent` export formats wait for the network capability and the export adapters.
 
 ## Console

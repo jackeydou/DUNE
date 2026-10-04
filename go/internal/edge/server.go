@@ -14,13 +14,16 @@ import (
 // NewHandler serves the public API. Every procedure but sign-in runs behind the authenticator.
 func NewHandler(cfg Config, store *tenant.Store, control controlv1connect.ControlServiceClient, log *slog.Logger) http.Handler {
 	interceptors := connect.WithInterceptors(&authenticator{store: store, cfg: cfg, log: log})
-	// Account calls carry a few short strings; only run submissions carry bundles.
+	// Account calls carry a few short strings; only run submissions and case writes carry
+	// bundles.
 	small := connect.WithReadMaxBytes(maxAccountRequestBytes)
+	large := connect.WithReadMaxBytes(maxRequestBytes)
 	auth := newAuthService(store, cfg, log)
 	mux := http.NewServeMux()
 	mux.Handle(apiv1connect.NewAuthServiceHandler(auth, interceptors, small))
 	mux.Handle(apiv1connect.NewUserServiceHandler(&UserService{store: store, auth: auth, log: log}, interceptors, small))
-	mux.Handle(apiv1connect.NewRunServiceHandler(&RunService{control: control, log: log}, interceptors, connect.WithReadMaxBytes(maxRequestBytes)))
+	mux.Handle(apiv1connect.NewRunServiceHandler(&RunService{control: control, log: log}, interceptors, large))
+	mux.Handle(apiv1connect.NewCaseServiceHandler(&CaseService{control: control, log: log}, interceptors, large))
 	return withBodyDeadline(mux, cfg, log)
 }
 

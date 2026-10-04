@@ -101,7 +101,7 @@ async def test_a_dead_workers_run_is_taken_over_and_rerun(
         return Outcome("done")
 
     executed = _fake_execute(monkeypatch, done)
-    (run_id,) = await enqueue(bare_deps.queue, submission)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission)
     await lease(bare_deps.engine, run_id, "w_dead", -1)
 
     serving(Worker(bare_deps, owner_id="w_taker", lease_s=1))
@@ -128,7 +128,7 @@ async def test_a_run_cancelled_while_its_worker_was_dead_is_finished_cancelled(
     removed: list[str],
     serving: Callable[[Worker], None],
 ) -> None:
-    (run_id,) = await enqueue(bare_deps.queue, submission)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission)
     await lease(bare_deps.engine, run_id, "w_dead", -1)
     await bare_deps.queue.cancel(run_id)
 
@@ -153,7 +153,7 @@ async def test_a_live_worker_keeps_its_run_past_many_leases(
         return Outcome("done")
 
     executed = _fake_execute(monkeypatch, slow)
-    (run_id,) = await enqueue(bare_deps.queue, submission)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission)
 
     serving(Worker(bare_deps, owner_id="w_slow", lease_s=0.3))
     await _until(bare_deps.queue, run_id, lambda r: r.status == "running")
@@ -183,7 +183,7 @@ async def test_a_worker_whose_run_was_taken_over_stops_it_and_records_nothing(
         return Outcome("done")
 
     _fake_execute(monkeypatch, forever)
-    (run_id,) = await enqueue(bare_deps.queue, submission)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission)
     serving(Worker(bare_deps, owner_id="w_paused", lease_s=0.3))
     await asyncio.wait_for(started.wait(), 10)
 
@@ -208,7 +208,7 @@ async def test_a_worker_whose_run_was_taken_over_stops_it_and_records_nothing(
 async def test_a_restarted_worker_removes_the_sandboxes_of_the_runs_it_finishes(
     bare_deps: WorkerDeps, submission: str, removed: list[str]
 ) -> None:
-    (run_id,) = await enqueue(bare_deps.queue, submission)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission)
     await start(bare_deps.engine, run_id, "w_restarted_sandboxes")
 
     (recovered,) = await Worker(bare_deps, owner_id="w_restarted_sandboxes").recover()
@@ -222,7 +222,7 @@ async def test_a_restarted_worker_removes_the_sandboxes_of_the_runs_it_finishes(
 async def test_an_owner_taken_over_after_its_run_ended_writes_no_status_or_summary(
     bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (run_id,) = await enqueue(bare_deps.queue, submission)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission)
     exported: list[str] = []
     real_export = worker_module.export_summary
 

@@ -76,6 +76,46 @@ class ControlServiceStub:
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.StreamEventsRequest.SerializeToString,
                 response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.StreamEventsResponse.FromString,
                 _registered_method=True)
+        self.PushCase = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/PushCase',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.PushCaseRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.PushCaseResponse.FromString,
+                _registered_method=True)
+        self.UpdateCaseFiles = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/UpdateCaseFiles',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UpdateCaseFilesRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UpdateCaseFilesResponse.FromString,
+                _registered_method=True)
+        self.GetCase = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/GetCase',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseResponse.FromString,
+                _registered_method=True)
+        self.ListCases = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/ListCases',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCasesRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCasesResponse.FromString,
+                _registered_method=True)
+        self.ListCaseRevisions = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/ListCaseRevisions',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCaseRevisionsRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCaseRevisionsResponse.FromString,
+                _registered_method=True)
+        self.GetCaseRevision = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/GetCaseRevision',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseRevisionRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseRevisionResponse.FromString,
+                _registered_method=True)
+        self.ArchiveCase = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/ArchiveCase',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ArchiveCaseRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ArchiveCaseResponse.FromString,
+                _registered_method=True)
+        self.UnarchiveCase = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/UnarchiveCase',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UnarchiveCaseRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UnarchiveCaseResponse.FromString,
+                _registered_method=True)
 
 
 class ControlServiceServicer:
@@ -84,8 +124,10 @@ class ControlServiceServicer:
     """
 
     def SubmitRuns(self, request, context):
-        """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
-        A case that does not load is INVALID_ARGUMENT, with the loader's message.
+        """Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+        PushCase pushes it, or a revision already there. A case that does not load is
+        INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+        archived case is FAILED_PRECONDITION.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -150,6 +192,70 @@ class ControlServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def PushCase(self, request, context):
+        """The case library (docs/services/orchestrator.md#case-library). A case is `workspace` and
+        `case_id`, as its `case.yaml` names them; its revisions are numbered from 1 and never change.
+
+        Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
+        names, creating the case on its first push. A bundle with the same bytes as the newest
+        revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
+        stored; an archived case is FAILED_PRECONDITION.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateCaseFiles(self, request, context):
+        """Applies file changes to revision `base_revision` and stores the result as the next
+        revision, validated as PushCase validates. ABORTED when `base_revision` is not the newest
+        revision; the message names the newest. `base_revision` 0 creates the case from the written
+        files alone.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetCase(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListCases(self, request, context):
+        """By workspace, then case id.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListCaseRevisions(self, request, context):
+        """Newest first.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetCaseRevision(self, request, context):
+        """One revision with its files.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ArchiveCase(self, request, context):
+        """An archived case is left out of ListCases by default and takes no pushes, edits, or runs.
+        Its revisions and bundles stay: runs reference them.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UnarchiveCase(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ControlServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -192,6 +298,46 @@ def add_ControlServiceServicer_to_server(servicer, server):
                     servicer.StreamEvents,
                     request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.StreamEventsRequest.FromString,
                     response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.StreamEventsResponse.SerializeToString,
+            ),
+            'PushCase': grpc.unary_unary_rpc_method_handler(
+                    servicer.PushCase,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.PushCaseRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.PushCaseResponse.SerializeToString,
+            ),
+            'UpdateCaseFiles': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateCaseFiles,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UpdateCaseFilesRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UpdateCaseFilesResponse.SerializeToString,
+            ),
+            'GetCase': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetCase,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseResponse.SerializeToString,
+            ),
+            'ListCases': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListCases,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCasesRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCasesResponse.SerializeToString,
+            ),
+            'ListCaseRevisions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListCaseRevisions,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCaseRevisionsRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCaseRevisionsResponse.SerializeToString,
+            ),
+            'GetCaseRevision': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetCaseRevision,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseRevisionRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseRevisionResponse.SerializeToString,
+            ),
+            'ArchiveCase': grpc.unary_unary_rpc_method_handler(
+                    servicer.ArchiveCase,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ArchiveCaseRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ArchiveCaseResponse.SerializeToString,
+            ),
+            'UnarchiveCase': grpc.unary_unary_rpc_method_handler(
+                    servicer.UnarchiveCase,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UnarchiveCaseRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UnarchiveCaseResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -412,6 +558,222 @@ class ControlService:
             '/swarmeval.control.v1.ControlService/StreamEvents',
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.StreamEventsRequest.SerializeToString,
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.StreamEventsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PushCase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/PushCase',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.PushCaseRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.PushCaseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateCaseFiles(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/UpdateCaseFiles',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UpdateCaseFilesRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UpdateCaseFilesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetCase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/GetCase',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListCases(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/ListCases',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCasesRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCasesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListCaseRevisions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/ListCaseRevisions',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCaseRevisionsRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ListCaseRevisionsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetCaseRevision(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/GetCaseRevision',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseRevisionRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetCaseRevisionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ArchiveCase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/ArchiveCase',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ArchiveCaseRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.ArchiveCaseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UnarchiveCase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/UnarchiveCase',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UnarchiveCaseRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.UnarchiveCaseResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -25,12 +25,15 @@ class SubmitRunsRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     CASE_BUNDLE_FIELD_NUMBER: _builtins.int
+    CASE_FIELD_NUMBER: _builtins.int
     OVERRIDES_FIELD_NUMBER: _builtins.int
     EPOCHS_FIELD_NUMBER: _builtins.int
     SUITE_FIELD_NUMBER: _builtins.int
     ACTOR_FIELD_NUMBER: _builtins.int
     case_bundle: _builtins.bytes
-    """The case directory as an uncompressed tar archive, with `case.yaml` at its root."""
+    """The case directory as an uncompressed tar archive, with `case.yaml` at its root. Set this
+    or `case`, not both.
+    """
     epochs: _builtins.int
     """Runs per variant. Zero means the case's `epochs`."""
     suite: _builtins.str
@@ -40,6 +43,10 @@ class SubmitRunsRequest(_message.Message):
     actor: _builtins.str
     """Who asks, as edge authenticated them; empty for internal tooling. Recorded on the runs."""
     @_builtins.property
+    def case(self) -> Global___CaseRevisionRef:
+        """A revision in the case library, instead of a bundle."""
+
+    @_builtins.property
     def overrides(self) -> _struct_pb2.Struct:
         """Variant axis → list of values, replacing that axis's values in the case."""
 
@@ -47,18 +54,47 @@ class SubmitRunsRequest(_message.Message):
         self,
         *,
         case_bundle: _builtins.bytes = ...,
+        case: Global___CaseRevisionRef | None = ...,
         overrides: _struct_pb2.Struct | None = ...,
         epochs: _builtins.int = ...,
         suite: _builtins.str = ...,
         actor: _builtins.str = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["overrides", b"overrides"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["case", b"case", "overrides", b"overrides"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "case_bundle", b"case_bundle", "epochs", b"epochs", "overrides", b"overrides", "suite", b"suite"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "case", b"case", "case_bundle", b"case_bundle", "epochs", b"epochs", "overrides", b"overrides", "suite", b"suite"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___SubmitRunsRequest: _TypeAlias = SubmitRunsRequest  # noqa: Y015
+
+@_typing.final
+class CaseRevisionRef(_message.Message):
+    """One revision of a case in the library."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    REVISION_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    case_id: _builtins.str
+    revision: _builtins.int
+    """Zero means the newest."""
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        case_id: _builtins.str = ...,
+        revision: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "revision", b"revision", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CaseRevisionRef: _TypeAlias = CaseRevisionRef  # noqa: Y015
 
 @_typing.final
 class SubmitRunsResponse(_message.Message):
@@ -66,7 +102,10 @@ class SubmitRunsResponse(_message.Message):
 
     SUBMISSION_ID_FIELD_NUMBER: _builtins.int
     RUN_IDS_FIELD_NUMBER: _builtins.int
+    CASE_REVISION_FIELD_NUMBER: _builtins.int
     submission_id: _builtins.str
+    case_revision: _builtins.int
+    """The revision the runs use."""
     @_builtins.property
     def run_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
     def __init__(
@@ -74,10 +113,11 @@ class SubmitRunsResponse(_message.Message):
         *,
         submission_id: _builtins.str = ...,
         run_ids: _abc.Iterable[_builtins.str] | None = ...,
+        case_revision: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["run_ids", b"run_ids", "submission_id", b"submission_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_revision", b"case_revision", "run_ids", b"run_ids", "submission_id", b"submission_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -142,8 +182,10 @@ class SuiteSubmission(_message.Message):
     CASE_ID_FIELD_NUMBER: _builtins.int
     SUBMISSION_ID_FIELD_NUMBER: _builtins.int
     RUN_IDS_FIELD_NUMBER: _builtins.int
+    CASE_REVISION_FIELD_NUMBER: _builtins.int
     case_id: _builtins.str
     submission_id: _builtins.str
+    case_revision: _builtins.int
     @_builtins.property
     def run_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
     def __init__(
@@ -152,10 +194,11 @@ class SuiteSubmission(_message.Message):
         case_id: _builtins.str = ...,
         submission_id: _builtins.str = ...,
         run_ids: _abc.Iterable[_builtins.str] | None = ...,
+        case_revision: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "run_ids", b"run_ids", "submission_id", b"submission_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "case_revision", b"case_revision", "run_ids", b"run_ids", "submission_id", b"submission_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -215,6 +258,7 @@ class Run(_message.Message):
     SUBMITTED_BY_FIELD_NUMBER: _builtins.int
     CANCELLED_BY_FIELD_NUMBER: _builtins.int
     RESUMED_BY_FIELD_NUMBER: _builtins.int
+    CASE_REVISION_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     submission_id: _builtins.str
     case_id: _builtins.str
@@ -248,6 +292,8 @@ class Run(_message.Message):
     cancelled_by: _builtins.str
     """The actor of the CancelRun that cancelled the run, and of the last ResumeRun."""
     resumed_by: _builtins.str
+    case_revision: _builtins.int
+    """The case library revision the run uses; `case_sha256` is that revision's bundle."""
     @_builtins.property
     def task_args(self) -> _struct_pb2.Struct:
         """The variant's axis values."""
@@ -285,10 +331,11 @@ class Run(_message.Message):
         submitted_by: _builtins.str = ...,
         cancelled_by: _builtins.str = ...,
         resumed_by: _builtins.str = ...,
+        case_revision: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["created_at", b"created_at", "finished_at", b"finished_at", "started_at", b"started_at", "task_args", b"task_args"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["cancelled_by", b"cancelled_by", "case_id", b"case_id", "case_sha256", b"case_sha256", "created_at", b"created_at", "epoch", b"epoch", "epochs", b"epochs", "error", b"error", "fidelity", b"fidelity", "finished_at", b"finished_at", "fork_seq", b"fork_seq", "forked_from", b"forked_from", "isolation", b"isolation", "owner_id", b"owner_id", "replaces", b"replaces", "resumed_by", b"resumed_by", "run_id", b"run_id", "started_at", b"started_at", "status", b"status", "submission_id", b"submission_id", "submitted_by", b"submitted_by", "suite", b"suite", "task_args", b"task_args", "variant", b"variant", "workspace", b"workspace"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["cancelled_by", b"cancelled_by", "case_id", b"case_id", "case_revision", b"case_revision", "case_sha256", b"case_sha256", "created_at", b"created_at", "epoch", b"epoch", "epochs", b"epochs", "error", b"error", "fidelity", b"fidelity", "finished_at", b"finished_at", "fork_seq", b"fork_seq", "forked_from", b"forked_from", "isolation", b"isolation", "owner_id", b"owner_id", "replaces", b"replaces", "resumed_by", b"resumed_by", "run_id", b"run_id", "started_at", b"started_at", "status", b"status", "submission_id", b"submission_id", "submitted_by", b"submitted_by", "suite", b"suite", "task_args", b"task_args", "variant", b"variant", "workspace", b"workspace"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -687,3 +734,522 @@ class StreamEventsResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___StreamEventsResponse: _TypeAlias = StreamEventsResponse  # noqa: Y015
+
+@_typing.final
+class Case(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    CREATED_AT_FIELD_NUMBER: _builtins.int
+    ARCHIVED_AT_FIELD_NUMBER: _builtins.int
+    LATEST_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    case_id: _builtins.str
+    @_builtins.property
+    def created_at(self) -> _timestamp_pb2.Timestamp: ...
+    @_builtins.property
+    def archived_at(self) -> _timestamp_pb2.Timestamp:
+        """Unset while the case is not archived."""
+
+    @_builtins.property
+    def latest(self) -> Global___CaseRevision:
+        """The newest revision."""
+
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        case_id: _builtins.str = ...,
+        created_at: _timestamp_pb2.Timestamp | None = ...,
+        archived_at: _timestamp_pb2.Timestamp | None = ...,
+        latest: Global___CaseRevision | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["archived_at", b"archived_at", "created_at", b"created_at", "latest", b"latest"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["archived_at", b"archived_at", "case_id", b"case_id", "created_at", b"created_at", "latest", b"latest", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___Case: _TypeAlias = Case  # noqa: Y015
+
+@_typing.final
+class CaseRevision(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    REVISION_FIELD_NUMBER: _builtins.int
+    BUNDLE_SHA256_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
+    NOTE_FIELD_NUMBER: _builtins.int
+    CREATED_AT_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    case_id: _builtins.str
+    revision: _builtins.int
+    bundle_sha256: _builtins.str
+    actor: _builtins.str
+    """The actor of the request that made the revision; empty when it named none."""
+    note: _builtins.str
+    @_builtins.property
+    def created_at(self) -> _timestamp_pb2.Timestamp: ...
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        case_id: _builtins.str = ...,
+        revision: _builtins.int = ...,
+        bundle_sha256: _builtins.str = ...,
+        actor: _builtins.str = ...,
+        note: _builtins.str = ...,
+        created_at: _timestamp_pb2.Timestamp | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["created_at", b"created_at"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "bundle_sha256", b"bundle_sha256", "case_id", b"case_id", "created_at", b"created_at", "note", b"note", "revision", b"revision", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CaseRevision: _TypeAlias = CaseRevision  # noqa: Y015
+
+@_typing.final
+class CaseFile(_message.Message):
+    """A regular file or a symbolic link of a case bundle."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PATH_FIELD_NUMBER: _builtins.int
+    CONTENT_FIELD_NUMBER: _builtins.int
+    MODE_FIELD_NUMBER: _builtins.int
+    LINK_TARGET_FIELD_NUMBER: _builtins.int
+    path: _builtins.str
+    """Relative to the case directory, with `/` separators."""
+    content: _builtins.bytes
+    mode: _builtins.int
+    """Unix permission bits."""
+    link_target: _builtins.str
+    """For a symbolic link, where it points; `content` is empty."""
+    def __init__(
+        self,
+        *,
+        path: _builtins.str = ...,
+        content: _builtins.bytes = ...,
+        mode: _builtins.int = ...,
+        link_target: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["content", b"content", "link_target", b"link_target", "mode", b"mode", "path", b"path"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CaseFile: _TypeAlias = CaseFile  # noqa: Y015
+
+@_typing.final
+class PushCaseRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CASE_BUNDLE_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
+    NOTE_FIELD_NUMBER: _builtins.int
+    case_bundle: _builtins.bytes
+    actor: _builtins.str
+    note: _builtins.str
+    """What changed, for the revision list. At most 1,000 characters."""
+    def __init__(
+        self,
+        *,
+        case_bundle: _builtins.bytes = ...,
+        actor: _builtins.str = ...,
+        note: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "case_bundle", b"case_bundle", "note", b"note"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___PushCaseRequest: _TypeAlias = PushCaseRequest  # noqa: Y015
+
+@_typing.final
+class PushCaseResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    REVISION_FIELD_NUMBER: _builtins.int
+    CREATED_FIELD_NUMBER: _builtins.int
+    created: _builtins.bool
+    """False when the bundle was the newest revision already."""
+    @_builtins.property
+    def revision(self) -> Global___CaseRevision: ...
+    def __init__(
+        self,
+        *,
+        revision: Global___CaseRevision | None = ...,
+        created: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["revision", b"revision"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["created", b"created", "revision", b"revision"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___PushCaseResponse: _TypeAlias = PushCaseResponse  # noqa: Y015
+
+@_typing.final
+class FileChange(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PATH_FIELD_NUMBER: _builtins.int
+    CONTENT_FIELD_NUMBER: _builtins.int
+    DELETE_FIELD_NUMBER: _builtins.int
+    path: _builtins.str
+    """Relative to the case directory, with `/` separators and no `..`."""
+    content: _builtins.bytes
+    """The file's new content, at most 1 MiB. Creates the file, with mode 0644, if it is new."""
+    delete: _builtins.bool
+    """Removes the file. Must be true."""
+    def __init__(
+        self,
+        *,
+        path: _builtins.str = ...,
+        content: _builtins.bytes = ...,
+        delete: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["change", b"change", "content", b"content", "delete", b"delete"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["change", b"change", "content", b"content", "delete", b"delete", "path", b"path"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType_change: _TypeAlias = _typing.Literal["content", "delete"]  # noqa: Y015
+    _WhichOneofArgType_change: _TypeAlias = _typing.Literal["change", b"change"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType_change) -> _WhichOneofReturnType_change | None: ...
+
+Global___FileChange: _TypeAlias = FileChange  # noqa: Y015
+
+@_typing.final
+class UpdateCaseFilesRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    BASE_REVISION_FIELD_NUMBER: _builtins.int
+    CHANGES_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
+    NOTE_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    case_id: _builtins.str
+    base_revision: _builtins.int
+    """The revision the changes were made against. Zero for a case that does not exist yet."""
+    actor: _builtins.str
+    note: _builtins.str
+    @_builtins.property
+    def changes(self) -> _containers.RepeatedCompositeFieldContainer[Global___FileChange]: ...
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        case_id: _builtins.str = ...,
+        base_revision: _builtins.int = ...,
+        changes: _abc.Iterable[Global___FileChange] | None = ...,
+        actor: _builtins.str = ...,
+        note: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "base_revision", b"base_revision", "case_id", b"case_id", "changes", b"changes", "note", b"note", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UpdateCaseFilesRequest: _TypeAlias = UpdateCaseFilesRequest  # noqa: Y015
+
+@_typing.final
+class UpdateCaseFilesResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    REVISION_FIELD_NUMBER: _builtins.int
+    CREATED_FIELD_NUMBER: _builtins.int
+    created: _builtins.bool
+    """False when the changes left every file as it was."""
+    @_builtins.property
+    def revision(self) -> Global___CaseRevision: ...
+    def __init__(
+        self,
+        *,
+        revision: Global___CaseRevision | None = ...,
+        created: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["revision", b"revision"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["created", b"created", "revision", b"revision"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UpdateCaseFilesResponse: _TypeAlias = UpdateCaseFilesResponse  # noqa: Y015
+
+@_typing.final
+class GetCaseRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    case_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        case_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetCaseRequest: _TypeAlias = GetCaseRequest  # noqa: Y015
+
+@_typing.final
+class GetCaseResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CASE_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def case(self) -> Global___Case: ...
+    def __init__(
+        self,
+        *,
+        case: Global___Case | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["case", b"case"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case", b"case"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetCaseResponse: _TypeAlias = GetCaseResponse  # noqa: Y015
+
+@_typing.final
+class ListCasesRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    INCLUDE_ARCHIVED_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    """Empty for every workspace."""
+    include_archived: _builtins.bool
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        include_archived: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["include_archived", b"include_archived", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListCasesRequest: _TypeAlias = ListCasesRequest  # noqa: Y015
+
+@_typing.final
+class ListCasesResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CASES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def cases(self) -> _containers.RepeatedCompositeFieldContainer[Global___Case]: ...
+    def __init__(
+        self,
+        *,
+        cases: _abc.Iterable[Global___Case] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["cases", b"cases"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListCasesResponse: _TypeAlias = ListCasesResponse  # noqa: Y015
+
+@_typing.final
+class ListCaseRevisionsRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    case_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        case_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListCaseRevisionsRequest: _TypeAlias = ListCaseRevisionsRequest  # noqa: Y015
+
+@_typing.final
+class ListCaseRevisionsResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    REVISIONS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def revisions(self) -> _containers.RepeatedCompositeFieldContainer[Global___CaseRevision]: ...
+    def __init__(
+        self,
+        *,
+        revisions: _abc.Iterable[Global___CaseRevision] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["revisions", b"revisions"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListCaseRevisionsResponse: _TypeAlias = ListCaseRevisionsResponse  # noqa: Y015
+
+@_typing.final
+class GetCaseRevisionRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    REVISION_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    case_id: _builtins.str
+    revision: _builtins.int
+    """Zero means the newest."""
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        case_id: _builtins.str = ...,
+        revision: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "revision", b"revision", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetCaseRevisionRequest: _TypeAlias = GetCaseRevisionRequest  # noqa: Y015
+
+@_typing.final
+class GetCaseRevisionResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    REVISION_FIELD_NUMBER: _builtins.int
+    FILES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def revision(self) -> Global___CaseRevision: ...
+    @_builtins.property
+    def files(self) -> _containers.RepeatedCompositeFieldContainer[Global___CaseFile]:
+        """By path."""
+
+    def __init__(
+        self,
+        *,
+        revision: Global___CaseRevision | None = ...,
+        files: _abc.Iterable[Global___CaseFile] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["revision", b"revision"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["files", b"files", "revision", b"revision"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetCaseRevisionResponse: _TypeAlias = GetCaseRevisionResponse  # noqa: Y015
+
+@_typing.final
+class ArchiveCaseRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    case_id: _builtins.str
+    actor: _builtins.str
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        case_id: _builtins.str = ...,
+        actor: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "case_id", b"case_id", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ArchiveCaseRequest: _TypeAlias = ArchiveCaseRequest  # noqa: Y015
+
+@_typing.final
+class ArchiveCaseResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CASE_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def case(self) -> Global___Case: ...
+    def __init__(
+        self,
+        *,
+        case: Global___Case | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["case", b"case"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case", b"case"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ArchiveCaseResponse: _TypeAlias = ArchiveCaseResponse  # noqa: Y015
+
+@_typing.final
+class UnarchiveCaseRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WORKSPACE_FIELD_NUMBER: _builtins.int
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
+    workspace: _builtins.str
+    case_id: _builtins.str
+    actor: _builtins.str
+    def __init__(
+        self,
+        *,
+        workspace: _builtins.str = ...,
+        case_id: _builtins.str = ...,
+        actor: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "case_id", b"case_id", "workspace", b"workspace"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UnarchiveCaseRequest: _TypeAlias = UnarchiveCaseRequest  # noqa: Y015
+
+@_typing.final
+class UnarchiveCaseResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CASE_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def case(self) -> Global___Case: ...
+    def __init__(
+        self,
+        *,
+        case: Global___Case | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["case", b"case"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case", b"case"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UnarchiveCaseResponse: _TypeAlias = UnarchiveCaseResponse  # noqa: Y015

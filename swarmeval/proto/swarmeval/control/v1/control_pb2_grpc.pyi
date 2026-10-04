@@ -36,8 +36,10 @@ class ControlServiceStub:
     @_typing.overload
     def __new__(cls, channel: _aio.Channel) -> ControlServiceAsyncStub: ...
     SubmitRuns: _grpc.UnaryUnaryMultiCallable[_control_pb2.SubmitRunsRequest, _control_pb2.SubmitRunsResponse]
-    """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
-    A case that does not load is INVALID_ARGUMENT, with the loader's message.
+    """Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+    PushCase pushes it, or a revision already there. A case that does not load is
+    INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+    archived case is FAILED_PRECONDITION.
     """
     SubmitSuite: _grpc.UnaryUnaryMultiCallable[_control_pb2.SubmitSuiteRequest, _control_pb2.SubmitSuiteResponse]
     """Loads a suite with the case bundles it names and queues every case's runs in one
@@ -68,6 +70,33 @@ class ControlServiceStub:
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
     ends once the run has finished and every event was sent.
     """
+    PushCase: _grpc.UnaryUnaryMultiCallable[_control_pb2.PushCaseRequest, _control_pb2.PushCaseResponse]
+    """The case library (docs/services/orchestrator.md#case-library). A case is `workspace` and
+    `case_id`, as its `case.yaml` names them; its revisions are numbered from 1 and never change.
+
+    Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
+    names, creating the case on its first push. A bundle with the same bytes as the newest
+    revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
+    stored; an archived case is FAILED_PRECONDITION.
+    """
+    UpdateCaseFiles: _grpc.UnaryUnaryMultiCallable[_control_pb2.UpdateCaseFilesRequest, _control_pb2.UpdateCaseFilesResponse]
+    """Applies file changes to revision `base_revision` and stores the result as the next
+    revision, validated as PushCase validates. ABORTED when `base_revision` is not the newest
+    revision; the message names the newest. `base_revision` 0 creates the case from the written
+    files alone.
+    """
+    GetCase: _grpc.UnaryUnaryMultiCallable[_control_pb2.GetCaseRequest, _control_pb2.GetCaseResponse]
+    ListCases: _grpc.UnaryUnaryMultiCallable[_control_pb2.ListCasesRequest, _control_pb2.ListCasesResponse]
+    """By workspace, then case id."""
+    ListCaseRevisions: _grpc.UnaryUnaryMultiCallable[_control_pb2.ListCaseRevisionsRequest, _control_pb2.ListCaseRevisionsResponse]
+    """Newest first."""
+    GetCaseRevision: _grpc.UnaryUnaryMultiCallable[_control_pb2.GetCaseRevisionRequest, _control_pb2.GetCaseRevisionResponse]
+    """One revision with its files."""
+    ArchiveCase: _grpc.UnaryUnaryMultiCallable[_control_pb2.ArchiveCaseRequest, _control_pb2.ArchiveCaseResponse]
+    """An archived case is left out of ListCases by default and takes no pushes, edits, or runs.
+    Its revisions and bundles stay: runs reference them.
+    """
+    UnarchiveCase: _grpc.UnaryUnaryMultiCallable[_control_pb2.UnarchiveCaseRequest, _control_pb2.UnarchiveCaseResponse]
 
 @_typing.type_check_only
 class ControlServiceAsyncStub(ControlServiceStub):
@@ -77,8 +106,10 @@ class ControlServiceAsyncStub(ControlServiceStub):
 
     def __init__(self, channel: _aio.Channel) -> None: ...
     SubmitRuns: _aio.UnaryUnaryMultiCallable[_control_pb2.SubmitRunsRequest, _control_pb2.SubmitRunsResponse]  # type: ignore[assignment]
-    """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
-    A case that does not load is INVALID_ARGUMENT, with the loader's message.
+    """Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+    PushCase pushes it, or a revision already there. A case that does not load is
+    INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+    archived case is FAILED_PRECONDITION.
     """
     SubmitSuite: _aio.UnaryUnaryMultiCallable[_control_pb2.SubmitSuiteRequest, _control_pb2.SubmitSuiteResponse]  # type: ignore[assignment]
     """Loads a suite with the case bundles it names and queues every case's runs in one
@@ -109,6 +140,33 @@ class ControlServiceAsyncStub(ControlServiceStub):
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
     ends once the run has finished and every event was sent.
     """
+    PushCase: _aio.UnaryUnaryMultiCallable[_control_pb2.PushCaseRequest, _control_pb2.PushCaseResponse]  # type: ignore[assignment]
+    """The case library (docs/services/orchestrator.md#case-library). A case is `workspace` and
+    `case_id`, as its `case.yaml` names them; its revisions are numbered from 1 and never change.
+
+    Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
+    names, creating the case on its first push. A bundle with the same bytes as the newest
+    revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
+    stored; an archived case is FAILED_PRECONDITION.
+    """
+    UpdateCaseFiles: _aio.UnaryUnaryMultiCallable[_control_pb2.UpdateCaseFilesRequest, _control_pb2.UpdateCaseFilesResponse]  # type: ignore[assignment]
+    """Applies file changes to revision `base_revision` and stores the result as the next
+    revision, validated as PushCase validates. ABORTED when `base_revision` is not the newest
+    revision; the message names the newest. `base_revision` 0 creates the case from the written
+    files alone.
+    """
+    GetCase: _aio.UnaryUnaryMultiCallable[_control_pb2.GetCaseRequest, _control_pb2.GetCaseResponse]  # type: ignore[assignment]
+    ListCases: _aio.UnaryUnaryMultiCallable[_control_pb2.ListCasesRequest, _control_pb2.ListCasesResponse]  # type: ignore[assignment]
+    """By workspace, then case id."""
+    ListCaseRevisions: _aio.UnaryUnaryMultiCallable[_control_pb2.ListCaseRevisionsRequest, _control_pb2.ListCaseRevisionsResponse]  # type: ignore[assignment]
+    """Newest first."""
+    GetCaseRevision: _aio.UnaryUnaryMultiCallable[_control_pb2.GetCaseRevisionRequest, _control_pb2.GetCaseRevisionResponse]  # type: ignore[assignment]
+    """One revision with its files."""
+    ArchiveCase: _aio.UnaryUnaryMultiCallable[_control_pb2.ArchiveCaseRequest, _control_pb2.ArchiveCaseResponse]  # type: ignore[assignment]
+    """An archived case is left out of ListCases by default and takes no pushes, edits, or runs.
+    Its revisions and bundles stay: runs reference them.
+    """
+    UnarchiveCase: _aio.UnaryUnaryMultiCallable[_control_pb2.UnarchiveCaseRequest, _control_pb2.UnarchiveCaseResponse]  # type: ignore[assignment]
 
 class ControlServiceServicer(metaclass=_abc_1.ABCMeta):
     """ControlService is the orchestrator control plane's API. Until edge exists (M4) it is bound to
@@ -121,8 +179,10 @@ class ControlServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _control_pb2.SubmitRunsRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_control_pb2.SubmitRunsResponse, _abc.Awaitable[_control_pb2.SubmitRunsResponse]]:
-        """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
-        A case that does not load is INVALID_ARGUMENT, with the loader's message.
+        """Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+        PushCase pushes it, or a revision already there. A case that does not load is
+        INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+        archived case is FAILED_PRECONDITION.
         """
 
     @_abc_1.abstractmethod
@@ -195,5 +255,80 @@ class ControlServiceServicer(metaclass=_abc_1.ABCMeta):
         """A run's events with seq greater than `after_seq`, live while the run is going. The stream
         ends once the run has finished and every event was sent.
         """
+
+    @_abc_1.abstractmethod
+    def PushCase(
+        self,
+        request: _control_pb2.PushCaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.PushCaseResponse, _abc.Awaitable[_control_pb2.PushCaseResponse]]:
+        """The case library (docs/services/orchestrator.md#case-library). A case is `workspace` and
+        `case_id`, as its `case.yaml` names them; its revisions are numbered from 1 and never change.
+
+        Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
+        names, creating the case on its first push. A bundle with the same bytes as the newest
+        revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
+        stored; an archived case is FAILED_PRECONDITION.
+        """
+
+    @_abc_1.abstractmethod
+    def UpdateCaseFiles(
+        self,
+        request: _control_pb2.UpdateCaseFilesRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.UpdateCaseFilesResponse, _abc.Awaitable[_control_pb2.UpdateCaseFilesResponse]]:
+        """Applies file changes to revision `base_revision` and stores the result as the next
+        revision, validated as PushCase validates. ABORTED when `base_revision` is not the newest
+        revision; the message names the newest. `base_revision` 0 creates the case from the written
+        files alone.
+        """
+
+    @_abc_1.abstractmethod
+    def GetCase(
+        self,
+        request: _control_pb2.GetCaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.GetCaseResponse, _abc.Awaitable[_control_pb2.GetCaseResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ListCases(
+        self,
+        request: _control_pb2.ListCasesRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.ListCasesResponse, _abc.Awaitable[_control_pb2.ListCasesResponse]]:
+        """By workspace, then case id."""
+
+    @_abc_1.abstractmethod
+    def ListCaseRevisions(
+        self,
+        request: _control_pb2.ListCaseRevisionsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.ListCaseRevisionsResponse, _abc.Awaitable[_control_pb2.ListCaseRevisionsResponse]]:
+        """Newest first."""
+
+    @_abc_1.abstractmethod
+    def GetCaseRevision(
+        self,
+        request: _control_pb2.GetCaseRevisionRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.GetCaseRevisionResponse, _abc.Awaitable[_control_pb2.GetCaseRevisionResponse]]:
+        """One revision with its files."""
+
+    @_abc_1.abstractmethod
+    def ArchiveCase(
+        self,
+        request: _control_pb2.ArchiveCaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.ArchiveCaseResponse, _abc.Awaitable[_control_pb2.ArchiveCaseResponse]]:
+        """An archived case is left out of ListCases by default and takes no pushes, edits, or runs.
+        Its revisions and bundles stay: runs reference them.
+        """
+
+    @_abc_1.abstractmethod
+    def UnarchiveCase(
+        self,
+        request: _control_pb2.UnarchiveCaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.UnarchiveCaseResponse, _abc.Awaitable[_control_pb2.UnarchiveCaseResponse]]: ...
 
 def add_ControlServiceServicer_to_server(servicer: ControlServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...

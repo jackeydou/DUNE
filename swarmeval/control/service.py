@@ -7,19 +7,25 @@ import re
 import secrets
 import tempfile
 from collections.abc import AsyncIterator, Mapping, Sequence
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import grpc
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.struct_pb2 import Struct
-from google.protobuf.timestamp_pb2 import Timestamp
 from pydantic import JsonValue, ValidationError
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from swarmeval.control.bundles import bundle_hash, bundle_key, unpack
+from swarmeval.control.case_rpcs import CaseRpcs, timestamp
+from swarmeval.control.cases import (
+    CaseArchived,
+    CaseLibrary,
+    RevisionRow,
+    add_revision,
+    refuse_archived,
+)
 from swarmeval.control.live import EventListener
 from swarmeval.control.queue import (
     FINISHED,
@@ -29,16 +35,10 @@ from swarmeval.control.queue import (
     RunNotFound,
     RunNotPaused,
     RunRow,
+    insert_runs,
     run_id_of,
 )
-from swarmeval.core import (
-    CaseError,
-    LoadedCase,
-    LoadedSuite,
-    SuiteError,
-    load_case,
-    load_suite_text,
-)
+from swarmeval.core import CaseError, LoadedCase, LoadedSuite, SuiteError, load_suite_text
 from swarmeval.core.models import AxisValue, Scalar, axis_json
 from swarmeval.db import events
 from swarmeval.events import ObjectStore, export_summary
@@ -72,14 +72,6 @@ def _struct(values: Mapping[str, JsonValue]) -> Struct:
     return struct
 
 
-def _timestamp(value: datetime | None) -> Timestamp | None:
-    if value is None:
-        return None
-    stamp = Timestamp()
-    stamp.FromDatetime(value)
-    return stamp
-
-
 def to_proto(run: RunRow) -> pb.Run:
     return pb.Run(
         run_id=run.run_id,
@@ -92,12 +84,13 @@ def to_proto(run: RunRow) -> pb.Run:
         epoch=run.epoch,
         epochs=run.epochs,
         case_sha256=run.case_sha256,
+        case_revision=run.case_revision,
         owner_id=run.owner_id or "",
         isolation=run.isolation or "",
         error=run.error or "",
-        created_at=_timestamp(run.created_at),
-        started_at=_timestamp(run.started_at),
-        finished_at=_timestamp(run.finished_at),
+        created_at=timestamp(run.created_at),
+        started_at=timestamp(run.started_at),
+        finished_at=timestamp(run.finished_at),
         replaces=run.replaces or "",
         suite=run.suite or "",
         forked_from=run.forked_from or "",
@@ -160,7 +153,7 @@ def plan_runs(
     loaded: LoadedCase,
     *,
     submission_id: str,
-    case_sha256: str,
+    revision: RevisionRow,
     overrides: Mapping[str, Sequence[AxisValue]],
     epochs: int,
     suite: str | None = None,
@@ -172,7 +165,8 @@ def plan_runs(
             submission_id=submission_id,
             case_id=loaded.id,
             workspace=loaded.workspace,
-            case_sha256=case_sha256,
+            case_sha256=revision.bundle_sha256,
+            case_revision_id=revision.id,
             overrides={k: [axis_json(x) for x in v] for k, v in overrides.items()},
             variant=variant.index,
             task_args={k: axis_json(v) for k, v in variant.values.items()},
@@ -184,11 +178,6 @@ def plan_runs(
         for variant in loaded.variants
         for epoch in range(1, epochs + 1)
     ]
-
-
-def _load(bundle: bytes, overrides: Mapping[str, Sequence[AxisValue]]) -> LoadedCase:
-    with tempfile.TemporaryDirectory(prefix="swarmeval-case-") as scratch:
-        return load_case(unpack(bundle, Path(scratch)), overrides)
 
 
 def _load_suite(text: str, bundles: Mapping[str, bytes]) -> LoadedSuite:
@@ -222,7 +211,7 @@ def _load_suite(text: str, bundles: Mapping[str, bytes]) -> LoadedSuite:
     return loaded
 
 
-class ControlService(ControlServiceServicer):
+class ControlService(CaseRpcs, ControlServiceServicer):
     def __init__(
         self,
         *,
@@ -235,6 +224,7 @@ class ControlService(ControlServiceServicer):
         self._queue = queue
         self._engine = engine
         self._store = store
+        self._library = CaseLibrary(engine)
         self._listener = listener
         self._allow_case_code = allow_case_code
 
@@ -249,37 +239,68 @@ class ControlService(ControlServiceServicer):
                 f"suite label {request.suite!r} is not valid. Use up to 128 lowercase letters, "
                 "digits, `_`, `.`, and `-`, starting with a letter or digit.",
             )
+        if bool(request.case_bundle) == request.HasField("case"):
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "give the case to run as exactly one of `case_bundle` (a case directory's "
+                "archive) and `case` (a revision in the case library).",
+            )
         try:
             overrides = overrides_of(request.overrides)
-            loaded = await asyncio.to_thread(_load, request.case_bundle, overrides)
         except CaseError as err:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err))
-        await self._refuse_case_code(loaded, context)
-        sha256 = bundle_hash(request.case_bundle)
-        await asyncio.to_thread(self._store.put, bundle_key(sha256), request.case_bundle)
+        stored: RevisionRow | None = None
+        if request.HasField("case"):
+            ref = request.case
+            stored = await self._stored_revision(ref.workspace, ref.case_id, ref.revision, context)
+            try:
+                refuse_archived(stored)
+            except CaseArchived as err:
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
+            bundle = await asyncio.to_thread(self._store.get, bundle_key(stored.bundle_sha256))
+        else:
+            bundle = request.case_bundle
+        loaded = await self._accept(bundle, overrides, context)
+        if stored is None:
+            await asyncio.to_thread(self._store.put, bundle_key(bundle_hash(bundle)), bundle)
         submission_id = secrets.token_hex(4)
-        runs = plan_runs(
-            loaded,
+        try:
+            # One transaction: a pushed revision exists only with its runs queued.
+            async with self._engine.begin() as conn:
+                revision = stored or await self._push(conn, loaded, bundle, request.actor)
+                runs = plan_runs(
+                    loaded,
+                    submission_id=submission_id,
+                    revision=revision,
+                    overrides=overrides,
+                    epochs=request.epochs or loaded.epochs,
+                    suite=request.suite or None,
+                    submitted_by=request.actor or None,
+                )
+                await insert_runs(conn, runs)
+        except CaseArchived as err:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
+        return pb.SubmitRunsResponse(
             submission_id=submission_id,
-            case_sha256=sha256,
-            overrides=overrides,
-            epochs=request.epochs or loaded.epochs,
-            suite=request.suite or None,
-            submitted_by=request.actor or None,
+            run_ids=[r.run_id for r in runs],
+            case_revision=revision.revision,
         )
-        await self._queue.enqueue(runs)
-        return pb.SubmitRunsResponse(submission_id=submission_id, run_ids=[r.run_id for r in runs])
 
-    async def _refuse_case_code(self, loaded: LoadedCase, context: Context) -> None:
-        code = sorted({use for v in loaded.variants for use in v.code})
-        if code and not self._allow_case_code:
-            await context.abort(
-                grpc.StatusCode.FAILED_PRECONDITION,
-                f"case `{loaded.id}` loads extensions from its own directory "
-                f"({', '.join(code)}), and this deployment does not run case code: it would run "
-                "inside the workers with their privileges. Start the control plane and the "
-                "workers with `--allow-case-code` to accept it.",
-            )
+    @staticmethod
+    async def _push(
+        conn: AsyncConnection, loaded: LoadedCase, bundle: bytes, actor: str
+    ) -> RevisionRow:
+        """The library revision for a bundle submitted to run: the case's newest when the
+        bundle is that one, a new one otherwise."""
+        revision, _ = await add_revision(
+            conn,
+            workspace=loaded.workspace,
+            case_id=loaded.id,
+            sha256=bundle_hash(bundle),
+            actor=actor or None,
+            note=None,
+        )
+        return revision
 
     async def SubmitSuite(
         self, request: pb.SubmitSuiteRequest, context: Context
@@ -292,32 +313,45 @@ class ControlService(ControlServiceServicer):
         for entry in loaded.entries:
             await self._refuse_case_code(entry.case, context)
         label = f"{loaded.id}.{secrets.token_hex(4)}"
-        hashes = {path: bundle_hash(bundle) for path, bundle in bundles.items()}
-        for path, sha256 in hashes.items():
-            await asyncio.to_thread(self._store.put, bundle_key(sha256), bundles[path])
+        for bundle in bundles.values():
+            await asyncio.to_thread(self._store.put, bundle_key(bundle_hash(bundle)), bundle)
+        cases = {entry.path: entry.case for entry in loaded.entries}
         runs: list[NewRun] = []
         submissions: list[pb.SuiteSubmission] = []
-        for entry in loaded.entries:
-            submission_id = secrets.token_hex(4)
-            planned = plan_runs(
-                entry.case,
-                submission_id=submission_id,
-                case_sha256=hashes[entry.path],
-                overrides=entry.overrides,
-                epochs=entry.epochs or entry.case.epochs,
-                suite=label,
-                submitted_by=request.actor or None,
-            )
-            runs.extend(planned)
-            submissions.append(
-                pb.SuiteSubmission(
-                    case_id=entry.case.id,
-                    submission_id=submission_id,
-                    run_ids=[r.run_id for r in planned],
-                )
-            )
-        # One transaction for every case: the suite is queued whole or not at all.
-        await self._queue.enqueue(runs)
+        try:
+            # One transaction for every case: the suite is queued whole or not at all, and its
+            # revisions exist only with it.
+            async with self._engine.begin() as conn:
+                revisions: dict[str, RevisionRow] = {}
+                # In one order for every suite, so two suites sharing cases cannot deadlock on
+                # the cases' locks.
+                for path in sorted(cases, key=lambda p: (cases[p].workspace, cases[p].id, p)):
+                    revisions[path] = await self._push(
+                        conn, cases[path], bundles[path], request.actor
+                    )
+                for entry in loaded.entries:
+                    submission_id = secrets.token_hex(4)
+                    planned = plan_runs(
+                        entry.case,
+                        submission_id=submission_id,
+                        revision=revisions[entry.path],
+                        overrides=entry.overrides,
+                        epochs=entry.epochs or entry.case.epochs,
+                        suite=label,
+                        submitted_by=request.actor or None,
+                    )
+                    runs.extend(planned)
+                    submissions.append(
+                        pb.SuiteSubmission(
+                            case_id=entry.case.id,
+                            submission_id=submission_id,
+                            run_ids=[r.run_id for r in planned],
+                            case_revision=revisions[entry.path].revision,
+                        )
+                    )
+                await insert_runs(conn, runs)
+        except CaseArchived as err:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
         return pb.SubmitSuiteResponse(suite=label, submissions=submissions)
 
     async def GetRun(self, request: pb.GetRunRequest, context: Context) -> pb.GetRunResponse:

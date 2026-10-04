@@ -27,7 +27,7 @@ async def _lease_left(engine: AsyncEngine, run_id: str) -> float:
 
 async def test_a_claim_takes_a_lease(engine: AsyncEngine, submission: str) -> None:
     queue = Queue(engine)
-    (queued,) = await enqueue(queue, submission)
+    (queued,) = await enqueue(queue, engine, submission)
 
     claimed = await queue.claim("w_lease", lease_s=20)
 
@@ -41,7 +41,7 @@ async def test_renewal_extends_only_the_leases_still_held(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    held, stale, done, theirs = await enqueue(queue, submission, epochs=4)
+    held, stale, done, theirs = await enqueue(queue, engine, submission, epochs=4)
     held_epoch = await lease(engine, held, "w_renew", 1)
     stale_epoch = await lease(engine, stale, "w_renew", 1)
     done_epoch = await lease(engine, done, "w_renew", 1)
@@ -67,7 +67,7 @@ async def test_a_run_whose_lease_ran_out_is_claimed_and_its_owner_fenced(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    expired, live, legacy = await enqueue(queue, submission, epochs=3)
+    expired, live, legacy = await enqueue(queue, engine, submission, epochs=3)
     old_epoch = await lease(engine, expired, "w_dead", -1)
     live_epoch = await lease(engine, live, "w_alive", 30)
     legacy_epoch = await start(engine, legacy, "w_legacy")
@@ -100,7 +100,7 @@ async def test_a_run_cancelled_while_its_owner_died_is_claimed_as_cancelled(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    (run,) = await enqueue(queue, submission)
+    (run,) = await enqueue(queue, engine, submission)
     await lease(engine, run, "w_dead", -1)
     await queue.cancel(run)
 
@@ -116,7 +116,7 @@ async def test_a_run_cancelled_while_its_owner_died_is_claimed_as_cancelled(
 
 async def test_two_takers_never_claim_the_same_run(engine: AsyncEngine, submission: str) -> None:
     queue = Queue(engine)
-    runs = await enqueue(queue, submission, epochs=6)
+    runs = await enqueue(queue, engine, submission, epochs=6)
     for run_id in runs:
         await lease(engine, run_id, "w_dead", -1)
 

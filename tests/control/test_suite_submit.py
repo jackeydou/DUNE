@@ -2,7 +2,6 @@
 which `ListRuns` and reports filter on."""
 
 import re
-from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,17 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.analysis import load_summaries, report
 from swarmeval.control.bundles import pack
-from swarmeval.control.live import EventListener
 from swarmeval.control.queue import Queue
-from swarmeval.control.service import ControlService
 from swarmeval.control.suite import submit
 from swarmeval.core import load_suite
 from swarmeval.events import ObjectStore
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
-from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import (
-    ControlServiceStub,
-    add_ControlServiceServicer_to_server,
-)
 from tests.core.test_loader import write
 from tests.core.test_suite import model_case, write_suite
 from tests.queueing import enqueue, start
@@ -32,25 +25,6 @@ if TYPE_CHECKING:
     from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import ControlServiceAsyncStub
 
 pytestmark = pytest.mark.docker
-
-
-@pytest.fixture
-async def control(
-    postgres_url: str, engine: AsyncEngine, object_store: ObjectStore
-) -> AsyncIterator["ControlServiceAsyncStub"]:
-    listener = EventListener(postgres_url)
-    await listener.start()
-    server = grpc.aio.server()
-    add_ControlServiceServicer_to_server(
-        ControlService(queue=Queue(engine), engine=engine, store=object_store, listener=listener),
-        server,
-    )
-    port = server.add_insecure_port("127.0.0.1:0")
-    await server.start()
-    async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
-        yield ControlServiceStub(channel)
-    await server.stop(None)
-    await listener.close()
 
 
 async def test_a_suite_is_one_submission_per_case_under_one_label(
@@ -106,7 +80,7 @@ async def test_a_suite_label_outside_the_alphabet_is_refused(
 
 async def test_a_rerun_keeps_its_suite_label(engine: AsyncEngine, submission: str) -> None:
     queue = Queue(engine)
-    (run_id,) = await enqueue(queue, submission, suite="core.0000aaaa")
+    (run_id,) = await enqueue(queue, engine, submission, suite="core.0000aaaa")
     owner_epoch = await start(engine, run_id, "w_suite")
 
     rerun = await queue.finish(run_id, owner_epoch, "interrupted")
@@ -195,3 +169,7 @@ async def test_one_case_twice_is_two_submissions_from_one_bundle(
     assert sorted(r.task_args.fields["framing"].string_value for r in runs) == ["a", "b"]
     assert {r.submitted_by for r in runs} == {"ada"}
     assert len({r.case_sha256 for r in runs}) == 1
+    assert {r.case_revision for r in runs} == {first.case_revision}
+    # Left queued, they would be claimed by a later test's workers.
+    for run in runs:
+        await control.CancelRun(pb.CancelRunRequest(run_id=run.run_id))

@@ -19,6 +19,7 @@ type clients struct {
 	auth     apiv1connect.AuthServiceClient
 	users    apiv1connect.UserServiceClient
 	runs     apiv1connect.RunServiceClient
+	cases    apiv1connect.CaseServiceClient
 }
 
 // bearer adds `Authorization: Bearer <token>` to every request, streams included.
@@ -72,6 +73,7 @@ func newClients(endpoint, token string) (*clients, error) {
 		auth:     apiv1connect.NewAuthServiceClient(http.DefaultClient, base, opts),
 		users:    apiv1connect.NewUserServiceClient(http.DefaultClient, base, opts),
 		runs:     apiv1connect.NewRunServiceClient(http.DefaultClient, base, opts),
+		cases:    apiv1connect.NewCaseServiceClient(http.DefaultClient, base, opts),
 	}, nil
 }
 

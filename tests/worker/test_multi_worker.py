@@ -55,7 +55,7 @@ async def test_two_workers_claim_each_run_exactly_once(
     submission: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    queued = await enqueue(bare_deps.queue, submission, variants=3, epochs=8)
+    queued = await enqueue(bare_deps.queue, bare_deps.engine, submission, variants=3, epochs=8)
     flaky = queued[0]
     executed: list[tuple[str, str | None]] = []
 
@@ -119,7 +119,7 @@ async def test_a_worker_id_is_held_by_one_worker_at_a_time(
 async def test_a_second_worker_with_a_live_id_leaves_its_runs_alone(
     bare_deps: WorkerDeps, other_engine: AsyncEngine, submission: str
 ) -> None:
-    (run_id,) = await enqueue(bare_deps.queue, submission)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission)
     owner_epoch = await start(bare_deps.engine, run_id, "w_twin")
     duplicate = Worker(
         replace(bare_deps, engine=other_engine, queue=Queue(other_engine)), owner_id="w_twin"
@@ -136,7 +136,7 @@ async def test_a_second_worker_with_a_live_id_leaves_its_runs_alone(
 async def test_a_worker_stopped_while_recording_a_run_still_writes_its_summary(
     bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (run_id,) = await enqueue(bare_deps.queue, submission)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission)
     recording = asyncio.Event()
     export_summary = worker_module.export_summary
 
@@ -191,7 +191,9 @@ async def test_a_worker_that_loses_its_id_lock_stops_serving(
 async def test_a_run_that_finds_the_host_unisolated_stops_the_worker_claiming(
     bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    broken, in_flight, *untouched = await enqueue(bare_deps.queue, submission, epochs=4)
+    broken, in_flight, *untouched = await enqueue(
+        bare_deps.queue, bare_deps.engine, submission, epochs=4
+    )
     executed: list[str] = []
     leak = (
         "the isolation self-check failed before any agent turn: sandbox `a` and sandbox `b`: "
@@ -226,7 +228,9 @@ async def test_a_run_that_finds_the_host_unisolated_stops_the_worker_claiming(
 async def test_a_slot_freed_while_a_host_fault_is_recorded_claims_nothing(
     bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    broken, in_flight, *untouched = await enqueue(bare_deps.queue, submission, epochs=4)
+    broken, in_flight, *untouched = await enqueue(
+        bare_deps.queue, bare_deps.engine, submission, epochs=4
+    )
     executed: list[str] = []
     in_flight_done = asyncio.Event()
 
