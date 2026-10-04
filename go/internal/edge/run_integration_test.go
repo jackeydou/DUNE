@@ -80,6 +80,33 @@ func TestRunCallsCarryTheCallerAsActor(t *testing.T) {
 	}
 }
 
+func TestASuiteIsForwardedWithItsBundlesAndTheActor(t *testing.T) {
+	s := newStack(t)
+	s.user(t, "ada", pw, tenant.RoleMember)
+	token := s.token(t, "ada", pw)
+
+	res, err := s.runs.SubmitSuite(t.Context(), bearer(token, &apiv1.SubmitSuiteRequest{
+		SuiteYaml:   "id: core",
+		CaseBundles: map[string][]byte{"../cases/a": []byte("tar a")},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := s.control.last().(*controlv1.SubmitSuiteRequest)
+	if sent.GetActor() != "ada" || sent.GetSuiteYaml() != "id: core" || string(sent.GetCaseBundles()["../cases/a"]) != "tar a" {
+		t.Fatalf("Control API got %v", sent)
+	}
+	if res.Msg.GetSuite() != "core.0000aaaa" || res.Msg.GetSubmissions()[0].GetRunIds()[0] != "c.s2.v0.e1" {
+		t.Fatalf("SubmitSuite: %v", res.Msg)
+	}
+
+	_, err = s.runs.SubmitSuite(t.Context(), bearer(token, &apiv1.SubmitSuiteRequest{
+		SuiteYaml:   "id: big",
+		CaseBundles: map[string][]byte{"a": make([]byte, MaxBundleBytes/2), "b": make([]byte, MaxBundleBytes/2)},
+	}))
+	wantCode(t, err, connect.CodeInvalidArgument)
+}
+
 func TestTheCallersMistakesComeBackAsTheyAre(t *testing.T) {
 	s := newStack(t)
 	s.user(t, "ada", pw, tenant.RoleMember)
@@ -141,7 +168,7 @@ func TestEventsAreRelayedInOrder(t *testing.T) {
 	}
 	for seq := int64(1); seq <= 3; seq++ {
 		s.control.events = append(s.control.events, &controlv1.StreamEventsResponse{
-			Seq: seq, EventId: "e" + string(rune('0'+seq)), Type: "model", AgentId: "a", PayloadJson: `{"x":1}`,
+			Seq: seq, EventId: "e" + string(rune('0'+seq)), Type: "model", AgentId: "a", PayloadJson: `{"x":1}`, Line: "model: hi",
 		})
 	}
 
@@ -152,7 +179,7 @@ func TestEventsAreRelayedInOrder(t *testing.T) {
 	var seqs []int64
 	for stream.Receive() {
 		seqs = append(seqs, stream.Msg().GetSeq())
-		if stream.Msg().GetPayloadJson() != `{"x":1}` {
+		if stream.Msg().GetPayloadJson() != `{"x":1}` || stream.Msg().GetLine() != "model: hi" {
 			t.Fatalf("payload %q", stream.Msg().GetPayloadJson())
 		}
 	}

@@ -14,6 +14,10 @@ service RunService {
   // Validates a case bundle and queues one run per variant and epoch. A case that does not load
   // is INVALID_ARGUMENT, with the loader's message.
   rpc SubmitRuns(SubmitRunsRequest) returns (SubmitRunsResponse);
+  // Loads a suite with the case directories it names and queues every case's runs, each case
+  // its own submission under one suite label. A suite with a case that does not load queues
+  // nothing; INVALID_ARGUMENT names the entry. The format: docs/case-format.md#suites.
+  rpc SubmitSuite(SubmitSuiteRequest) returns (SubmitSuiteResponse);
   // An unknown run is NOT_FOUND.
   rpc GetRun(GetRunRequest) returns (GetRunResponse);
   // Newest first.
@@ -50,6 +54,27 @@ message SubmitRunsRequest {
 message SubmitRunsResponse {
   string submission_id = 1;
   repeated string run_ids = 2;
+}
+
+message SubmitSuiteRequest {
+  // The suite file as written.
+  string suite_yaml = 1;
+  // Each `cases[].path` of the suite, as written there, → that case directory as an
+  // uncompressed tar archive with `case.yaml` at its root. At most 64 MiB in all.
+  map<string, bytes> case_bundles = 2;
+}
+
+message SuiteSubmission {
+  string case_id = 1;
+  string submission_id = 2;
+  repeated string run_ids = 3;
+}
+
+message SubmitSuiteResponse {
+  // `<suite id>.<8 hex>`: ListRuns and reports take it as `suite`.
+  string suite = 1;
+  // One per suite entry, in the suite's order.
+  repeated SuiteSubmission submissions = 2;
 }
 
 message Run {
@@ -180,4 +205,6 @@ message StreamEventsResponse {
   string agent_id = 4;
   // The stored Inspect event, as JSON. Event format: docs/event-log.md.
   string payload_json = 5;
+  // The event on one line, as the judge and the timeline show it, cut at 2,000 characters.
+  string line = 6;
 }

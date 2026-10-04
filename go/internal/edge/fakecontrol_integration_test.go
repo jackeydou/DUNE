@@ -80,6 +80,16 @@ func (f *fakeControl) SubmitRuns(_ context.Context, req *connect.Request[control
 	return connect.NewResponse(&controlv1.SubmitRunsResponse{SubmissionId: "s1", RunIds: []string{id}}), nil
 }
 
+func (f *fakeControl) SubmitSuite(_ context.Context, req *connect.Request[controlv1.SubmitSuiteRequest]) (*connect.Response[controlv1.SubmitSuiteResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&controlv1.SubmitSuiteResponse{
+		Suite:       "core.0000aaaa",
+		Submissions: []*controlv1.SuiteSubmission{{CaseId: "c", SubmissionId: "s2", RunIds: []string{"c.s2.v0.e1"}}},
+	}), nil
+}
+
 func (f *fakeControl) GetRun(_ context.Context, req *connect.Request[controlv1.GetRunRequest]) (*connect.Response[controlv1.GetRunResponse], error) {
 	if err := f.record(req.Msg); err != nil {
 		return nil, err

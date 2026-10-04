@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- Control API `SubmitSuite`: a suite file and one bundle per `cases[].path`, loaded by the
+  control plane and queued in one transaction under one suite label, so a suite with a broken
+  case queues nothing. `swarmeval.core.load_suite_text` loads a suite from its text with any
+  mapping from entry paths to case directories.
+- `StreamEvents` sends each event's `line`, the one-line text the judge reads.
 - Control API actors: `SubmitRuns`, `CancelRun`, `ResumeRun`, and `ForkRun` take an `actor`, the
   user edge authenticated. It is recorded on the run (migration 0009: `control.run_specs.
   submitted_by`, `control.runs.cancelled_by` and `resumed_by`) and returned on `Run`; a rerun
@@ -238,6 +243,12 @@
   call's arguments (`tool_arguments`).
 
 ### Changed
+- `python -m swarmeval.control.suite submit` sends the suite through `SubmitSuite`, so it is
+  queued whole or not at all; `submit()` no longer takes a label, and `SubmitError` is gone.
+- `swarmeval.analysis.render` moved to `swarmeval.events.render`, so the control plane can render
+  event lines without importing analysis.
+- `LoadedSuite.path` is now `source` (a description for messages), and `SuiteEntry` has the
+  entry's `path` as written.
 - Event schema version 6: `lifecycle` events may be `paused` and `resumed` mid-run. Version 5
   runs read unchanged.
 - Event schema version 7: a fork's cross-run parents (`<run>:<event id>`), `hook: fork`

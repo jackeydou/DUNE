@@ -1,7 +1,7 @@
 # SwarmEval Go services
 
 The Go module `github.com/jackeydou/DUNE/go`. It holds the services that talk to container
-backends, the network, and the public: `sandboxd` and `edge` today, and later the `swarm` CLI.
+backends, the network, and the public: `sandboxd`, `edge`, and the `swarm` CLI.
 `net-gateway` is deferred; its policy core is in `internal/netgw`.
 How they fit with the rest of SwarmEval is in [docs/architecture.md](../docs/architecture.md).
 
@@ -57,6 +57,17 @@ Requirements and limits:
 - Without `--tls-cert` / `--tls-key` it listens only on loopback.
 - Sign-in throttling is kept in memory, per process.
 
+## swarm
+
+The command line, a client of edge. Commands and config:
+[docs/services/edge.md](../docs/services/edge.md#swarm-cli).
+
+```bash
+go build -o swarm ./cmd/swarm
+./swarm login --endpoint http://127.0.0.1:7443
+./swarm run ../cases/scorer_misbelief --follow
+```
+
 ## Layout
 
 | Path | Holds |
@@ -65,6 +76,7 @@ Requirements and limits:
 | `cmd/edge` | The binary: `serve` and `user create` |
 | `internal/edge` | The public API's handlers, authentication, sign-in throttling, and Control API forwarding |
 | `internal/edge/tenant` | The `tenant` schema: migrations, users, sessions, API tokens, password hashing |
+| `cmd/swarm`, `internal/cli` | The `swarm` command line: config, packing, commands, following runs |
 | `internal/sandboxd` | The service and its gRPC adapter |
 | `internal/fsdiff` | Manifests of key paths and their diff |
 | `internal/netgw` | net-gateway's policy engine, config, and traffic classification. Deferred: no binary uses it ([docs](../docs/services/net-gateway.md)) |

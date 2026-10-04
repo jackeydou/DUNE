@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	ControlService_SubmitRuns_FullMethodName   = "/swarmeval.control.v1.ControlService/SubmitRuns"
+	ControlService_SubmitSuite_FullMethodName  = "/swarmeval.control.v1.ControlService/SubmitSuite"
 	ControlService_GetRun_FullMethodName       = "/swarmeval.control.v1.ControlService/GetRun"
 	ControlService_ListRuns_FullMethodName     = "/swarmeval.control.v1.ControlService/ListRuns"
 	ControlService_CancelRun_FullMethodName    = "/swarmeval.control.v1.ControlService/CancelRun"
@@ -38,6 +39,11 @@ type ControlServiceClient interface {
 	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
 	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(ctx context.Context, in *SubmitRunsRequest, opts ...grpc.CallOption) (*SubmitRunsResponse, error)
+	// Loads a suite with the case bundles it names and queues every case's runs in one
+	// transaction, each case its own submission under one suite label: a suite with a case that
+	// does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+	// the suite entry at fault.
+	SubmitSuite(ctx context.Context, in *SubmitSuiteRequest, opts ...grpc.CallOption) (*SubmitSuiteResponse, error)
 	GetRun(ctx context.Context, in *GetRunRequest, opts ...grpc.CallOption) (*GetRunResponse, error)
 	// Newest first.
 	ListRuns(ctx context.Context, in *ListRunsRequest, opts ...grpc.CallOption) (*ListRunsResponse, error)
@@ -71,6 +77,16 @@ func (c *controlServiceClient) SubmitRuns(ctx context.Context, in *SubmitRunsReq
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SubmitRunsResponse)
 	err := c.cc.Invoke(ctx, ControlService_SubmitRuns_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) SubmitSuite(ctx context.Context, in *SubmitSuiteRequest, opts ...grpc.CallOption) (*SubmitSuiteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SubmitSuiteResponse)
+	err := c.cc.Invoke(ctx, ControlService_SubmitSuite_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -156,6 +172,11 @@ type ControlServiceServer interface {
 	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
 	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(context.Context, *SubmitRunsRequest) (*SubmitRunsResponse, error)
+	// Loads a suite with the case bundles it names and queues every case's runs in one
+	// transaction, each case its own submission under one suite label: a suite with a case that
+	// does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+	// the suite entry at fault.
+	SubmitSuite(context.Context, *SubmitSuiteRequest) (*SubmitSuiteResponse, error)
 	GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error)
 	// Newest first.
 	ListRuns(context.Context, *ListRunsRequest) (*ListRunsResponse, error)
@@ -187,6 +208,9 @@ type UnimplementedControlServiceServer struct{}
 
 func (UnimplementedControlServiceServer) SubmitRuns(context.Context, *SubmitRunsRequest) (*SubmitRunsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SubmitRuns not implemented")
+}
+func (UnimplementedControlServiceServer) SubmitSuite(context.Context, *SubmitSuiteRequest) (*SubmitSuiteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SubmitSuite not implemented")
 }
 func (UnimplementedControlServiceServer) GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRun not implemented")
@@ -241,6 +265,24 @@ func _ControlService_SubmitRuns_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ControlServiceServer).SubmitRuns(ctx, req.(*SubmitRunsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_SubmitSuite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitSuiteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).SubmitSuite(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_SubmitSuite_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).SubmitSuite(ctx, req.(*SubmitSuiteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -356,6 +398,10 @@ var ControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SubmitRuns",
 			Handler:    _ControlService_SubmitRuns_Handler,
+		},
+		{
+			MethodName: "SubmitSuite",
+			Handler:    _ControlService_SubmitSuite_Handler,
 		},
 		{
 			MethodName: "GetRun",

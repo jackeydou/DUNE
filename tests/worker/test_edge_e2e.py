@@ -3,9 +3,11 @@
 (Connect's JSON protocol), run by the worker, and its events streamed back through edge
 (M4 spec, Plan step 2)."""
 
+import asyncio
 import base64
 import json
 import os
+import re
 import struct
 import subprocess
 from collections.abc import AsyncIterator, Iterator
@@ -179,3 +181,115 @@ async def test_a_browser_session_needs_its_origin_and_mistakes_come_back_as_conn
 
     anonymous = await edge.call("RunService/ListRuns", {})
     assert (anonymous.status_code, anonymous.json()["code"]) == (401, "unauthenticated")
+
+
+@pytest.fixture(scope="session")
+def swarm_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return go_build("swarm", tmp_path_factory.mktemp("swarm-bin"))
+
+
+@dataclass
+class Cli:
+    binary: Path
+    env: dict[str, str]
+
+    async def start(self, *args: str, stdin: str = "") -> "asyncio.subprocess.Process":
+        proc = await asyncio.create_subprocess_exec(
+            self.binary,
+            *args,
+            env=self.env,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        assert proc.stdin is not None
+        proc.stdin.write(stdin.encode())
+        proc.stdin.close()
+        return proc
+
+    async def run(self, *args: str, stdin: str = "") -> tuple[int, str, str]:
+        return await finish(await self.start(*args, stdin=stdin))
+
+
+async def finish(proc: "asyncio.subprocess.Process") -> tuple[int, str, str]:
+    out, err = await asyncio.wait_for(proc.communicate(), timeout=120)
+    assert proc.returncode is not None
+    return proc.returncode, out.decode(), err.decode()
+
+
+@pytest.fixture
+def cli(swarm_binary: Path, tmp_path: Path) -> Cli:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("SWARM_")}
+    return Cli(swarm_binary, {**env, "SWARM_CONFIG": str(tmp_path / "swarm" / "config.yaml")})
+
+
+async def test_the_cli_signs_in_runs_a_case_and_follows_it(
+    platform: Platform, edge: Edge, admin: str, cli: Cli, tmp_path: Path
+) -> None:
+    platform.backend.respond = lambda _: completion("done")
+    code, out, err = await cli.run(
+        "login", "--endpoint", edge.url, "-u", admin, stdin=PASSWORD + "\n"
+    )
+    assert code == 0, err
+    assert f"as {admin}" in out
+    assert (await cli.run("whoami"))[1].startswith(f"{admin} (admin) at {edge.url}")
+
+    following = await cli.start("run", str(write_case(tmp_path / "case")), "--follow")
+    assert following.stdout is not None
+    # Drain only once the run is queued: before that the worker finds nothing to claim.
+    submitted = (await asyncio.wait_for(following.stdout.readline(), timeout=60)).decode()
+    outcomes = await platform.worker.drain()
+    code, rest, err = await finish(following)
+    out = submitted + rest
+
+    assert code == 0, err
+    (run_id,) = outcomes
+    assert outcomes[run_id].status == "done"
+    lines = out.splitlines()
+    assert lines[0].startswith("submission ")
+    assert any(line.startswith("[") and " #1 " in line for line in lines)
+    assert any(" score " in line for line in lines)
+    assert lines[-1].split()[:2] == [run_id, "done"]
+
+    code, out, _ = await cli.run("runs", "get", run_id, "--json")
+    assert code == 0
+    got = json.loads(out)
+    assert (got["status"], got["submittedBy"]) == ("done", admin)
+
+    code, out, _ = await cli.run("events", run_id)
+    assert code == 0
+    assert out.splitlines()[0].startswith("[") and " #1 " in out.splitlines()[0]
+
+
+async def test_the_cli_submits_a_suite_whole_and_reports_mistakes(
+    platform: Platform, edge: Edge, admin: str, cli: Cli, tmp_path: Path
+) -> None:
+    platform.backend.respond = lambda _: completion("done")
+    await cli.run("login", "--endpoint", edge.url, "-u", admin, stdin=PASSWORD + "\n")
+    write_case(tmp_path / "case")
+    suite = tmp_path / "suites" / "s.yaml"
+    suite.parent.mkdir()
+    suite.write_text(
+        "schema_version: 1\nid: e2e\nepochs: 1\ncases:\n  - path: ../case\n  - path: ../case\n"
+    )
+
+    code, out, err = await cli.run("run", str(suite))
+    assert code == 0, err
+    label = re.search(r"^suite (e2e\.[0-9a-f]{8}): 2 runs$", out, re.M)
+    assert label is not None, out
+    await platform.worker.drain()
+    code, out, _ = await cli.run("runs", "list", "--suite", label.group(1), "--json")
+    assert [r["status"] for r in json.loads(out)["runs"]] == ["done", "done"]
+
+    suite.write_text("schema_version: 1\nid: e2e\ncases:\n  - path: ../case\n    epochs: 0\n")
+    code, _, err = await cli.run("run", str(suite))
+    assert code == 1
+    assert "cases.0.epochs" in err or "cases[0]" in err, err
+
+    code, _, err = await cli.run("runs", "get", "nope")
+    assert (code, "no run `nope`" in err) == (1, True), err
+
+    code, out, _ = await cli.run("logout")
+    assert (code, out.strip()) == (0, "token revoked")
+    code, _, err = await cli.run("whoami")
+    assert code == 1 and "swarm login" in err

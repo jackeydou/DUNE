@@ -69,6 +69,32 @@ func (s *RunService) SubmitRuns(ctx context.Context, req *connect.Request[apiv1.
 	}), nil
 }
 
+func (s *RunService) SubmitSuite(ctx context.Context, req *connect.Request[apiv1.SubmitSuiteRequest]) (*connect.Response[apiv1.SubmitSuiteResponse], error) {
+	total := len(req.Msg.GetSuiteYaml())
+	for _, b := range req.Msg.GetCaseBundles() {
+		total += len(b)
+	}
+	if total > MaxBundleBytes {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"the suite and its case bundles are %d bytes; the limit is %d (64 MiB) in all. Split the suite, or move large data out of the case directories", total, MaxBundleBytes))
+	}
+	res, err := s.control.SubmitSuite(ctx, connect.NewRequest(&controlv1.SubmitSuiteRequest{
+		SuiteYaml:   req.Msg.GetSuiteYaml(),
+		CaseBundles: req.Msg.GetCaseBundles(),
+		Actor:       callerOf(ctx).user.Username,
+	}))
+	if err != nil {
+		return nil, s.upstream("SubmitSuite", err)
+	}
+	out := &apiv1.SubmitSuiteResponse{Suite: res.Msg.GetSuite()}
+	for _, sub := range res.Msg.GetSubmissions() {
+		out.Submissions = append(out.Submissions, &apiv1.SuiteSubmission{
+			CaseId: sub.GetCaseId(), SubmissionId: sub.GetSubmissionId(), RunIds: sub.GetRunIds(),
+		})
+	}
+	return connect.NewResponse(out), nil
+}
+
 func (s *RunService) GetRun(ctx context.Context, req *connect.Request[apiv1.GetRunRequest]) (*connect.Response[apiv1.GetRunResponse], error) {
 	res, err := s.control.GetRun(ctx, connect.NewRequest(&controlv1.GetRunRequest{RunId: req.Msg.GetRunId()}))
 	if err != nil {
@@ -153,6 +179,7 @@ func (s *RunService) StreamEvents(ctx context.Context, req *connect.Request[apiv
 			Type:        e.GetType(),
 			AgentId:     e.GetAgentId(),
 			PayloadJson: e.GetPayloadJson(),
+			Line:        e.GetLine(),
 		}); err != nil {
 			return err
 		}

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import duckdb
 import pyarrow as pa
 
-from swarmeval.analysis.render import event_line
+from swarmeval.events.render import event_line
 
 RUN_LANE = "-"
 """The lane of events no agent caused: lifecycle, scores, extensions' own events."""

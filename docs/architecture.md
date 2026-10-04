@@ -25,13 +25,12 @@ models, the `inspect_ai` mapping, and case hooks exist only in Python.
 | [`net-gateway`](services/net-gateway.md) | Go | One instance per run: TLS interception, DNS, network policy, pcap | Later: the network capability, outside M0–M5 |
 | [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, timelines, per-variant `.eval`, offline scorers over exported runs | M1 as batch jobs (all but offline scorers are built); service in M4 |
 | [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication and run forwarding built; case and analysis forwarding, console, mTLS next |
-| [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4 |
+| [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4: sign-in, runs, suites, events, and forks built |
 | [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | M4 |
 
-Until the CLI and console exist there is no public client. Runs are triggered through `edge`'s
-`RunService` (any HTTP client speaking Connect's JSON protocol, with an API token) or directly
-through the orchestrator's gRPC Control API (integration tests, grpcurl), which listens on the
-internal network only and has no authentication until services use mTLS.
+Users trigger runs with the `swarm` CLI, a client of `edge`; the console follows in M4. Tests
+and operators on the internal network can also call the orchestrator's gRPC Control API
+directly (grpcurl), which has no authentication until services use mTLS.
 
 ## How they talk
 

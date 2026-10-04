@@ -41,6 +41,11 @@ class ControlServiceStub:
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsRequest.SerializeToString,
                 response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsResponse.FromString,
                 _registered_method=True)
+        self.SubmitSuite = channel.unary_unary(
+                '/swarmeval.control.v1.ControlService/SubmitSuite',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteResponse.FromString,
+                _registered_method=True)
         self.GetRun = channel.unary_unary(
                 '/swarmeval.control.v1.ControlService/GetRun',
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetRunRequest.SerializeToString,
@@ -81,6 +86,16 @@ class ControlServiceServicer:
     def SubmitRuns(self, request, context):
         """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
         A case that does not load is INVALID_ARGUMENT, with the loader's message.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SubmitSuite(self, request, context):
+        """Loads a suite with the case bundles it names and queues every case's runs in one
+        transaction, each case its own submission under one suite label: a suite with a case that
+        does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+        the suite entry at fault.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -143,6 +158,11 @@ def add_ControlServiceServicer_to_server(servicer, server):
                     request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsRequest.FromString,
                     response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsResponse.SerializeToString,
             ),
+            'SubmitSuite': grpc.unary_unary_rpc_method_handler(
+                    servicer.SubmitSuite,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteResponse.SerializeToString,
+            ),
             'GetRun': grpc.unary_unary_rpc_method_handler(
                     servicer.GetRun,
                     request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.GetRunRequest.FromString,
@@ -203,6 +223,33 @@ class ControlService:
             '/swarmeval.control.v1.ControlService/SubmitRuns',
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsRequest.SerializeToString,
             swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitRunsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SubmitSuite(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.control.v1.ControlService/SubmitSuite',
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_control_dot_v1_dot_control__pb2.SubmitSuiteResponse.FromString,
             options,
             channel_credentials,
             insecure,

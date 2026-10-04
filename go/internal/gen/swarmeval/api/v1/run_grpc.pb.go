@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	RunService_SubmitRuns_FullMethodName   = "/swarmeval.api.v1.RunService/SubmitRuns"
+	RunService_SubmitSuite_FullMethodName  = "/swarmeval.api.v1.RunService/SubmitSuite"
 	RunService_GetRun_FullMethodName       = "/swarmeval.api.v1.RunService/GetRun"
 	RunService_ListRuns_FullMethodName     = "/swarmeval.api.v1.RunService/ListRuns"
 	RunService_CancelRun_FullMethodName    = "/swarmeval.api.v1.RunService/CancelRun"
@@ -39,6 +40,10 @@ type RunServiceClient interface {
 	// Validates a case bundle and queues one run per variant and epoch. A case that does not load
 	// is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(ctx context.Context, in *SubmitRunsRequest, opts ...grpc.CallOption) (*SubmitRunsResponse, error)
+	// Loads a suite with the case directories it names and queues every case's runs, each case
+	// its own submission under one suite label. A suite with a case that does not load queues
+	// nothing; INVALID_ARGUMENT names the entry. The format: docs/case-format.md#suites.
+	SubmitSuite(ctx context.Context, in *SubmitSuiteRequest, opts ...grpc.CallOption) (*SubmitSuiteResponse, error)
 	// An unknown run is NOT_FOUND.
 	GetRun(ctx context.Context, in *GetRunRequest, opts ...grpc.CallOption) (*GetRunResponse, error)
 	// Newest first.
@@ -71,6 +76,16 @@ func (c *runServiceClient) SubmitRuns(ctx context.Context, in *SubmitRunsRequest
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SubmitRunsResponse)
 	err := c.cc.Invoke(ctx, RunService_SubmitRuns_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runServiceClient) SubmitSuite(ctx context.Context, in *SubmitSuiteRequest, opts ...grpc.CallOption) (*SubmitSuiteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SubmitSuiteResponse)
+	err := c.cc.Invoke(ctx, RunService_SubmitSuite_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +172,10 @@ type RunServiceServer interface {
 	// Validates a case bundle and queues one run per variant and epoch. A case that does not load
 	// is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(context.Context, *SubmitRunsRequest) (*SubmitRunsResponse, error)
+	// Loads a suite with the case directories it names and queues every case's runs, each case
+	// its own submission under one suite label. A suite with a case that does not load queues
+	// nothing; INVALID_ARGUMENT names the entry. The format: docs/case-format.md#suites.
+	SubmitSuite(context.Context, *SubmitSuiteRequest) (*SubmitSuiteResponse, error)
 	// An unknown run is NOT_FOUND.
 	GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error)
 	// Newest first.
@@ -187,6 +206,9 @@ type UnimplementedRunServiceServer struct{}
 
 func (UnimplementedRunServiceServer) SubmitRuns(context.Context, *SubmitRunsRequest) (*SubmitRunsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SubmitRuns not implemented")
+}
+func (UnimplementedRunServiceServer) SubmitSuite(context.Context, *SubmitSuiteRequest) (*SubmitSuiteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SubmitSuite not implemented")
 }
 func (UnimplementedRunServiceServer) GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRun not implemented")
@@ -241,6 +263,24 @@ func _RunService_SubmitRuns_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RunServiceServer).SubmitRuns(ctx, req.(*SubmitRunsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RunService_SubmitSuite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitSuiteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunServiceServer).SubmitSuite(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunService_SubmitSuite_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunServiceServer).SubmitSuite(ctx, req.(*SubmitSuiteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -356,6 +396,10 @@ var RunService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SubmitRuns",
 			Handler:    _RunService_SubmitRuns_Handler,
+		},
+		{
+			MethodName: "SubmitSuite",
+			Handler:    _RunService_SubmitSuite_Handler,
 		},
 		{
 			MethodName: "GetRun",

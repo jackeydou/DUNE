@@ -211,6 +211,19 @@ Go + cobra，单个静态二进制。endpoint 和 token 读 `~/.config/swarm/con
 不在 M4：`swarm env up`（只起环境、手动调蜜罐，依赖网络能力）；`--format otel | docent`（导出适配是"以后可加"，
 轨迹分析优先 spec 决定 9）；没有服务可连时自动拉起本地实例（Open question 5）。
 
+（2026-10-03）实现时的四处改动：
+
+- CLI 走 Connect 协议，不走 gRPC（决定 1 原写"CLI 走 gRPC"）。Connect 协议在 HTTP/1.1 上也能用，过反向代理不需要
+  代理支持 gRPC，CLI 对网络的要求和浏览器一样。edge 仍然接受 gRPC，比如 grpcurl。
+- `swarm events` 总是跟随到 run 结束，不另设 `--follow`：`StreamEvents` 没有"只取当前已有事件"的模式，Ctrl-C 只停止
+  跟随。
+- 提交 suite 走新的 `SubmitSuite`（Control API 和对外 API 都有）：CLI 只读 suite 文件里的 `cases[].path` 来打包，
+  其余格式由控制面用同一个加载器校验，suite 格式不在 Go 里再实现一遍。所有 run 在一个事务里入队，坏 case 什么都
+  不提交。`python -m swarmeval.control.suite submit` 也改走它。
+- 事件的单行文本由控制面渲染（`StreamEvents` 的 `line`，即 judge 读的那一行），渲染规则只在
+  `swarmeval.events.render` 一处，CLI 只负责打印。`render` 从 `swarmeval.analysis` 挪到 `swarmeval.events`，控制面
+  不必依赖 analysis。
+
 ### 八、与 M3 的衔接
 
 #### 12. M3 合并后要补的显示项
@@ -287,6 +300,10 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
 3. **CLI**：`go/cmd/swarm`，run 相关命令和账号命令。
    退出条件：对着本地的 edge、control、worker 和录制好的模型后端，`swarm run cases/scorer_misbelief --follow`
    能跑完。
+   （2026-10-03）已实现：决定 11 表中除 `view`、`query`、`report`、`export`、`case` 之外的命令（这几个随第 4、5、6
+   步），以及上面注记的 `SubmitSuite` 和事件的 `line`。端到端测试用构建出的 `swarm` 和 `edge` 二进制，接真实的
+   Control API 和 worker（模拟模型后端）：登录、`run --follow` 跑完并打印事件和状态表、`runs get --json`、
+   `events`、提交 suite 并按标签列出、坏 suite 返回错误、登出后 token 失效。
 4. **case 库**：Alembic 迁移（含回填）；Control API 的 case RPC；`SubmitRuns` 按修订提交；edge 的 `CaseService`；
    `swarm case`。
    退出条件：推送、编辑、并发冲突返回 `ABORTED`、归档、按修订提交都有测试；回填的迁移在一份带老 run 的数据库上

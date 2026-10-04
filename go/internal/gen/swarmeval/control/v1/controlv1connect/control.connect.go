@@ -36,6 +36,9 @@ const (
 	// ControlServiceSubmitRunsProcedure is the fully-qualified name of the ControlService's SubmitRuns
 	// RPC.
 	ControlServiceSubmitRunsProcedure = "/swarmeval.control.v1.ControlService/SubmitRuns"
+	// ControlServiceSubmitSuiteProcedure is the fully-qualified name of the ControlService's
+	// SubmitSuite RPC.
+	ControlServiceSubmitSuiteProcedure = "/swarmeval.control.v1.ControlService/SubmitSuite"
 	// ControlServiceGetRunProcedure is the fully-qualified name of the ControlService's GetRun RPC.
 	ControlServiceGetRunProcedure = "/swarmeval.control.v1.ControlService/GetRun"
 	// ControlServiceListRunsProcedure is the fully-qualified name of the ControlService's ListRuns RPC.
@@ -58,6 +61,11 @@ type ControlServiceClient interface {
 	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
 	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error)
+	// Loads a suite with the case bundles it names and queues every case's runs in one
+	// transaction, each case its own submission under one suite label: a suite with a case that
+	// does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+	// the suite entry at fault.
+	SubmitSuite(context.Context, *connect.Request[v1.SubmitSuiteRequest]) (*connect.Response[v1.SubmitSuiteResponse], error)
 	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error)
 	// Newest first.
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
@@ -94,6 +102,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			httpClient,
 			baseURL+ControlServiceSubmitRunsProcedure,
 			connect.WithSchema(controlServiceMethods.ByName("SubmitRuns")),
+			connect.WithClientOptions(opts...),
+		),
+		submitSuite: connect.NewClient[v1.SubmitSuiteRequest, v1.SubmitSuiteResponse](
+			httpClient,
+			baseURL+ControlServiceSubmitSuiteProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("SubmitSuite")),
 			connect.WithClientOptions(opts...),
 		),
 		getRun: connect.NewClient[v1.GetRunRequest, v1.GetRunResponse](
@@ -138,6 +152,7 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 // controlServiceClient implements ControlServiceClient.
 type controlServiceClient struct {
 	submitRuns   *connect.Client[v1.SubmitRunsRequest, v1.SubmitRunsResponse]
+	submitSuite  *connect.Client[v1.SubmitSuiteRequest, v1.SubmitSuiteResponse]
 	getRun       *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
 	listRuns     *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
 	cancelRun    *connect.Client[v1.CancelRunRequest, v1.CancelRunResponse]
@@ -149,6 +164,11 @@ type controlServiceClient struct {
 // SubmitRuns calls swarmeval.control.v1.ControlService.SubmitRuns.
 func (c *controlServiceClient) SubmitRuns(ctx context.Context, req *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error) {
 	return c.submitRuns.CallUnary(ctx, req)
+}
+
+// SubmitSuite calls swarmeval.control.v1.ControlService.SubmitSuite.
+func (c *controlServiceClient) SubmitSuite(ctx context.Context, req *connect.Request[v1.SubmitSuiteRequest]) (*connect.Response[v1.SubmitSuiteResponse], error) {
+	return c.submitSuite.CallUnary(ctx, req)
 }
 
 // GetRun calls swarmeval.control.v1.ControlService.GetRun.
@@ -186,6 +206,11 @@ type ControlServiceHandler interface {
 	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
 	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error)
+	// Loads a suite with the case bundles it names and queues every case's runs in one
+	// transaction, each case its own submission under one suite label: a suite with a case that
+	// does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+	// the suite entry at fault.
+	SubmitSuite(context.Context, *connect.Request[v1.SubmitSuiteRequest]) (*connect.Response[v1.SubmitSuiteResponse], error)
 	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error)
 	// Newest first.
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
@@ -218,6 +243,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		ControlServiceSubmitRunsProcedure,
 		svc.SubmitRuns,
 		connect.WithSchema(controlServiceMethods.ByName("SubmitRuns")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceSubmitSuiteHandler := connect.NewUnaryHandler(
+		ControlServiceSubmitSuiteProcedure,
+		svc.SubmitSuite,
+		connect.WithSchema(controlServiceMethods.ByName("SubmitSuite")),
 		connect.WithHandlerOptions(opts...),
 	)
 	controlServiceGetRunHandler := connect.NewUnaryHandler(
@@ -260,6 +291,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		switch r.URL.Path {
 		case ControlServiceSubmitRunsProcedure:
 			controlServiceSubmitRunsHandler.ServeHTTP(w, r)
+		case ControlServiceSubmitSuiteProcedure:
+			controlServiceSubmitSuiteHandler.ServeHTTP(w, r)
 		case ControlServiceGetRunProcedure:
 			controlServiceGetRunHandler.ServeHTTP(w, r)
 		case ControlServiceListRunsProcedure:
@@ -283,6 +316,10 @@ type UnimplementedControlServiceHandler struct{}
 
 func (UnimplementedControlServiceHandler) SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.SubmitRuns is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) SubmitSuite(context.Context, *connect.Request[v1.SubmitSuiteRequest]) (*connect.Response[v1.SubmitSuiteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.SubmitSuite is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error) {

@@ -15,7 +15,7 @@ from typing import Any
 import pyarrow as pa
 from pydantic import JsonValue
 
-from swarmeval.analysis.render import event_line
+from swarmeval.events.render import event_line
 
 COMPLETE_PARENTS_SCHEMA = 5
 """From this event schema version on, only a run's first event has no parent; older runs end

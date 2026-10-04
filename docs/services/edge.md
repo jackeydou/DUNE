@@ -6,8 +6,9 @@ web console are its two clients. Their place among the services is in
 [architecture.md](../architecture.md). The plan they are built to is the
 [M4 spec](../../spec/2026-10-03-m4-console/README.md).
 
-**Status:** edge is built with authentication and run forwarding (M4 Plan step 2). Case calls,
-analysis calls, the console, mTLS, the CLI, and deployment are not built yet. Items marked
+**Status:** edge is built with authentication and run forwarding, and the CLI with sign-in,
+runs, suites, events, and forks (M4 Plan steps 2 and 3). Case calls, analysis calls, the
+console, mTLS, and deployment are not built yet. Items marked
 *(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ## edge
@@ -39,11 +40,14 @@ edge migrates its `tenant` schema when `serve` or `user create` starts.
   browser and as gRPC to the CLI, over HTTP/1.1 or HTTP/2 (unencrypted HTTP/2 on a loopback
   listener). A request body may be up to 64 MiB of bundle plus encoding.
 - **Run forwarding.** `RunService` calls the Control API's RPC of the same name and maps the run
-  to the public `Run`, which leaves out the owner and lease fields. Each changing call carries the
+  to the public `Run`, which leaves out the owner and lease fields. `SubmitSuite` takes the suite
+  file and one bundle per `cases[].path`; the control plane loads it, so edge and the CLI never
+  parse the suite format ([orchestrator.md](orchestrator.md#suites)). Each changing call carries the
   caller's username as `actor`, which the control plane records as `submitted_by`,
   `cancelled_by`, or `resumed_by` ([orchestrator.md](orchestrator.md#control-api)).
-  `StreamEvents` is relayed message by message. A bundle over 64 MiB is refused before the
-  control plane sees it.
+  `StreamEvents` is relayed message by message, each event with its `line`. A bundle over 64 MiB,
+  or a suite whose file and bundles pass 64 MiB in all, is refused before the control plane sees
+  it.
 - **Errors.** Control API errors that are about the caller's request (`INVALID_ARGUMENT`,
   `NOT_FOUND`, `FAILED_PRECONDITION`, `ALREADY_EXISTS`, `ABORTED`, `OUT_OF_RANGE`,
   `RESOURCE_EXHAUSTED`, `CANCELLED`, `DEADLINE_EXCEEDED`) go back with their message. Anything
@@ -116,12 +120,55 @@ Users are disabled, never deleted, so the runs they submitted keep naming someon
 
 ## swarm CLI
 
-Not built (M4 Plan step 3). Go, with cobra. It ships as one static binary, so users need no
-Python.
+Go, with cobra: `go/cmd/swarm` and `go/internal/cli`. It ships as one static binary, so users
+need no Python.
 
 It is a client of edge and nothing more. There is no in-process path to the runtime:
 `swarm run cases/x` packs the case directory and asks edge to submit it. The CLI imports no
-`swarmeval` code and never imports `inspect_ai`. Its commands are in the M4 spec, decision 11.
+`swarmeval` code and never imports `inspect_ai`. It speaks Connect's protocol, which works over
+HTTP/1.1 and through any proxy, with the API token on every request.
+
+```bash
+swarm login --endpoint https://swarm.example.com     # asks username and password; saves a token
+swarm run cases/collusion_pricing -V model=qwen3-8b,glm-5 --epochs 20 --follow
+swarm run suites/m1_core.yaml
+swarm runs list --suite m1_core.3fa1b2c4
+swarm events collusion_pricing.fb47ae64.v0.e1        # one line per event, until the run ends
+swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
+```
+
+| Command | Does |
+|---|---|
+| `login` | Signs in with a username and password (asked on a terminal, otherwise the first line of stdin) and saves a new API token named `swarm CLI on <hostname>`; or `--token` saves one you have, after checking it |
+| `logout` | Revokes the token `login` made and forgets it. A token given with `--token` is only forgotten |
+| `whoami` | Who the token signs in as |
+| `run CASE_DIR` | Packs the directory and submits it, with `-V axis=values` (repeatable), `--epochs`, and `--suite`. Prints the submission and its run ids |
+| `run SUITE_FILE` | Packs every case directory the suite's `cases[].path` names, relative to the file, and submits the suite whole (`SubmitSuite`). Prints each submission and the suite label |
+| `runs list`, `get`, `cancel`, `resume` | `list` filters by `--submission`, `--case`, `--status`, `--suite`, `--limit` |
+| `events RUN` | Prints `[event_id] #seq agent line` per event, as the judge reads them, until the run finishes; `--after SEQ` skips earlier ones |
+| `replay RUN --fork-at EVENT` | `ForkRun`, with `--edit FILE`: a YAML or JSON list of edits in protobuf's JSON form (`replace_message`, `delete_message`, `replace_delivery`) |
+| `token create`, `list`, `revoke` | Your API tokens; `create --expires 720h` |
+| `user create`, `list`, `disable`, `enable`, `reset-password` | Admins only. Passwords are asked twice on a terminal, read once from a pipe |
+
+- **`--follow`** on `run` and `replay` streams each run's events as they happen, prefixed with
+  the run id when there are several, at most 16 streams at a time. When every run has finished
+  it prints their statuses and exits 1 if any did not end `done`. Ctrl-C stops following, not
+  the runs.
+- **`-V`** values are read as a YAML flow sequence, as `report --compare` reads them:
+  `-V model=a,b` is `["a", "b"]`, `-V paraphrased=[],[dm_ab]` is `[[], ["dm_ab"]]`. The control
+  plane checks them against the case.
+- **Packing** follows `swarmeval.control.bundles.pack`: every regular file (a symlink packs as
+  its target), sorted, `__pycache__` left out, times and owners zeroed, so the same files always
+  give the same bytes. Over 64 MiB is refused before sending.
+- **Config.** `~/.config/swarm/config.yaml` (`$XDG_CONFIG_HOME/swarm/`, or `$SWARM_CONFIG`) holds
+  `endpoint`, `token`, and the id of a token `login` made. It is written mode 0600, through a
+  rename. `$SWARM_ENDPOINT` and `$SWARM_TOKEN` override it, and `--endpoint` overrides both.
+- **Output.** Tables for people; `--json` prints records as protobuf JSON. Errors go to stderr as
+  `swarm: <what>: <edge's message>`, with a hint for a missing sign-in or an unreachable edge, and
+  exit 1.
+- **Not built.** `swarm view` arrives with the console (step 6); `query`, `report`, and `export`
+  with the analysis service (step 5); `case` with the case library (step 4). `env up` and the
+  `otel` / `docent` export formats wait for the network capability and the export adapters.
 
 ## Console
 
@@ -142,7 +189,9 @@ two runs can be compared side by side.
 | Postgres (`tenant`) | `github.com/jackc/pgx/v5` | The standard maintained Go driver |
 | `tenant` migrations | `github.com/pressly/goose/v3` | Plain SQL files embedded in the binary, a version table under the schema's name, and a Postgres session lock; each service owns its data, so edge's image needs no Python to migrate (M4 spec decision 14) |
 | Password hashing | `golang.org/x/crypto/argon2` | Maintained by the Go team. The PHC string around it is ~50 lines of our own: the one wrapper library, `alexedwards/argon2id`, has had no release since 2023 |
-| Command line | `github.com/spf13/cobra`, `golang.org/x/term` | `edge serve` and `edge user create`; the password prompt without echo |
+| Command line | `github.com/spf13/cobra`, `golang.org/x/term` | `edge serve` and `edge user create`, and the `swarm` CLI; the password prompt without echo |
+| CLI config, suites, edit files | `go.yaml.in/yaml/v3` | The YAML project's maintained successor of `gopkg.in/yaml.v3`, which is archived; v4 is still a release candidate |
+| Following many runs | `golang.org/x/sync/errgroup` | Bounded concurrent streams that stop together |
 | Tests | `github.com/testcontainers/testcontainers-go` | A throwaway Postgres, the image the Python tests use |
 | Console | React + Vite | See [tech-stack.md](../tech-stack.md) |
 | Browser client | `@connectrpc/connect-web` | Generated from the same protos as the Go side *(proposed)* |

@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- `swarm`, the command line: `login` (saves an API token), `logout`, `whoami`, `run` (a case
+  directory with `-V` overrides and `--epochs`, or a suite file submitted whole), `--follow`
+  (streams every run's events, then their statuses; exits 1 unless all ended `done`), `runs
+  list|get|cancel|resume`, `events`, `replay --fork-at --edit`, `token`, and `user`. A client of
+  edge over Connect's protocol; config in `~/.config/swarm/config.yaml`, mode 0600.
+- edge forwards `RunService.SubmitSuite` and each streamed event's `line`.
 - `edge`: the public entry point. `edge serve` serves `swarmeval.api.v1` with connect-go:
   `AuthService` (password sign-in to an HttpOnly, SameSite=Strict session cookie; API tokens
   `swm_…` for the CLI; change password), `UserService` (admins create, disable, and reset users),

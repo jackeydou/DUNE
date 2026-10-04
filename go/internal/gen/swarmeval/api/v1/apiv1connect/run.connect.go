@@ -35,6 +35,8 @@ const (
 const (
 	// RunServiceSubmitRunsProcedure is the fully-qualified name of the RunService's SubmitRuns RPC.
 	RunServiceSubmitRunsProcedure = "/swarmeval.api.v1.RunService/SubmitRuns"
+	// RunServiceSubmitSuiteProcedure is the fully-qualified name of the RunService's SubmitSuite RPC.
+	RunServiceSubmitSuiteProcedure = "/swarmeval.api.v1.RunService/SubmitSuite"
 	// RunServiceGetRunProcedure is the fully-qualified name of the RunService's GetRun RPC.
 	RunServiceGetRunProcedure = "/swarmeval.api.v1.RunService/GetRun"
 	// RunServiceListRunsProcedure is the fully-qualified name of the RunService's ListRuns RPC.
@@ -54,6 +56,10 @@ type RunServiceClient interface {
 	// Validates a case bundle and queues one run per variant and epoch. A case that does not load
 	// is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error)
+	// Loads a suite with the case directories it names and queues every case's runs, each case
+	// its own submission under one suite label. A suite with a case that does not load queues
+	// nothing; INVALID_ARGUMENT names the entry. The format: docs/case-format.md#suites.
+	SubmitSuite(context.Context, *connect.Request[v1.SubmitSuiteRequest]) (*connect.Response[v1.SubmitSuiteResponse], error)
 	// An unknown run is NOT_FOUND.
 	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error)
 	// Newest first.
@@ -89,6 +95,12 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			httpClient,
 			baseURL+RunServiceSubmitRunsProcedure,
 			connect.WithSchema(runServiceMethods.ByName("SubmitRuns")),
+			connect.WithClientOptions(opts...),
+		),
+		submitSuite: connect.NewClient[v1.SubmitSuiteRequest, v1.SubmitSuiteResponse](
+			httpClient,
+			baseURL+RunServiceSubmitSuiteProcedure,
+			connect.WithSchema(runServiceMethods.ByName("SubmitSuite")),
 			connect.WithClientOptions(opts...),
 		),
 		getRun: connect.NewClient[v1.GetRunRequest, v1.GetRunResponse](
@@ -133,6 +145,7 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 // runServiceClient implements RunServiceClient.
 type runServiceClient struct {
 	submitRuns   *connect.Client[v1.SubmitRunsRequest, v1.SubmitRunsResponse]
+	submitSuite  *connect.Client[v1.SubmitSuiteRequest, v1.SubmitSuiteResponse]
 	getRun       *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
 	listRuns     *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
 	cancelRun    *connect.Client[v1.CancelRunRequest, v1.CancelRunResponse]
@@ -144,6 +157,11 @@ type runServiceClient struct {
 // SubmitRuns calls swarmeval.api.v1.RunService.SubmitRuns.
 func (c *runServiceClient) SubmitRuns(ctx context.Context, req *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error) {
 	return c.submitRuns.CallUnary(ctx, req)
+}
+
+// SubmitSuite calls swarmeval.api.v1.RunService.SubmitSuite.
+func (c *runServiceClient) SubmitSuite(ctx context.Context, req *connect.Request[v1.SubmitSuiteRequest]) (*connect.Response[v1.SubmitSuiteResponse], error) {
+	return c.submitSuite.CallUnary(ctx, req)
 }
 
 // GetRun calls swarmeval.api.v1.RunService.GetRun.
@@ -181,6 +199,10 @@ type RunServiceHandler interface {
 	// Validates a case bundle and queues one run per variant and epoch. A case that does not load
 	// is INVALID_ARGUMENT, with the loader's message.
 	SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error)
+	// Loads a suite with the case directories it names and queues every case's runs, each case
+	// its own submission under one suite label. A suite with a case that does not load queues
+	// nothing; INVALID_ARGUMENT names the entry. The format: docs/case-format.md#suites.
+	SubmitSuite(context.Context, *connect.Request[v1.SubmitSuiteRequest]) (*connect.Response[v1.SubmitSuiteResponse], error)
 	// An unknown run is NOT_FOUND.
 	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error)
 	// Newest first.
@@ -212,6 +234,12 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		RunServiceSubmitRunsProcedure,
 		svc.SubmitRuns,
 		connect.WithSchema(runServiceMethods.ByName("SubmitRuns")),
+		connect.WithHandlerOptions(opts...),
+	)
+	runServiceSubmitSuiteHandler := connect.NewUnaryHandler(
+		RunServiceSubmitSuiteProcedure,
+		svc.SubmitSuite,
+		connect.WithSchema(runServiceMethods.ByName("SubmitSuite")),
 		connect.WithHandlerOptions(opts...),
 	)
 	runServiceGetRunHandler := connect.NewUnaryHandler(
@@ -254,6 +282,8 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		switch r.URL.Path {
 		case RunServiceSubmitRunsProcedure:
 			runServiceSubmitRunsHandler.ServeHTTP(w, r)
+		case RunServiceSubmitSuiteProcedure:
+			runServiceSubmitSuiteHandler.ServeHTTP(w, r)
 		case RunServiceGetRunProcedure:
 			runServiceGetRunHandler.ServeHTTP(w, r)
 		case RunServiceListRunsProcedure:
@@ -277,6 +307,10 @@ type UnimplementedRunServiceHandler struct{}
 
 func (UnimplementedRunServiceHandler) SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.api.v1.RunService.SubmitRuns is not implemented"))
+}
+
+func (UnimplementedRunServiceHandler) SubmitSuite(context.Context, *connect.Request[v1.SubmitSuiteRequest]) (*connect.Response[v1.SubmitSuiteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.api.v1.RunService.SubmitSuite is not implemented"))
 }
 
 func (UnimplementedRunServiceHandler) GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error) {

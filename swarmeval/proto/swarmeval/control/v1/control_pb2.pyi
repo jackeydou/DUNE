@@ -84,6 +84,110 @@ class SubmitRunsResponse(_message.Message):
 Global___SubmitRunsResponse: _TypeAlias = SubmitRunsResponse  # noqa: Y015
 
 @_typing.final
+class SubmitSuiteRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    @_typing.final
+    class CaseBundlesEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        value: _builtins.bytes
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: _builtins.bytes = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    SUITE_YAML_FIELD_NUMBER: _builtins.int
+    CASE_BUNDLES_FIELD_NUMBER: _builtins.int
+    ACTOR_FIELD_NUMBER: _builtins.int
+    suite_yaml: _builtins.str
+    """The suite file as written."""
+    actor: _builtins.str
+    @_builtins.property
+    def case_bundles(self) -> _containers.ScalarMap[_builtins.str, _builtins.bytes]:
+        """Each `cases[].path` of the suite, as written there, → that case directory as a tar
+        archive. A path the suite names more than once is sent once. The whole request is at most
+        64 MiB.
+        """
+
+    def __init__(
+        self,
+        *,
+        suite_yaml: _builtins.str = ...,
+        case_bundles: _abc.Mapping[_builtins.str, _builtins.bytes] | None = ...,
+        actor: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "case_bundles", b"case_bundles", "suite_yaml", b"suite_yaml"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SubmitSuiteRequest: _TypeAlias = SubmitSuiteRequest  # noqa: Y015
+
+@_typing.final
+class SuiteSubmission(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CASE_ID_FIELD_NUMBER: _builtins.int
+    SUBMISSION_ID_FIELD_NUMBER: _builtins.int
+    RUN_IDS_FIELD_NUMBER: _builtins.int
+    case_id: _builtins.str
+    submission_id: _builtins.str
+    @_builtins.property
+    def run_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        case_id: _builtins.str = ...,
+        submission_id: _builtins.str = ...,
+        run_ids: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "run_ids", b"run_ids", "submission_id", b"submission_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SuiteSubmission: _TypeAlias = SuiteSubmission  # noqa: Y015
+
+@_typing.final
+class SubmitSuiteResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SUITE_FIELD_NUMBER: _builtins.int
+    SUBMISSIONS_FIELD_NUMBER: _builtins.int
+    suite: _builtins.str
+    """`<suite id>.<8 hex>`, for reports over the whole suite."""
+    @_builtins.property
+    def submissions(self) -> _containers.RepeatedCompositeFieldContainer[Global___SuiteSubmission]:
+        """One per suite entry, in the suite's order."""
+
+    def __init__(
+        self,
+        *,
+        suite: _builtins.str = ...,
+        submissions: _abc.Iterable[Global___SuiteSubmission] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["submissions", b"submissions", "suite", b"suite"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SubmitSuiteResponse: _TypeAlias = SubmitSuiteResponse  # noqa: Y015
+
+@_typing.final
 class Run(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
@@ -554,6 +658,7 @@ class StreamEventsResponse(_message.Message):
     TYPE_FIELD_NUMBER: _builtins.int
     AGENT_ID_FIELD_NUMBER: _builtins.int
     PAYLOAD_JSON_FIELD_NUMBER: _builtins.int
+    LINE_FIELD_NUMBER: _builtins.int
     seq: _builtins.int
     event_id: _builtins.str
     type: _builtins.str
@@ -561,6 +666,10 @@ class StreamEventsResponse(_message.Message):
     agent_id: _builtins.str
     payload_json: _builtins.str
     """The stored Inspect event, as JSON."""
+    line: _builtins.str
+    """The event on one line, as the judge and the timeline show it (swarmeval.events.render),
+    cut at 2,000 characters.
+    """
     def __init__(
         self,
         *,
@@ -569,10 +678,11 @@ class StreamEventsResponse(_message.Message):
         type: _builtins.str = ...,
         agent_id: _builtins.str = ...,
         payload_json: _builtins.str = ...,
+        line: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_id", b"agent_id", "event_id", b"event_id", "payload_json", b"payload_json", "seq", b"seq", "type", b"type"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_id", b"agent_id", "event_id", b"event_id", "line", b"line", "payload_json", b"payload_json", "seq", b"seq", "type", b"type"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

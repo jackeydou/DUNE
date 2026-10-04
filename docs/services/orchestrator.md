@@ -52,7 +52,7 @@ inference, so one asyncio process per worker is enough.
 | `swarmeval/monitor/` | The `swarmeval.monitor` extension: detectors online and the actions a hit takes |
 | `swarmeval/honeypot/` | Canary generation and matching (through encodings), the `swarmeval.canary` and `swarmeval.env_state` extensions, honeypot templates (with the network capability, later) |
 | `swarmeval/db/` | Table definitions for `control` and `runs`, engines, Alembic migrations (`migrate(url)`) |
-| `swarmeval/events/` | Records to Inspect events, the hash chain, the Postgres `RunStore`, export. The only `inspect_ai` import |
+| `swarmeval/events/` | Records to Inspect events, the hash chain, the Postgres `RunStore`, export, and an event as one line of text (`render`, which the judge, the timeline, and `StreamEvents` share). The only `inspect_ai` import |
 | `swarmeval/scorers/` | Final-state scorers, the `rule` scorer among them |
 
 Generated gRPC stubs live in `swarmeval/proto/`, generated from `proto/` by `mise run proto:gen`.
@@ -73,7 +73,8 @@ proposed)*. Messages may be up to 64 MiB, for case bundles.
 | `CancelRun` | Marks cancelled. A queued run never starts; a running one stops at its owner's next hook point, is not scored, and is still exported. A finished run is `FAILED_PRECONDITION` | Built |
 | `ResumeRun` | A run paused for a person (a Monitor's `pause`) goes on from the hook point where it stopped. A run that is not paused is `FAILED_PRECONDITION` | Built |
 | `ForkRun` | A new run that goes on from a finished run's state at the start of the turn an event happened in, with edits: replace a message's text, delete a user message, or replace an undelivered message's content ([forks](#forks)). Returns the fork, `<source>.f<n>`, queued. Only a run that ended `done` or `cancelled` (an exported one) can be forked. An unknown run or event is `NOT_FOUND`; any other source run, an event before the first turn, a turn that began with extension background work (`ctx.spawn`) still running, a run recorded before forks were possible, or an edit that does not fit is `FAILED_PRECONDITION`; a malformed edit is `INVALID_ARGUMENT` | Built |
-| `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent | Built |
+| `SubmitSuite` | Takes a [suite](#suites) file and one bundle per `cases[].path` it names, loads the suite, and queues every case's runs in one transaction under one suite label; returns the label and one submission per entry. A suite that does not load, a path with no bundle, or a bundle the suite does not name is `INVALID_ARGUMENT`, and nothing is queued | Built |
+| `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent. Each event comes with its stored payload and its `line`, the one-line text the judge reads (`swarmeval.events.render`), cut at 2,000 characters | Built |
 | Case CRUD | Read and write `case.yaml` / `env.yaml` for the console | M4 |
 
 `SubmitRuns`, `CancelRun`, `ResumeRun`, and `ForkRun` take an `actor`: the user [edge](edge.md)
@@ -96,18 +97,21 @@ member paths land inside the directory. `case.yaml` must be at the archive's roo
 ### Suites
 
 A [suite](../case-format.md#suites) runs as one submission per case, all carrying one suite
-label. Until the CLI (M4), `python -m swarmeval.control.suite` submits it:
+label. Users submit it with `swarm run suites/m1_core.yaml` through [edge](edge.md#swarm-cli);
+operators on the internal network can use `python -m swarmeval.control.suite`:
 
 ```bash
 uv run python -m swarmeval.control.suite check suites/m1_core.yaml     # load; submit nothing
 uv run python -m swarmeval.control.suite submit suites/m1_core.yaml --control 127.0.0.1:7090
 ```
 
-`submit` loads the suite and every case first, so a broken case submits nothing. Then it packs
-each case as a [bundle](#case-bundles) and calls `SubmitRuns` with the case's overrides (the
-suite's `models` as the `model` axis), its epochs, and the label `<suite id>.<8 hex>`, fresh for
-each submit *(proposed)*. It prints the label. A case the Control API refuses stops the submit,
-and the error names the submissions already made. The label is stored as
+Both send the suite file and one [bundle](#case-bundles) per distinct `cases[].path` to
+`SubmitSuite`. The control plane unpacks each bundle, loads the suite with
+`swarmeval.core.load_suite_text` against them, so the format is checked in one place, and
+queues each entry as its own submission with its overrides (the suite's `models` as the `model`
+axis), its epochs, and the label `<suite id>.<8 hex>`, fresh for each submit *(proposed)*. All
+of a suite's runs go into the queue in one transaction, so a suite with a broken case queues
+nothing. The label is stored as
 `control.run_specs.suite`, copied to reruns and summaries, and `ListRuns` and
 `python -m swarmeval.analysis report --suite` filter on it. Labels are lowercase letters, digits,
 `_`, `.`, and `-`.

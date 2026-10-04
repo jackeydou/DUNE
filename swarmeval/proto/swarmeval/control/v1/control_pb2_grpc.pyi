@@ -39,6 +39,12 @@ class ControlServiceStub:
     """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
     A case that does not load is INVALID_ARGUMENT, with the loader's message.
     """
+    SubmitSuite: _grpc.UnaryUnaryMultiCallable[_control_pb2.SubmitSuiteRequest, _control_pb2.SubmitSuiteResponse]
+    """Loads a suite with the case bundles it names and queues every case's runs in one
+    transaction, each case its own submission under one suite label: a suite with a case that
+    does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+    the suite entry at fault.
+    """
     GetRun: _grpc.UnaryUnaryMultiCallable[_control_pb2.GetRunRequest, _control_pb2.GetRunResponse]
     ListRuns: _grpc.UnaryUnaryMultiCallable[_control_pb2.ListRunsRequest, _control_pb2.ListRunsResponse]
     """Newest first."""
@@ -73,6 +79,12 @@ class ControlServiceAsyncStub(ControlServiceStub):
     SubmitRuns: _aio.UnaryUnaryMultiCallable[_control_pb2.SubmitRunsRequest, _control_pb2.SubmitRunsResponse]  # type: ignore[assignment]
     """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
     A case that does not load is INVALID_ARGUMENT, with the loader's message.
+    """
+    SubmitSuite: _aio.UnaryUnaryMultiCallable[_control_pb2.SubmitSuiteRequest, _control_pb2.SubmitSuiteResponse]  # type: ignore[assignment]
+    """Loads a suite with the case bundles it names and queues every case's runs in one
+    transaction, each case its own submission under one suite label: a suite with a case that
+    does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+    the suite entry at fault.
     """
     GetRun: _aio.UnaryUnaryMultiCallable[_control_pb2.GetRunRequest, _control_pb2.GetRunResponse]  # type: ignore[assignment]
     ListRuns: _aio.UnaryUnaryMultiCallable[_control_pb2.ListRunsRequest, _control_pb2.ListRunsResponse]  # type: ignore[assignment]
@@ -111,6 +123,18 @@ class ControlServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_control_pb2.SubmitRunsResponse, _abc.Awaitable[_control_pb2.SubmitRunsResponse]]:
         """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
         A case that does not load is INVALID_ARGUMENT, with the loader's message.
+        """
+
+    @_abc_1.abstractmethod
+    def SubmitSuite(
+        self,
+        request: _control_pb2.SubmitSuiteRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.SubmitSuiteResponse, _abc.Awaitable[_control_pb2.SubmitSuiteResponse]]:
+        """Loads a suite with the case bundles it names and queues every case's runs in one
+        transaction, each case its own submission under one suite label: a suite with a case that
+        does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+        the suite entry at fault.
         """
 
     @_abc_1.abstractmethod
