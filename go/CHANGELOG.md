@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- Analysis. edge serves `swarmeval.api.v1.AnalysisService` (`Query`, `SearchToolCalls`,
+  `StartRuleScan`, `GetJob`, `Judge`, `Report`, `GetTrace`, `DownloadExport`), forwarded to the
+  analysis service named by `edge serve --analysis host:port`; without the flag the calls are
+  `UNIMPLEMENTED`. `swarm query SQL` (table, `--csv`, or `--json`), `swarm report`
+  (`--submission`, `--suite`, `--compare`), and `swarm export RUN` (`--format eval|parquet`).
 - Case library. edge serves `swarmeval.api.v1.CaseService` (`PushCase`, `UpdateCaseFiles`,
   `GetCase`, `ListCases`, `ListCaseRevisions`, `GetCaseRevision`, `ArchiveCase`,
   `UnarchiveCase`), forwarded to the Control API with the caller as `actor`;

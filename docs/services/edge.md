@@ -28,6 +28,7 @@ edge serve --public-url https://swarm.example.com --tls-cert cert.pem --tls-key 
 | `--listen` | `127.0.0.1:7443` | Without a certificate it must be a loopback address: edge refuses to serve plain HTTP to the network, so a deployment without `--tls-cert` puts a TLS-terminating proxy in front |
 | `--tls-cert`, `--tls-key` | none | PEM certificate chain and key. Together or not at all |
 | `--control` | required | The orchestrator's Control API, `host:port`, reached with gRPC over HTTP/2 without TLS until services use mTLS |
+| `--analysis` | none | The [analysis service](analysis.md#interface), `host:port`, reached the same way. Without it every `AnalysisService` call is `UNIMPLEMENTED`, with a message naming this flag |
 | `--session-idle` | `24h` | A browser session unused for this long ends |
 | `--session-max-age` | `168h` | A browser session ends this long after sign-in, however active |
 
@@ -36,11 +37,12 @@ edge migrates its `tenant` schema when `serve` or `user create` starts.
 - **Public API.** `swarmeval.api.v1` in [`proto/swarmeval/api/v1/`](../../proto/swarmeval/api/v1/),
   separate from the internal protos so that internal changes never break outside clients
   (M4 spec decision 1); `mise run proto:breaking` guards it. Defined so far: `AuthService`,
-  `UserService`, `RunService`, `CaseService`. Connect (connect-go) serves one definition as JSON to the
+  `UserService`, `RunService`, `CaseService`, `AnalysisService`. Connect (connect-go) serves one definition as JSON to the
   browser and as gRPC to the CLI, over HTTP/1.1 or HTTP/2 (unencrypted HTTP/2 on a loopback
   listener).
 - **Request limits.** A `RunService` or `CaseService` body may be up to 64 MiB of bundle plus
-  encoding; `AuthService` and `UserService` bodies 64 KiB. A body must arrive within 30 seconds
+  encoding; an `AnalysisService` body 1 MiB (a rule set or a statement); `AuthService` and
+  `UserService` bodies 64 KiB. A body must arrive within 30 seconds
   of the headers, 5 minutes for `SubmitRuns`, `SubmitSuite`, `PushCase`, and `UpdateCaseFiles`; the headers within 10 seconds. The deadline does not limit
   the answer, so an event stream lasts as long as the run. Idle keep-alive connections close after
   2 minutes.
@@ -63,7 +65,15 @@ edge migrates its `tenant` schema when `serve` or `user create` starts.
   Connect) with the newest revision's number in the message, which is how the console learns
   that someone else changed the case. A pushed bundle over 64 MiB, or an edit whose written
   files pass 64 MiB in all, is refused before the control plane sees it.
-- **Errors.** Control API errors that are about the caller's request (`INVALID_ARGUMENT`,
+- **Analysis forwarding.** `AnalysisService` is the [analysis service](analysis.md#interface):
+  `Query`, `SearchToolCalls`, `StartRuleScan`, `GetJob`, `Judge`, `Report`, `GetTrace`, and
+  `DownloadExport`, each forwarded to the RPC of the same name. `Query` and `DownloadExport`
+  are relayed chunk by chunk. `StartRuleScan` carries the caller's username as `actor`, and the
+  job returns it as `created_by`. The public messages mirror the internal ones field for field
+  with the same numbers; edge builds each request by hand, so a caller cannot set `actor`, and
+  copies each response through the wire format (`TestAnalysisResponsesKeepEveryField` fails
+  when the two drift apart).
+- **Errors.** Control API and analysis service errors that are about the caller's request (`INVALID_ARGUMENT`,
   `NOT_FOUND`, `FAILED_PRECONDITION`, `ALREADY_EXISTS`, `ABORTED`, `OUT_OF_RANGE`,
   `RESOURCE_EXHAUSTED`, `CANCELLED`, `DEADLINE_EXCEEDED`) go back with their message. Anything
   else is logged with its cause and returned as `UNAVAILABLE` with a generic message, so
@@ -129,8 +139,6 @@ Users are disabled, never deleted, so the runs they submitted keep naming someon
 
 ### Not built yet
 
-- **Forwarding** of analysis calls to `AnalysisService` (M4 Plan step 5). It sits beside the
-  case and run services in the public API, nested under neither.
 - **Internal mTLS** (step 7): edge will be the only caller the Control API and analysis accept.
 - **Console assets**, embedded in the binary with `embed.FS` (step 6).
 
@@ -152,6 +160,9 @@ swarm runs list --suite m1_core.3fa1b2c4
 swarm events collusion_pricing.fb47ae64.v0.e1        # one line per event, until the run ends
 swarm case push cases/collusion_pricing -m "tighter threshold"
 swarm run --case safety/collusion_pricing@3          # a revision in the library
+swarm query "SELECT status, count(*) FROM runs GROUP BY ALL"
+swarm report --suite m1_core.3fa1b2c4 --compare 'paraphrased=[],[dm_ab]'
+swarm export collusion_pricing.fb47ae64.v0.e1       # the .eval, for `inspect view`
 swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 ```
 
@@ -171,6 +182,9 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 | `case pull WORKSPACE/CASE[@REVISION] [DIR]` | Writes the revision's files, with their modes and links, to `DIR` (default `./CASE`), which must be empty or new |
 | `case revisions WORKSPACE/CASE` | Revision, bundle hash, time, author, and note, newest first |
 | `case archive`, `case unarchive` | An archived case leaves the list and takes no pushes, edits, or runs; nothing is deleted |
+| `query SQL` | One read-only SELECT over the views `runs` and `events` ([analysis.md](analysis.md#queries)), as a table; `--csv`, or `--json` for one JSON object per row; `--max-rows N` (default and most 10,000). A result cut at the limit says so on stderr |
+| `report` | The trigger rate report as Markdown, for `--submission ID` and `--suite LABEL` (both repeatable; neither means every run), with `--compare AXIS=A,B` for the difference between two values of an axis. `--json` prints the numbers |
+| `export RUN` | Downloads the run's `.eval` (`--format eval`, the default) or events (`--format parquet`) to `RUN.eval` or `RUN.events.parquet`, or to `-o FILE` (`-` for stdout). It does not overwrite a file, and a failed download leaves none |
 | `token create`, `list`, `revoke` | Your API tokens; `create --expires 720h` |
 | `user create`, `list`, `disable`, `enable`, `reset-password` | Admins only. Passwords are asked twice on a terminal, read once from a pipe |
 
@@ -195,8 +209,8 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 - **Output.** Tables for people; `--json` prints records as protobuf JSON. Errors go to stderr as
   `swarm: <what>: <edge's message>`, with a hint for a missing sign-in or an unreachable edge, and
   exit 1.
-- **Not built.** `swarm view` arrives with the console (step 6); `query`, `report`, and `export`
-  with the analysis service (step 5). Editing a case's files in place is the console's
+- **Not built.** `swarm view` arrives with the console (step 6). Rule scans, the judge, and
+  traces are in the public API for the console and have no CLI command. Editing a case's files in place is the console's
   (`UpdateCaseFiles`); from the CLI, pull, edit, and push. `env up` and the
   `otel` / `docent` export formats wait for the network capability and the export adapters.
 

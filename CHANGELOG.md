@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- Analysis service: `swarmeval-analysis` serves `swarmeval.analysis.v1.AnalysisService` for
+  edge. `Query` runs one read-only SELECT over the views `runs` and `events` on a DuckDB
+  connection with external access off and its configuration locked, at most 10,000 rows and
+  30 seconds; `SearchToolCalls` filters tool calls by run, submission, tool, agent, and time;
+  `StartRuleScan` runs a rule set as a background job (`analysis.jobs`, migration 0011) and
+  `GetJob` returns it; `Judge`, `Report`, and `GetTrace` call the batch jobs' code;
+  `DownloadExport` streams a run's `.eval` or `events.parquet`. Jobs left unfinished by a
+  stopped service are marked `failed` when it starts.
 - Case library: `control.cases` and `control.case_revisions` (migration 0010). Every case the
   platform stores or runs has numbered, immutable revisions, each naming a bundle and who made
   it, and every run references one (`control.run_specs.case_revision_id`, `Run.case_revision`).
