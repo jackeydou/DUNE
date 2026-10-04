@@ -45,6 +45,10 @@ class RunFinished(Exception):
     """The run has already finished, so the request no longer applies."""
 
 
+class RunNotPaused(Exception):
+    """Only a paused run can be resumed."""
+
+
 def run_id_of(case_id: str, submission_id: str, variant: int, epoch: int) -> str:
     return f"{case_id}.{submission_id}.v{variant}.e{epoch}"
 
@@ -63,6 +67,7 @@ class NewRun:
     epochs: int
     replaces: str | None = None
     suite: str | None = None
+    submitted_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,9 +85,16 @@ class RunRow:
     epochs: int
     replaces: str | None
     suite: str | None
+    forked_from: str | None
+    fork_seq: int | None
+    fork_edits: list[JsonValue] | None
+    submitted_by: str | None
+    cancelled_by: str | None
+    resumed_by: str | None
     owner_id: str | None
     owner_epoch: int
     isolation: str | None
+    fidelity: str | None
     error: str | None
     created_at: datetime
     started_at: datetime | None
@@ -105,9 +117,16 @@ def _joined() -> Select[*tuple[Any, ...]]:
         s.epochs,
         s.replaces,
         s.suite,
+        s.forked_from,
+        s.fork_seq,
+        s.fork_edits,
+        s.submitted_by,
+        r.cancelled_by,
+        r.resumed_by,
         r.owner_id,
         r.owner_epoch,
         r.isolation,
+        r.fidelity,
         r.error,
         r.created_at,
         r.started_at,
@@ -167,6 +186,7 @@ class Queue:
                         "epochs": r.epochs,
                         "replaces": r.replaces,
                         "suite": r.suite,
+                        "submitted_by": r.submitted_by,
                     }
                     for r in runs
                 ],
@@ -203,7 +223,7 @@ class Queue:
             rows = await conn.execute(query.limit(limit))
             return [_row(r) for r in rows]
 
-    async def cancel(self, run_id: str) -> RunRow:
+    async def cancel(self, run_id: str, actor: str | None = None) -> RunRow:
         """A queued run finishes now; a running one when its worker sees the status."""
         runs = control_runs.c
         async with self._engine.begin() as conn:
@@ -213,6 +233,7 @@ class Queue:
                 .values(
                     status="cancelled",
                     finished_at=case((runs.owner_id.is_(None), func.now()), else_=None),
+                    cancelled_by=actor,
                 )
                 .returning(runs.run_id)
             )
@@ -222,6 +243,45 @@ class Queue:
             raise RunFinished(
                 f"run `{run_id}` is already `{current.status}`; only queued, running, or paused "
                 "runs can be cancelled."
+            )
+        return await self.get(run_id)
+
+    async def pause(self, run_id: str, owner_epoch: int) -> RunStatus:
+        """A running run becomes `paused`, until `resume`. Returns the status after: `paused`,
+        or whatever it already was (`cancelled` by a cancel that came first)."""
+        runs = control_runs.c
+        async with self._engine.begin() as conn:
+            paused = (
+                await conn.execute(
+                    update(control_runs)
+                    .where(
+                        runs.run_id == run_id,
+                        runs.owner_epoch == owner_epoch,
+                        runs.status == "running",
+                    )
+                    .values(status="paused")
+                    .returning(runs.status)
+                )
+            ).scalar_one_or_none()
+        return paused or await self.status(run_id)
+
+    async def resume(self, run_id: str, actor: str | None = None) -> RunRow:
+        """A paused run is `running` again; its worker sees it and goes on."""
+        runs = control_runs.c
+        async with self._engine.begin() as conn:
+            resumed = (
+                await conn.execute(
+                    update(control_runs)
+                    .where(runs.run_id == run_id, runs.status == "paused")
+                    .values(status="running", resumed_by=actor)
+                    .returning(runs.run_id)
+                )
+            ).scalar_one_or_none()
+        if resumed is None:
+            current = await self.get(run_id)
+            raise RunNotPaused(
+                f"run `{run_id}` is `{current.status}`, not paused; only a paused run can be "
+                "resumed."
             )
         return await self.get(run_id)
 
@@ -329,6 +389,59 @@ class Queue:
         if found is None:
             raise RunNotFound(f"no run `{run_id}`.")
         return found
+
+    async def fork(
+        self,
+        source: RunRow,
+        fork_seq: int,
+        edits: list[JsonValue],
+        actor: str | None = None,
+    ) -> RunRow:
+        """Queues a fork of `source`, which goes on after its event `fork_seq` with `edits`:
+        the same case revision, variant, and epoch (so the same seed), as run
+        `<source>.f<n>`. Its reports keep it apart from the epochs."""
+        async with self._engine.begin() as conn:
+            # Serializes the forks of one run, so two take different numbers.
+            lock = f"swarmeval.fork:{source.run_id}"
+            await conn.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(lock, 0))))
+            forks = (
+                await conn.execute(
+                    select(func.count()).where(run_specs.c.forked_from == source.run_id)
+                )
+            ).scalar_one()
+            run_id = f"{source.run_id}.f{forks + 1}"
+            await conn.execute(
+                insert(control_runs).values(
+                    run_id=run_id, workspace=source.workspace, status="queued"
+                )
+            )
+            await conn.execute(
+                insert(run_specs).values(
+                    run_id=run_id,
+                    submission_id=source.submission_id,
+                    case_id=source.case_id,
+                    case_sha256=source.case_sha256,
+                    overrides=source.overrides,
+                    variant=source.variant,
+                    task_args=source.task_args,
+                    epoch=source.epoch,
+                    epochs=source.epochs,
+                    suite=source.suite,
+                    forked_from=source.run_id,
+                    fork_seq=fork_seq,
+                    fork_edits=edits,
+                    submitted_by=actor,
+                )
+            )
+        return await self.get(run_id)
+
+    async def set_fidelity(self, run_id: str, owner_epoch: int, fidelity: str) -> None:
+        async with self._engine.begin() as conn:
+            await conn.execute(
+                update(control_runs)
+                .where(control_runs.c.run_id == run_id, control_runs.c.owner_epoch == owner_epoch)
+                .values(fidelity=fidelity)
+            )
 
     async def set_isolation(self, run_id: str, owner_epoch: int, isolation: str) -> None:
         async with self._engine.begin() as conn:
@@ -454,6 +567,8 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
                     s.task_args,
                     s.epochs,
                     s.suite,
+                    s.forked_from,
+                    s.submitted_by,
                     control_runs.c.workspace,
                 )
                 .join_from(run_specs, control_runs, s.run_id == control_runs.c.run_id)
@@ -474,7 +589,8 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
             )
         )
     ).one()
-    if reruns >= spec["epochs"]:
+    if reruns >= spec["epochs"] or spec["forked_from"] is not None:
+        # A fork is a counterfactual, not an epoch: an interrupted one is forked again by hand.
         return None
     epoch = last + 1
     rerun_id = run_id_of(spec["case_id"], spec["submission_id"], spec["variant"], epoch)
@@ -494,6 +610,7 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
             epochs=spec["epochs"],
             replaces=run_id,
             suite=spec["suite"],
+            submitted_by=spec["submitted_by"],
         )
     )
     return rerun_id

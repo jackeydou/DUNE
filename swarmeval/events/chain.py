@@ -2,6 +2,8 @@
 
     hash[seq] = sha256( prev_hash || uint64_be(seq) || JCS(payload) )
     prev_hash of the first event = sha256("swarmeval:" || run_id)
+    prev_hash of a fork's first event = its source's hash at the fork point, and seq goes on
+    from there
 
 The hash covers the payload as stored, canonicalized with RFC 8785, so anyone holding the rows
 can recompute it without our code.
@@ -41,13 +43,25 @@ class ChainRow:
     payload: JsonValue
 
 
-def verify(run_id: str, rows: Iterable[ChainRow]) -> int:
-    """Checks a run's rows in `seq` order, starting at 1. Returns the number of rows checked."""
-    expected_prev = genesis(run_id)
+@dataclass(frozen=True)
+class ChainStart:
+    """Where a fork's chain links into its source's: after `seq`, from `hash`."""
+
+    seq: int
+    hash: bytes
+
+
+def verify(run_id: str, rows: Iterable[ChainRow], start: ChainStart | None = None) -> int:
+    """Checks a run's rows in `seq` order, starting at 1, or for a fork right after `start`.
+    Returns the number of rows checked."""
+    expected_prev = genesis(run_id) if start is None else start.hash
+    first = 1 if start is None else start.seq + 1
     count = 0
     for count, row in enumerate(rows, start=1):
-        if row.seq != count:
-            raise ChainError(f"run {run_id}: expected seq {count}, found seq {row.seq}.")
+        if row.seq != first + count - 1:
+            raise ChainError(
+                f"run {run_id}: expected seq {first + count - 1}, found seq {row.seq}."
+            )
         if row.prev_hash != expected_prev:
             raise ChainError(
                 f"run {run_id}: seq {row.seq} has prev_hash {row.prev_hash.hex()}, but the "

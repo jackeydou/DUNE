@@ -65,6 +65,9 @@ type Config struct {
 	HelperTimeout time.Duration
 	// SeedLimit caps the total content of a CreateSandbox's seed files.
 	SeedLimit int
+	// RestoreLimit caps the file content of one RestoreFiles request, under gRPC's 4 MiB
+	// message limit.
+	RestoreLimit int
 	// ProcessListLimit caps a sandbox's process listing. A sandbox controls how many processes
 	// it has and how long their command lines are.
 	ProcessListLimit int
@@ -84,6 +87,7 @@ func DefaultConfig(stateDir string) Config {
 		ContentBudget:    64 << 20,
 		HelperTimeout:    10 * time.Second,
 		SeedLimit:        1 << 20,
+		RestoreLimit:     3 << 20,
 		ProcessListLimit: 4 << 20,
 	}
 }
@@ -113,6 +117,8 @@ type sandbox struct {
 	manifest  fsdiff.Manifest
 	// live maps the host pid of every process a call left running to that call.
 	live map[int32]string
+	// execd is set by the first Exec; RestoreFiles is refused after it.
+	execd bool
 }
 
 // New returns a Service. cfg.StateDir must exist.
@@ -356,6 +362,7 @@ func (s *Service) Exec(ctx context.Context, req ExecRequest) (ExecResult, error)
 	}
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
+	sb.execd = true
 
 	pre, err := fsdiff.Walk(sb.roots, sb.manifest)
 	if err != nil {

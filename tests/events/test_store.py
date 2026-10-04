@@ -16,7 +16,7 @@ from swarmeval.events import (
     RunNotFoundError,
     verify,
 )
-from swarmeval.runtime.loop import RunLoop, RunSpec
+from swarmeval.runtime.loop import RunLoop
 from swarmeval.runtime.messages import SystemMessage, UserMessage
 from swarmeval.runtime.records import (
     AgentStateRow,
@@ -30,8 +30,18 @@ from swarmeval.runtime.records import (
     MessageSendRecord,
     Transaction,
 )
+from swarmeval.runtime.specs import RunSpec
 from swarmeval.runtime.writer import RunWriter
-from tests.runtime.fakes import SHELL, FakeSandbox, FakeStore, ScriptedModel, agent, call, reply
+from tests.runtime.fakes import (
+    SHELL,
+    FakePauser,
+    FakeSandbox,
+    FakeStore,
+    ScriptedModel,
+    agent,
+    call,
+    reply,
+)
 
 pytestmark = pytest.mark.docker
 
@@ -93,6 +103,7 @@ async def run_loop(store: FakeStore | PostgresRunStore, run_id: str) -> FakeSand
         writer=writer,
         model_client=ScriptedModel(writer, scripts),
         sandbox_executor=sandbox,
+        pauser=FakePauser(),
         tools=[SHELL],
     )
     await loop.run()

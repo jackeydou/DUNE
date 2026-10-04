@@ -6,9 +6,9 @@ import random
 import re
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, get_args, overload
+from typing import Any, Literal, Protocol, Self, get_args, overload
 
-from pydantic import BaseModel, JsonValue, PositiveInt
+from pydantic import BaseModel, JsonValue, PositiveFloat, PositiveInt, model_validator
 
 from swarmeval.runtime.messages import (
     AssistantMessage,
@@ -126,11 +126,19 @@ class Drop(Frozen):
 
 
 class Delay(Frozen):
-    """Hold the message for `turns` more of the recipient's own turns. Delays from several
-    handlers add up; later handlers are still called and may rewrite or drop it."""
+    """Hold the message for `turns` more of the recipient's own turns, or, under the `async`
+    turn policy only, for `seconds`. Delays from several handlers add up; later handlers are
+    still called and may rewrite or drop it."""
 
     kind: Literal["delay"] = "delay"
-    turns: PositiveInt
+    turns: PositiveInt | None = None
+    seconds: PositiveFloat | None = None
+
+    @model_validator(mode="after")
+    def _one_unit(self) -> Self:
+        if (self.turns is None) == (self.seconds is None):
+            raise ValueError("a Delay holds a message for `turns` or for `seconds`, not both")
+        return self
 
 
 type DeliveryDecision = Deliver | Drop | Delay
@@ -148,6 +156,21 @@ class Envelope(Frozen):
     """What the previous handler decided to deliver; the sent content for the first."""
     delayed_turns: int = 0
     """Turns earlier handlers have delayed it by."""
+    delayed_seconds: float = 0.0
+    """Seconds earlier handlers have delayed it by (`async` only)."""
+
+
+class ResumeInfo(Frozen):
+    """What `on_resume` receives: the run goes on from another run's state."""
+
+    fork: bool
+    """`True` for a fork; recovery after a worker failure (M3) will pass `False`."""
+    source_run_id: str
+    at_seq: int
+    """The last event of the source the run goes on from."""
+    fidelity: Literal["fs_restored", "fs_partial"]
+    """How far the sandboxes match the source at that point
+    (docs/services/orchestrator.md#forks)."""
 
 
 class TurnInfo(Frozen):
@@ -186,19 +209,21 @@ class ChannelInfo(Frozen):
     members: tuple[str, ...]
 
 
+class AgentInfo(Frozen):
+    id: str
+    model: str
+    sandbox_id: str | None
+    tools: tuple[str, ...]
+
+
 class RunInfo(Frozen):
     run_id: str
     agent_ids: tuple[str, ...]
     canaries: tuple[CanaryInfo, ...] = ()
     sandbox_canaries: tuple[SandboxCanaryInfo, ...] = ()
     channels: tuple[ChannelInfo, ...] = ()
-
-
-class AgentInfo(Frozen):
-    id: str
-    model: str
-    sandbox_id: str | None
-    tools: tuple[str, ...]
+    agents: tuple[AgentInfo, ...] = ()
+    """Every agent of the run, in `agent_ids` order."""
 
 
 # What a hook runs with.
@@ -220,6 +245,11 @@ class ContextHost(Protocol):
 
     def request_stop(self, instance_id: str, reason: str, event_id: str) -> None:
         """`event_id` is the stop's intervention event, the parent of the run's last lifecycle
+        event."""
+        ...
+
+    def request_pause(self, instance_id: str, reason: str, event_id: str) -> None:
+        """`event_id` is the pause's intervention event, the parent of the `paused` lifecycle
         event."""
         ...
 
@@ -310,6 +340,13 @@ class Actions:
         draft = self._ctx.intervention("stop", {"reason": reason}, cause=cause)
         self._ctx.pending.events.append(draft)
         self._ctx.host.request_stop(self._ctx.instance_id, reason, draft.event_id)
+
+    def pause(self, reason: str, *, cause: str | None = None) -> None:
+        """Pauses the run at the next hook point until a person resumes it (`ResumeRun`).
+        Running tool calls finish first; a cancel while paused stops the run."""
+        draft = self._ctx.intervention("pause", {"reason": reason}, cause=cause)
+        self._ctx.pending.events.append(draft)
+        self._ctx.host.request_pause(self._ctx.instance_id, reason, draft.event_id)
 
     def inject(self, agent_id: str, content: str, *, cause: str | None = None) -> None:
         """Queues a user message for `agent_id`, admitted at its next `before_turn`."""
@@ -410,6 +447,7 @@ class HookContext[S: BaseModel]:
 # Hook handler signatures, one per hook name.
 
 type ObserveHandler[S: BaseModel] = Callable[[HookContext[S]], Awaitable[None]]
+type ResumeHandler[S: BaseModel] = Callable[[HookContext[S], ResumeInfo], Awaitable[None]]
 type BeforeTurnHandler[S: BaseModel] = Callable[[HookContext[S], TurnInfo], Awaitable[TurnDecision]]
 type CompactHandler[S: BaseModel] = Callable[
     [HookContext[S], tuple[ChatMessage, ...]], Awaitable[tuple[ChatMessage, ...] | None]
@@ -459,6 +497,8 @@ class ExtensionAPI[C: BaseModel, S: BaseModel]:
     def on(
         self, hook: Literal["on_run_start", "after_turn", "on_run_end"]
     ) -> Callable[[ObserveHandler[S]], ObserveHandler[S]]: ...
+    @overload
+    def on(self, hook: Literal["on_resume"]) -> Callable[[ResumeHandler[S]], ResumeHandler[S]]: ...
     @overload
     def on(
         self, hook: Literal["before_turn"]

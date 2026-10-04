@@ -80,6 +80,13 @@ class SandboxExecutor(Protocol):
         ...
 
 
+class Pauser(Protocol):
+    async def wait(self, reason: str) -> str | None:
+        """Holds the run paused until a person resumes it (`None`), or until it is cancelled:
+        then the stop reason, which the loop stops with instead of resuming."""
+        ...
+
+
 class WebClient(Protocol):
     async def request(self, request: WebRequest) -> WebExchange:
         """Sends `request` from the worker, only to a public address, and returns once both

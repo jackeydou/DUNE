@@ -490,6 +490,7 @@ class FsChange(_message.Message):
     ATTRIBUTION_FIELD_NUMBER: _builtins.int
     CANDIDATE_CALLS_FIELD_NUMBER: _builtins.int
     CONTENT_FIELD_NUMBER: _builtins.int
+    MTIME_NS_FIELD_NUMBER: _builtins.int
     path: _builtins.str
     """Path inside the sandbox."""
     op: Global___FsChange.Op.ValueType
@@ -508,6 +509,10 @@ class FsChange(_message.Message):
     content: _builtins.bool
     """The new content follows as a blob with hash `after_sha256`. Unset for files over the
     content limit.
+    """
+    mtime_ns: _builtins.int
+    """Modification time after the change as the file system reports it, in nanoseconds since the
+    Unix epoch; before it for a delete. A process can set it to anything (`touch -d`).
     """
     @_builtins.property
     def candidate_calls(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
@@ -528,10 +533,11 @@ class FsChange(_message.Message):
         attribution: Global___FsChange.Attribution.ValueType = ...,
         candidate_calls: _abc.Iterable[_builtins.str] | None = ...,
         content: _builtins.bool = ...,
+        mtime_ns: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["after_sha256", b"after_sha256", "attribution", b"attribution", "before_sha256", b"before_sha256", "candidate_calls", b"candidate_calls", "content", b"content", "kind", b"kind", "mode", b"mode", "op", b"op", "path", b"path", "protected", b"protected", "size", b"size", "uid", b"uid"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["after_sha256", b"after_sha256", "attribution", b"attribution", "before_sha256", b"before_sha256", "candidate_calls", b"candidate_calls", "content", b"content", "kind", b"kind", "mode", b"mode", "mtime_ns", b"mtime_ns", "op", b"op", "path", b"path", "protected", b"protected", "size", b"size", "uid", b"uid"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -591,6 +597,130 @@ class BlobChunk(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___BlobChunk: _TypeAlias = BlobChunk  # noqa: Y015
+
+@_typing.final
+class RestoreFilesRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RUN_ID_FIELD_NUMBER: _builtins.int
+    SANDBOX_ID_FIELD_NUMBER: _builtins.int
+    REMOVE_FIELD_NUMBER: _builtins.int
+    DIRS_FIELD_NUMBER: _builtins.int
+    FILES_FIELD_NUMBER: _builtins.int
+    run_id: _builtins.str
+    sandbox_id: _builtins.str
+    @_builtins.property
+    def remove(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Absolute, clean, and strictly inside a key path. One that does not exist is skipped."""
+
+    @_builtins.property
+    def dirs(self) -> _containers.RepeatedCompositeFieldContainer[Global___RestoreDir]: ...
+    @_builtins.property
+    def files(self) -> _containers.RepeatedCompositeFieldContainer[Global___RestoreFile]: ...
+    def __init__(
+        self,
+        *,
+        run_id: _builtins.str = ...,
+        sandbox_id: _builtins.str = ...,
+        remove: _abc.Iterable[_builtins.str] | None = ...,
+        dirs: _abc.Iterable[Global___RestoreDir] | None = ...,
+        files: _abc.Iterable[Global___RestoreFile] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["dirs", b"dirs", "files", b"files", "remove", b"remove", "run_id", b"run_id", "sandbox_id", b"sandbox_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreFilesRequest: _TypeAlias = RestoreFilesRequest  # noqa: Y015
+
+@_typing.final
+class RestoreDir(_message.Message):
+    """Whatever is at `path` and is not a directory is removed first."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PATH_FIELD_NUMBER: _builtins.int
+    MODE_FIELD_NUMBER: _builtins.int
+    UID_FIELD_NUMBER: _builtins.int
+    path: _builtins.str
+    """Absolute, clean, and strictly inside a key path."""
+    mode: _builtins.int
+    """Permission bits; zero means 0755."""
+    uid: _builtins.int
+    """Owner to give it, when that differs from the owner sandboxd writes as."""
+    def __init__(
+        self,
+        *,
+        path: _builtins.str = ...,
+        mode: _builtins.int = ...,
+        uid: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["mode", b"mode", "path", b"path", "uid", b"uid"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreDir: _TypeAlias = RestoreDir  # noqa: Y015
+
+@_typing.final
+class RestoreFile(_message.Message):
+    """Whatever is at `path` and is not a regular file (a directory, a symlink) is removed first, so
+    the write never follows a link.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PATH_FIELD_NUMBER: _builtins.int
+    CONTENT_FIELD_NUMBER: _builtins.int
+    MODE_FIELD_NUMBER: _builtins.int
+    UID_FIELD_NUMBER: _builtins.int
+    path: _builtins.str
+    """Absolute, clean, and strictly inside a key path."""
+    content: _builtins.bytes
+    mode: _builtins.int
+    """Permission bits; zero means 0644."""
+    uid: _builtins.int
+    def __init__(
+        self,
+        *,
+        path: _builtins.str = ...,
+        content: _builtins.bytes = ...,
+        mode: _builtins.int = ...,
+        uid: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["content", b"content", "mode", b"mode", "path", b"path", "uid", b"uid"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreFile: _TypeAlias = RestoreFile  # noqa: Y015
+
+@_typing.final
+class RestoreFilesResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    UNOWNED_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def unowned(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Paths whose owner sandboxd could not set, because it does not run as root. The content and
+        mode are restored.
+        """
+
+    def __init__(
+        self,
+        *,
+        unowned: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["unowned", b"unowned"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreFilesResponse: _TypeAlias = RestoreFilesResponse  # noqa: Y015
 
 @_typing.final
 class ReadFileRequest(_message.Message):

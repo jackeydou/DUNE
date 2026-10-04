@@ -29,6 +29,7 @@ dependencies = [
 "swarmeval.bus.delay" = "swarmeval.gateway.bus.interventions:delay"
 "swarmeval.bus.paraphrase" = "swarmeval.gateway.bus.interventions:paraphrase"
 "swarmeval.bus.inject" = "swarmeval.gateway.bus.interventions:inject"
+"swarmeval.monitor" = "swarmeval.monitor.monitor:setup"
 
 [project.scripts]
 swarmeval-model-gateway = "swarmeval.gateway.model.server:main"

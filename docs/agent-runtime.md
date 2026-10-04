@@ -12,7 +12,11 @@ spec describes but the code does not do.
 
 ## The loop
 
-`RunLoop` runs one fresh run. Agents take turns in `round_robin` order. A turn is one model call
+`RunLoop` runs one run: a fresh one, or a fork, given a `ForkStart` (a checkpoint of another run,
+the agents' contexts there, and edits; [forks](services/orchestrator.md#forks)). At the start of
+every run-wide turn, once the observers have caught up, it commits a checkpoint
+([event-log.md](event-log.md#checkpoints)). How agents take turns is the run's
+[turn policy](#turn-policies); by default `round_robin`. A turn is one model call
 plus every tool call it makes:
 
 1. `before_turn` gate. Messages due on the Message Bus, then queued injections and `Inject`
@@ -33,9 +37,40 @@ Message Bus, which gives it another turn. The run ends when every agent is finis
 messages waiting, when `max_turns` or `max_tokens` is reached (`max_tokens` is checked before each model
 call), or when a hook or an action stops it.
 
-A stop takes effect at the hook point where it is seen: after `before_turn`, `compact_context`,
-and `before_model_request`, and before each tool call. Nothing after that point runs, including
+A stop or a pause takes effect at the hook point where it is seen: before each turn, after
+`before_turn`, `compact_context`, and `before_model_request`, and before each tool call. A pause
+first waits for the observers, commits `lifecycle` `paused`, waits on the run's `Pauser` until a
+person resumes the run, and commits `resumed`; a stop requested meanwhile then takes effect. Nothing after that point runs, including
 the remaining tool calls of the same response. A tool call already executing finishes.
+
+### Turn policies
+
+| Policy | Who steps | Ends when |
+|---|---|---|
+| `round_robin` | Every agent that is not finished, one turn each, in case order, round after round | No agent is left unfinished, with no mail due to wake one |
+| `event_driven` | The same agents in the same order, but an agent that steps goes on, turn after turn, until it answers without a tool call; then the next | As `round_robin` |
+| `async` | Every agent in its own task, as fast as its model answers. An agent that answered without a tool call waits until a message is due for it | Every agent is waiting, or has used up its own `max_turns`, and no message is due or held by time; or a run-wide limit, a stop, or a failure ends it for all |
+
+Under `async`:
+
+- `max_turns` is each agent's own; one that reaches it stops with a `limit` event naming it,
+  and the run ends `limit` once the others are done, its last lifecycle event parented to the
+  last such `limit` event. Whatever ends the run for one agent (a gate's `Stop`, a run-wide
+  limit) stops the others at their next hook point, tool calls included. `max_tokens` and `wall_clock` end the run
+  for all.
+- `before_deliver` holds a message for `Delay(seconds=…)` (`swarmeval.bus.delay` with
+  `seconds`), not for turns: a waiting agent takes none, so a turn delay would never end, and
+  `Delay(turns=…)` fails the run. A waiting recipient is woken when the message comes due.
+- A hook point waits for the observers to have processed the events committed when the agent
+  reached it, not for them to go quiet, since other agents keep committing.
+- A pause, by any agent's hook, holds every agent at its next hook point, tool calls included,
+  until the run resumes. A waiting agent also wakes when the wall clock runs out.
+- Agents that share a sandbox have their commands run one at a time by sandboxd.
+- No checkpoints are committed, so an `async` run cannot be forked, and the order of events is
+  recorded but not reproducible: the `.eval` says `deterministic: false`.
+
+`wall_clock` (any policy) is checked before every turn, with paused time left out, and ends the
+run with a `limit` event (`limit: wall_clock`).
 
 ### Routing messages
 
@@ -102,6 +137,7 @@ tool without having a sandbox.
 |---|---|---|
 | `RunStore` | `swarmeval.events.PostgresRunStore` on the `runs` schema ([event-log.md](event-log.md#tables)) | `commit` is atomic and assigns `seq` and `event_id` in order. `context` returns `messages[gen][:len]` from the latest `agent_state` row |
 | `ModelClient` | `swarmeval.gateway.model.client.GatewaySession` ([model-gateway](services/model-gateway.md)) | `generate` returns after the gateway's record of the call has been committed through the run's `RunWriter`. The record's `gen` / `length` come from `ModelRequest.gen` and the request's message count |
+| `Pauser` | `swarmeval.worker.pause.QueuePauser`: marks the run `paused` and polls until `ResumeRun` or a cancel | `wait(reason)` returns once the run may go on, or is cancelled |
 | `SandboxExecutor` | `swarmeval.sandbox.RunSandboxes` ([sandboxd](services/sandboxd.md)) | Runs one `Exec` under a run-unique `call_id` and returns output plus file and process observations. Blobs the result names are stored before it returns. The loop passes the tool call's id; `ctx.sandbox` passes `ext:<instance>:<n>` |
 
 `RunWriter` is the run's only writer. The loop and the model-gateway stream handler share one
@@ -202,6 +238,7 @@ Registered under the same entry point group by this package; a case lists them l
 |---|---|---|
 | `swarmeval.canary` | `on_event` | Searches each committed model call, tool result, message, and `before_deliver` rewrite (as what its recipient was shown) for the run's file canaries (`ctx.run.canaries`) and sandbox canaries (`ctx.run.sandbox_canaries`) and emits a `canary_hit` event per hit: `canary` (a file canary's id, or the sandbox id), `kind` (`file` or `sandbox`), `sandbox_id` (where it was planted), `where`, `event_id`, `agent_id`, `via` (the decodings that revealed it, empty when the token appeared as is), and `cross_sandbox`. Every file canary sighting is a hit; a sandbox canary sighting only when it crosses sandboxes ([rule](services/orchestrator.md#sandbox-canaries)). State: the hit count, and per agent the canaries a delivered message carried to it |
 | `swarmeval.env_state` | `on_run_start`, `after_turn` (with `every_turn: true`), `on_run_end` | Runs each configured snapshot command (`id`, `sandbox`, `run`, `timeout_s`) through `ctx.sandbox` and emits an `env.state` event with its output |
+| `swarmeval.monitor` | `on_event` | `detectors` (each a `swarmeval.detect` definition, keyed by `detector`), `on_hit` (`alert`, `pause`, `stop`, `inject`), `severity` (default `high`), `inject` (`content`, optional `agent`, default the agent of the event that hit), `max_actions` (default 1, `null` for no limit): runs the detectors on every event and raises an `alert` per hit, parented to that event, then takes the action with the alert as its cause. Detector state is part of its state. Detectors and their options: [orchestrator.md](services/orchestrator.md#monitor). The case loader checks its config |
 | `swarmeval.bus.drop` | `before_deliver` | `channels`, `p`: drops each message on those channels, per recipient, with probability `p` (one `ctx.rng` draw per message and recipient) |
 | `swarmeval.bus.delay` | `before_deliver` | `channels`, `turns`: holds each message on those channels for `turns` of the recipient's own turns, or for a count drawn uniformly from `[min, max]` with `ctx.rng` |
 | `swarmeval.bus.paraphrase` | `before_deliver` | `channels`, `model`, `prompt`: asks `model`, through model-gateway under the instance's own key, to rewrite each message on those channels, `prompt` as the system message and the message as the user message, and delivers the reply. The default `prompt` keeps every fact and the intent and changes the wording, structure, and formatting (`DEFAULT_PARAPHRASE_PROMPT`). One call per message and recipient, recorded as the instance's `ModelEvent` with the `msg.send` as parent. Its hooks may take 600 s |
@@ -221,6 +258,7 @@ agents that use the sandbox), `token`, and where it is planted: `hostname`, `env
 | Hook | Kind | Payload | Returns |
 |---|---|---|---|
 | `on_run_start`, `after_turn`, `on_run_end` | Observe | — | `None` |
+| `on_resume` | Observe | `ResumeInfo`: `fork`, `source_run_id`, `at_seq`, `fidelity` (`fs_restored` or `fs_partial`) | `None`. Runs instead of `on_run_start` when a run goes on from another run's state, after the state is restored and before the first turn; extension state is already the source's |
 | `before_turn` | Gate | `TurnInfo` | `Proceed`, `Skip`, `Inject(messages)`, `Stop(reason)` |
 | `compact_context` | Transform | Current messages | `None`, or a new, non-empty message tuple (new generation). An empty tuple fails the run |
 | `before_model_request` | Transform | `RequestOptions` | `RequestOptions`. Tools may only be narrowed |
@@ -239,8 +277,8 @@ The kinds combine differently:
   handlers still run and see the total in `delayed_turns`; a `Drop` ends the chain. Each change
   is an `intervention` (`hook` `before_deliver`, `action` `deliver`, `drop`, or `delay`) whose
   parent and `target_event_id` are the `msg.send` and whose `after` is the verdict with
-  `recipient`. `Delay` counts the recipient's own turns; delays in seconds wait for the `async`
-  turn policy.
+  `recipient`. `Delay` counts the recipient's own turns, or under `async` seconds (`Delay(seconds=…)`;
+  under the other policies that verdict fails the run).
 - **Gate** hooks stop at the first decision that is not the default (`Proceed` / `Allow`). Later
   gates are not called.
 - **Observe** hooks all run.
@@ -256,13 +294,14 @@ Observers see every event up to and including the terminal `lifecycle` event.
 
 | Member | Does |
 |---|---|
-| `ctx.run`, `ctx.agent`, `ctx.hook` | Run id and agents; the agent this call concerns (`None` for run-level hooks); the current hook |
+| `ctx.run`, `ctx.agent`, `ctx.hook` | Run id and agents (`ctx.run.agents`, each with its sandbox); the agent this call concerns (`None` for run-level hooks); the current hook |
 | `ctx.trigger_id` | The event that caused this call ([table](event-log.md#causal-parents)). What the call records names it as parent unless an action names its own `cause` |
 | `ctx.state` | This instance's state. Changes are committed with the step's next transaction and restored from the store when a run starts |
 | `ctx.rng` | A `random.Random` for this call. Its seed comes from the run seed, the instance id, and how many of the instance's calls have drawn from `ctx.rng` before; that count is committed with the instance's state, so a resumed or forked run continues the same draws. Randomness in an extension comes only from here |
 | `ctx.emit(name, data)` | Records an `extension` event |
 | `ctx.actions.alert(message, severity=, event_ids=)` | Records an `alert` event, parented to the last of `event_ids`, and returns its id |
 | `ctx.actions.stop(reason, cause=)` | Stops the run at the next hook point. Recorded as an intervention whose parent is `cause` (an event id, such as an alert's), or the trigger; the run's last `lifecycle` event descends from it |
+| `ctx.actions.pause(reason, cause=)` | Pauses the run at the next hook point until a person resumes it ([pauses](services/orchestrator.md#pauses)). Recorded as a `pause` intervention, parented like `stop`'s, which parents the `paused` lifecycle event |
 | `ctx.actions.inject(agent_id, content, cause=)` | Queues a user message for the agent's next `before_turn`. Recorded as an intervention, parented like `stop`'s |
 | `ctx.actions.post(channel, sender, content, cause=)` | Puts a message on a channel as if `sender` sent it, at the next `before_turn`: every member but `sender` gets it, routed through `before_deliver` like any message. Recorded as a `post` intervention, parented like `stop`'s, and a `msg.send` with no agent, the instance as its `extension`, no `call_id`, and the intervention as parent |
 | `ctx.model.generate(request)` | A model call under this instance's identity, recorded like an agent's |
@@ -293,10 +332,7 @@ The timeout is the loop's `hook_timeout_s` (default 30 s) unless the extension d
 
 | Spec item | State |
 |---|---|
-| Resume, takeover, fork | `RunLoop` refuses a run that already has context. The `awaiting_admit` status exists, and the gateway path is to write it when that path is built |
-| `on_resume` hook | Arrives with recovery (M3) |
-| `Delay` in seconds | With the `async` turn policy |
-| `read_messages` | Arrives with monitors (M2). Channel members get messages pushed at their next turn |
-| `Pause` decisions and pause actions | Need a resume path |
-| `async` and `event_driven` turn policies, `wall_clock` limit | Only `round_robin`, `max_turns`, and `max_tokens` exist |
+| Resume and takeover | Forks are built; recovering a run in place after a worker failure is M3. The `awaiting_admit` status exists, and the gateway path is to write it when that path is built. A fresh `RunLoop` still refuses a run that already has context |
+| `read_messages`, LLM monitor agents (`role: monitor`) | After M2 (M2 spec open question 4). Channel members get messages pushed at their next turn |
+| `Pause` as a gate decision | `ctx.actions.pause` exists; a `before_turn` / `before_tool_call` `Pause` decision does not |
 | Pausing on infrastructure failure | A failing model client or sandbox raises and ends the run |

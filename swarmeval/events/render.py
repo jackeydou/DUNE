@@ -9,18 +9,7 @@ import json
 
 from pydantic import JsonValue
 
-_ESCAPES = str.maketrans(
-    {
-        "\\": "\\\\",
-        "\n": "\\n",
-        "\r": "\\r",
-        **{
-            chr(c): f"\\u{c:04x}"
-            for c in (*range(0x20), 0x7F, 0x85, 0x2028, 0x2029)
-            if c not in (0x09, 0x0A, 0x0D)
-        },
-    }
-)
+from swarmeval.detect.search import one_line
 
 
 def event_line(payload: dict[str, JsonValue], limit: int) -> str:
@@ -30,12 +19,6 @@ def event_line(payload: dict[str, JsonValue], limit: int) -> str:
     if len(text) <= limit:
         return one_line(text)
     return one_line(text[:limit]) + f" …[cut: {len(text)} characters]"
-
-
-def one_line(text: str) -> str:
-    """Escapes every line break: backslashes first, then control characters and the separators
-    `str.splitlines` breaks on. Tabs stay."""
-    return text.translate(_ESCAPES)
 
 
 def describe(payload: dict[str, JsonValue]) -> str:

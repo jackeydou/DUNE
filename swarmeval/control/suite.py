@@ -1,27 +1,26 @@
 """`python -m swarmeval.control.suite`: check a suite, or submit it through the Control API.
 
 - `check SUITE`: loads the suite and every case in it, and prints the runs it would queue.
-- `submit SUITE [--control HOST:PORT]`: submits each case as its own submission, all under one
-  suite label `<id>.<8 hex>`, and prints the label for `python -m swarmeval.analysis report
-  --suite`.
+- `submit SUITE [--control HOST:PORT]`: sends the suite with its cases to `SubmitSuite`, which
+  queues each case as its own submission, all under one suite label `<id>.<8 hex>`, and prints
+  the label for `python -m swarmeval.analysis report --suite`.
 
-The way to run a suite until the CLI arrives (M4). Every case loads before the first is
-submitted, so a suite with a broken case submits nothing. The format: docs/case-format.md#suites.
+An operator's tool on the internal network; users run `swarm run SUITE` through edge. The
+control plane loads the suite again and queues it whole or not at all. The format:
+docs/case-format.md#suites.
 """
 
 import argparse
 import asyncio
-import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import grpc
-from google.protobuf.struct_pb2 import Struct
 
 from swarmeval.control.bundles import pack
 from swarmeval.control.server import MAX_MESSAGE_BYTES
-from swarmeval.core import LoadedSuite, SuiteEntry, SuiteError, load_suite
+from swarmeval.core import LoadedSuite, SuiteError, load_suite
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import ControlServiceStub
 
@@ -36,37 +35,22 @@ class Submitted:
     runs: int
 
 
-class SubmitError(Exception):
-    """The Control API refused a case after earlier ones of the suite were submitted."""
-
-
-def _request(entry: SuiteEntry, label: str) -> pb.SubmitRunsRequest:
-    overrides = Struct()
-    overrides.update({axis: list(values) for axis, values in entry.overrides.items()})
-    return pb.SubmitRunsRequest(
-        case_bundle=pack(entry.dir), overrides=overrides, epochs=entry.epochs, suite=label
+def request(suite: LoadedSuite) -> pb.SubmitSuiteRequest:
+    """The suite file and one bundle per distinct `cases[].path`."""
+    return pb.SubmitSuiteRequest(
+        suite_yaml=Path(suite.source).read_text(encoding="utf-8"),
+        case_bundles={e.path: pack(e.dir) for e in suite.entries},
     )
 
 
 async def submit(
-    suite: LoadedSuite, control: "ControlServiceAsyncStub", label: str | None = None
+    suite: LoadedSuite, control: "ControlServiceAsyncStub"
 ) -> tuple[str, list[Submitted]]:
-    """Submits every case of `suite` under one suite label; returns it and the submissions."""
-    label = label or f"{suite.id}.{secrets.token_hex(4)}"
-    done: list[Submitted] = []
-    for entry in suite.entries:
-        request = await asyncio.to_thread(_request, entry, label)
-        try:
-            response = await control.SubmitRuns(request)
-        except grpc.aio.AioRpcError as err:
-            submitted = ", ".join(f"{s.case_id} ({s.submission_id})" for s in done) or "none"
-            raise SubmitError(
-                f"suite {label}: the Control API refused case `{entry.case.id}` ({entry.dir}): "
-                f"{err.code().name}: {err.details()}. Already submitted: {submitted}; cancel "
-                "them, or submit the rest once the case is fixed."
-            ) from err
-        done.append(Submitted(entry.case.id, response.submission_id, len(response.run_ids)))
-    return label, done
+    """Submits `suite`; returns its label and the submissions, in the suite's order."""
+    response = await control.SubmitSuite(await asyncio.to_thread(request, suite))
+    return response.suite, [
+        Submitted(s.case_id, s.submission_id, len(s.run_ids)) for s in response.submissions
+    ]
 
 
 def plan(suite: LoadedSuite) -> str:
@@ -106,8 +90,11 @@ def main() -> None:
     if args.command == "submit":
         try:
             asyncio.run(_submit(suite, args.control))
-        except SubmitError as err:
-            raise SystemExit(str(err)) from err
+        except grpc.aio.AioRpcError as err:
+            raise SystemExit(
+                f"the Control API refused suite {suite.source}: {err.code().name}: "
+                f"{err.details()}. Nothing was queued."
+            ) from err
 
 
 if __name__ == "__main__":

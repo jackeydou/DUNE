@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package swarmeval.api.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1;apiv1";
+
+// AuthService is the public API's sign-in and credential surface, served by edge. Every RPC but
+// Login and LoginForToken needs a session cookie or an API token. A failed sign-in is
+// UNAUTHENTICATED whether the user is unknown, disabled, or gave the wrong password, and repeated
+// failures for one username or one client address are refused for a growing while
+// (RESOURCE_EXHAUSTED). Behavior: docs/services/edge.md.
+service AuthService {
+  // Starts a browser session: the response sets the session cookie.
+  rpc Login(LoginRequest) returns (LoginResponse);
+  // Signs in and returns a new API token instead of a session, for the CLI.
+  rpc LoginForToken(LoginForTokenRequest) returns (LoginForTokenResponse);
+  // Ends the calling session and clears its cookie. A call made with an API token is
+  // FAILED_PRECONDITION; revoke the token instead.
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+  // Ends every other session of the caller. API tokens stay valid.
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+  rpc CreateToken(CreateTokenRequest) returns (CreateTokenResponse);
+  // The caller's own tokens, newest first, revoked ones included.
+  rpc ListTokens(ListTokensRequest) returns (ListTokensResponse);
+  // Revoking one of another user's tokens, or an unknown one, is NOT_FOUND.
+  rpc RevokeToken(RevokeTokenRequest) returns (RevokeTokenResponse);
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  // Everything but managing users.
+  ROLE_MEMBER = 1;
+  // Also creates, disables, and resets the password of users.
+  ROLE_ADMIN = 2;
+}
+
+message User {
+  string username = 1;
+  Role role = 2;
+  bool disabled = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  User user = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message LoginForTokenRequest {
+  string username = 1;
+  string password = 2;
+  // Names the token in ListTokens, such as the machine it is for. 1 to 64 characters.
+  string token_name = 3;
+  // Unset for a token that does not expire.
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message LoginForTokenResponse {
+  // The token itself, shown only here. Send it as `Authorization: Bearer <token>`.
+  string token = 1;
+  ApiToken info = 2;
+}
+
+message LogoutRequest {}
+
+message LogoutResponse {}
+
+message WhoAmIRequest {}
+
+message WhoAmIResponse {
+  User user = 1;
+}
+
+message ChangePasswordRequest {
+  string current_password = 1;
+  // 12 to 1024 characters.
+  string new_password = 2;
+}
+
+message ChangePasswordResponse {}
+
+message ApiToken {
+  string token_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // Unset when the token does not expire.
+  google.protobuf.Timestamp expires_at = 4;
+  // Unset until the token is first used. Updated at most once a minute.
+  google.protobuf.Timestamp last_used_at = 5;
+  // Unset while the token is valid.
+  google.protobuf.Timestamp revoked_at = 6;
+}
+
+message CreateTokenRequest {
+  // 1 to 64 characters.
+  string name = 1;
+  // Unset for a token that does not expire.
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message CreateTokenResponse {
+  // The token itself, shown only here.
+  string token = 1;
+  ApiToken info = 2;
+}
+
+message ListTokensRequest {}
+
+message ListTokensResponse {
+  repeated ApiToken tokens = 1;
+}
+
+message RevokeTokenRequest {
+  string token_id = 1;
+}
+
+message RevokeTokenResponse {
+  ApiToken token = 1;
+}

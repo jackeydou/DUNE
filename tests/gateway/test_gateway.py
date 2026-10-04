@@ -22,7 +22,7 @@ from swarmeval.proto.swarmeval.modelgw.v1 import recorder_pb2 as pb
 from swarmeval.proto.swarmeval.modelgw.v1.recorder_pb2_grpc import (
     add_RecorderServiceServicer_to_server,
 )
-from swarmeval.runtime.loop import RunLoop, RunSpec
+from swarmeval.runtime.loop import RunLoop
 from swarmeval.runtime.messages import (
     AssistantMessage,
     ModelRequest,
@@ -35,10 +35,11 @@ from swarmeval.runtime.messages import (
 )
 from swarmeval.runtime.ports import AgentCaller, Caller, ExtensionCaller
 from swarmeval.runtime.records import ModelCallRecord
+from swarmeval.runtime.specs import RunSpec
 from swarmeval.runtime.tools import BUILTIN_TOOLS
 from swarmeval.runtime.writer import RunWriter
 from tests.gateway.mock_backend import MockBackend, completion, tool_call
-from tests.runtime.fakes import FakeSandbox, FakeStore, agent
+from tests.runtime.fakes import FakePauser, FakeSandbox, FakeStore, agent
 
 CONFIG = GatewayConfig.model_validate(
     {
@@ -334,6 +335,7 @@ async def test_a_run_loop_drives_an_agent_through_the_gateway(rig: Rig) -> None:
             writer=rig.writer,
             model_client=session,
             sandbox_executor=sandbox,
+            pauser=FakePauser(),
             tools=BUILTIN_TOOLS,
         )
         outcome = await loop.run()

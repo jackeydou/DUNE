@@ -1,10 +1,12 @@
 """In-memory stand-ins for Postgres, model-gateway, and sandboxd."""
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from swarmeval.gateway.bus import ChannelSpec
 from swarmeval.gateway.model.client import to_wire
@@ -15,7 +17,8 @@ from swarmeval.runtime.extensions import (
     SandboxCanaryInfo,
     load_extensions,
 )
-from swarmeval.runtime.loop import AgentSpec, Limits, RunLoop, RunSpec
+from swarmeval.runtime.fork import ForkStart
+from swarmeval.runtime.loop import RunLoop
 from swarmeval.runtime.messages import (
     AssistantMessage,
     ChatMessage,
@@ -33,6 +36,7 @@ from swarmeval.runtime.ports import (
 )
 from swarmeval.runtime.records import (
     AgentStateRow,
+    Checkpoint,
     CommittedEvent,
     EventDraft,
     Exec,
@@ -47,6 +51,7 @@ from swarmeval.runtime.records import (
     WebExchange,
     WebRequest,
 )
+from swarmeval.runtime.specs import AgentSpec, Limits, RunSpec
 from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, SHELL, WEB_REQUEST
 from swarmeval.runtime.writer import RunWriter
 from tests.gateway.mock_backend import completion, tool_call
@@ -67,6 +72,8 @@ class FakeStore:
     )
     """(send seq, recipient) → (status, due turn), kept as `runs.deliveries` is."""
     log: list[Transaction] = field(default_factory=list[Transaction])
+    checkpoints: list[tuple[int, Checkpoint]] = field(default_factory=list[tuple[int, Checkpoint]])
+    """(seq of the last event before the turn, the checkpoint), as `runs.checkpoints`."""
 
     async def commit(self, txn: Transaction) -> list[CommittedEvent]:
         self.log.append(txn)
@@ -74,6 +81,7 @@ class FakeStore:
         for draft in txn.events:
             seq = len(self.events) + 1
             event = CommittedEvent(
+                ts=datetime.now(UTC),
                 event_id=draft.event_id,
                 seq=seq,
                 agent_id=draft.agent_id,
@@ -97,6 +105,17 @@ class FakeStore:
             key = (change.send_seq, change.recipient)
             assert self.deliveries[key][0] == "pending", (key, self.deliveries[key])
             self.deliveries[key] = (change.status, change.due_turn)
+        for m in txn.inherited_mail:
+            self.deliveries[(m.send_seq, m.recipient)] = (
+                "pending" if m.due_turn is None else "delayed",
+                m.due_turn,
+            )
+        if txn.checkpoint is not None:
+            self.checkpoints.append((len(self.events), txn.checkpoint))
+        for (agent_id, gen), copied in txn.inherited.items():
+            gens = self.generations.setdefault(agent_id, [])
+            gens.extend([] for _ in range(gen + 1 - len(gens)))
+            gens[gen] = list(copied)
         for agent_id, messages in txn.new_generations.items():
             self.generations.setdefault(agent_id, []).append(list(messages))
         for agent_id, message in txn.messages:
@@ -182,12 +201,16 @@ class ScriptedModel:
     requests: list[tuple[Caller, ModelRequest]] = field(
         default_factory=list[tuple[Caller, ModelRequest]]
     )
+    latency: dict[str, float] = field(default_factory=dict[str, float])
+    """Seconds a caller's calls take, for concurrent turn policies."""
 
     async def generate(
         self, caller: Caller, request: ModelRequest, *, parent_id: str | None
     ) -> RecordedResponse:
         self.requests.append((caller, request))
         key = caller.agent_id if isinstance(caller, AgentCaller) else caller.instance_id
+        if key in self.latency:
+            await asyncio.sleep(self.latency[key])
         response = self.scripts[key].pop(0)
         record = ModelCallRecord(
             model=request.model,
@@ -224,6 +247,22 @@ class FakeSandbox:
         self.calls.append((sandbox_id, os_user, command))
         self.call_ids.append(call_id)
         return self.handler(command)
+
+
+@dataclass
+class FakePauser:
+    """Resumes at once, or when `resume` is set, and keeps each pause's reason."""
+
+    resume: asyncio.Event | None = None
+    reasons: list[str] = field(default_factory=list[str])
+    cancel: str | None = None
+    """Ends each pause as a cancel with this reason, instead of resuming."""
+
+    async def wait(self, reason: str) -> str | None:
+        self.reasons.append(reason)
+        if self.resume is not None:
+            await self.resume.wait()
+        return self.cancel
 
 
 @dataclass
@@ -269,6 +308,7 @@ class Harness:
     model: ScriptedModel
     sandbox: FakeSandbox
     web: FakeWeb | None
+    pauser: "FakePauser"
 
 
 def harness(
@@ -284,10 +324,15 @@ def harness(
     canaries: tuple[CanaryInfo, ...] = (),
     sandbox_canaries: tuple[SandboxCanaryInfo, ...] = (),
     web: FakeWeb | None = None,
+    pauser: FakePauser | None = None,
+    fork: ForkStart | None = None,
+    turn_policy: Literal["round_robin", "event_driven", "async"] = "round_robin",
+    latency: dict[str, float] | None = None,
 ) -> Harness:
     store = store or FakeStore()
+    pauser = pauser or FakePauser()
     writer = RunWriter(store)
-    model = ScriptedModel(writer, scripts)
+    model = ScriptedModel(writer, scripts, latency=latency or {})
     sandbox = sandbox or FakeSandbox()
     exts = [e if isinstance(e, tuple) else (e, ExtensionUse(use=e.id)) for e in extensions]
     loaded = load_extensions(
@@ -304,12 +349,15 @@ def harness(
             channels=channels,
             canaries=canaries,
             sandbox_canaries=sandbox_canaries,
+            turn_policy=turn_policy,
         ),
         writer=writer,
         model_client=model,
         sandbox_executor=sandbox,
+        pauser=pauser,
         extensions=loaded,
         tools=[SHELL, WEB_REQUEST],
         web_client=web,
+        fork=fork,
     )
-    return Harness(loop=loop, store=store, model=model, sandbox=sandbox, web=web)
+    return Harness(loop=loop, store=store, model=model, sandbox=sandbox, web=web, pauser=pauser)

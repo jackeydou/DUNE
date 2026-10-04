@@ -1,7 +1,7 @@
 """Throwaway Postgres, RustFS, and sandboxd for tests marked `docker`, started once per session.
 
-sandboxd is built from `go/`, so it needs the Go toolchain (`mise run test:docker` provides it)
-and `busybox:latest` on the docker host.
+sandboxd (and edge, for its tests) is built from `go/`, so it needs the Go toolchain
+(`mise run test:docker` provides it) and `busybox:latest` on the docker host.
 """
 
 import os
@@ -95,36 +95,47 @@ async def run_id(engine: AsyncEngine) -> str:
     return run_id
 
 
-def _free_port() -> int:
+def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port: int = s.getsockname()[1]
         return port
 
 
+def wait_listening(proc: "subprocess.Popen[bytes]", port: int, timeout_s: float = 30) -> None:
+    """Returns once `proc` accepts connections on 127.0.0.1:`port`; raises if it exits first or
+    takes longer than `timeout_s`."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=1).close()
+            return
+        except OSError:
+            if proc.poll() is not None or time.monotonic() > deadline:
+                raise
+            time.sleep(0.1)
+
+
+def go_build(command: str, out_dir: Path) -> Path:
+    """Builds `go/cmd/<command>` into `out_dir` and returns the binary."""
+    binary = out_dir / command
+    subprocess.run(
+        ["go", "build", "-o", str(binary), f"./cmd/{command}"], cwd=REPO / "go", check=True
+    )
+    return binary
+
+
 @pytest.fixture(scope="session")
 def sandboxd(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    bin_dir = tmp_path_factory.mktemp("bin")
-    binary = bin_dir / "sandboxd"
-    subprocess.run(
-        ["go", "build", "-o", str(binary), "./cmd/sandboxd"], cwd=REPO / "go", check=True
-    )
+    binary = go_build("sandboxd", tmp_path_factory.mktemp("bin"))
     # The docker daemon must see the state directory at the same path; resolve macOS's
     # /var -> /private/var symlink the way the Go integration tests do.
     state = os.path.realpath(tmp_path_factory.mktemp("state"))
-    port = _free_port()
+    port = free_port()
     address = f"127.0.0.1:{port}"
     proc = subprocess.Popen([binary, "--state-dir", state, "--listen", address])
     try:
-        deadline = time.monotonic() + 30
-        while True:
-            try:
-                socket.create_connection(("127.0.0.1", port), timeout=1).close()
-                break
-            except OSError:
-                if proc.poll() is not None or time.monotonic() > deadline:
-                    raise
-                time.sleep(0.1)
+        wait_listening(proc, port)
         yield address
     finally:
         proc.terminate()

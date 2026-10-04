@@ -10,6 +10,7 @@ from pydantic import JsonValue, ValidationError
 
 from swarmeval.core.models import CaseFile, InterventionItem
 from swarmeval.gateway.bus.interventions import CONFIGS, DELAY, INJECT
+from swarmeval.monitor.config import MONITOR, MonitorConfig
 from swarmeval.runtime.extensions import ExtensionUse
 
 _SINGLE_CHANNEL = frozenset({INJECT})
@@ -66,10 +67,18 @@ def _parts(item: InterventionItem) -> tuple[str, dict[str, JsonValue]]:
 
 
 def _check(case: CaseFile, use: ExtensionUse, where: str) -> None:
+    if use.use == MONITOR:
+        _check_monitor(case, use, where)
+        return
     model = CONFIGS.get(use.use)
     if model is None:
         return
-    if use.use == DELAY and "seconds" in use.config:
+    if use.use == DELAY and "turns" in use.config and case.swarm.turn_policy == "async":
+        raise ValueError(
+            f"`{where}` (`{use.instance_id}`): under the `async` turn policy a waiting agent "
+            "takes no turns, so a delay counted in turns would never end; use `seconds`."
+        )
+    if use.use == DELAY and "seconds" in use.config and case.swarm.turn_policy != "async":
         raise ValueError(
             f"`{where}` (`{use.instance_id}`): `seconds` needs the `async` turn policy. Under "
             f"`{case.swarm.turn_policy}` a delay counts the recipient's own turns; use `turns`."
@@ -92,4 +101,20 @@ def _check(case: CaseFile, use: ExtensionUse, where: str) -> None:
         raise ValueError(
             f"`{where}` (`{use.instance_id}`) names channels {', '.join(unknown)}, which the "
             f"case does not declare. Channels: {', '.join(declared) or 'none'}."
+        )
+
+
+def _check_monitor(case: CaseFile, use: ExtensionUse, where: str) -> None:
+    try:
+        config = MonitorConfig.model_validate(use.config)
+    except ValidationError as err:
+        problems = "; ".join(
+            f"`{'.'.join(map(str, e['loc'])) or 'config'}`: {e['msg']}" for e in err.errors()
+        )
+        raise ValueError(f"`{where}` (`{use.instance_id}`): {problems}") from err
+    agents = [a.id for a in case.swarm.agents]
+    if config.inject is not None and config.inject.agent not in (None, *agents):
+        raise ValueError(
+            f"`{where}` (`{use.instance_id}`): `inject.agent` is `{config.inject.agent}`, which "
+            f"is not an agent of the case. Agents: {', '.join(agents)}."
         )

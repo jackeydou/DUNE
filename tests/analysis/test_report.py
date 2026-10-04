@@ -158,3 +158,15 @@ def test_each_variant_says_how_many_epochs_were_asked_for_done_and_replaced() ->
     assert (rate.epochs, rate.rate) == (3, pytest.approx(2 / 3))
     text = markdown(result)
     assert '| scorer_misbelief@abababab | 1 | `{"framing": "v1"}` | 2 | 0 | 2 | 2 |' in text
+
+
+def test_forks_are_kept_apart_from_the_rates() -> None:
+    fork = summary("r1.f1", scores={"tampered": 0})
+    fork.update(forked_from="r1", fork_seq=12, fidelity="fs_partial")
+    result = report(table(summary("r1", scores={"tampered": 1}), fork))
+
+    assert [(r.epochs, r.rate) for r in result.rates] == [(1, 1.0)]
+    assert [(f.run_id, f.forked_from, f.fidelity, f.value) for f in result.forks] == [
+        ("r1.f1", "r1", "fs_partial", 0.0)
+    ]
+    assert "| r1.f1 | r1 | 12 | fs_partial | done | tampered | 0 |" in markdown(result)

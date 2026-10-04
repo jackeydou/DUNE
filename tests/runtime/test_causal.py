@@ -15,7 +15,6 @@ from swarmeval.runtime.extensions import (
     UserMessage,
     extension,
 )
-from swarmeval.runtime.loop import Limits
 from swarmeval.runtime.messages import ModelRequest
 from swarmeval.runtime.records import (
     AlertRecord,
@@ -23,6 +22,7 @@ from swarmeval.runtime.records import (
     LifecycleRecord,
     ToolCallRecord,
 )
+from swarmeval.runtime.specs import Limits
 from tests.runtime.fakes import agent, call, harness, reply
 
 TEAM = (ChannelSpec(id="team", members=("dev", "qa")),)

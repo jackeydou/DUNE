@@ -59,6 +59,11 @@ class SandboxServiceStub:
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.ReadFileRequest.SerializeToString,
                 response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.ReadFileResponse.FromString,
                 _registered_method=True)
+        self.RestoreFiles = channel.unary_unary(
+                '/swarmeval.sandbox.v1.SandboxService/RestoreFiles',
+                request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.RestoreFilesRequest.SerializeToString,
+                response_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.RestoreFilesResponse.FromString,
+                _registered_method=True)
         self.FinalDiff = channel.unary_stream(
                 '/swarmeval.sandbox.v1.SandboxService/FinalDiff',
                 request_serializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.FinalDiffRequest.SerializeToString,
@@ -112,6 +117,16 @@ class SandboxServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RestoreFiles(self, request, context):
+        """Puts key paths into a state an earlier run recorded, for a fork: removes paths, then creates
+        directories, then writes files, and takes the manifest again, so none of it is ever reported
+        as a change. Only before the sandbox's first Exec, else FAILED_PRECONDITION. Files hold at
+        most 3 MiB per request; send several to restore more.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def FinalDiff(self, request, context):
         """Diffs every sandbox of a run against its last manifest, catching writes by background
         processes after the last call. Every change is attributed `AMBIGUOUS`.
@@ -149,6 +164,11 @@ def add_SandboxServiceServicer_to_server(servicer, server):
                     servicer.ReadFile,
                     request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.ReadFileRequest.FromString,
                     response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.ReadFileResponse.SerializeToString,
+            ),
+            'RestoreFiles': grpc.unary_unary_rpc_method_handler(
+                    servicer.RestoreFiles,
+                    request_deserializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.RestoreFilesRequest.FromString,
+                    response_serializer=swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.RestoreFilesResponse.SerializeToString,
             ),
             'FinalDiff': grpc.unary_stream_rpc_method_handler(
                     servicer.FinalDiff,
@@ -274,6 +294,33 @@ class SandboxService:
             '/swarmeval.sandbox.v1.SandboxService/ReadFile',
             swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.ReadFileRequest.SerializeToString,
             swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.ReadFileResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RestoreFiles(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/swarmeval.sandbox.v1.SandboxService/RestoreFiles',
+            swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.RestoreFilesRequest.SerializeToString,
+            swarmeval_dot_proto_dot_swarmeval_dot_sandbox_dot_v1_dot_sandbox__pb2.RestoreFilesResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -28,6 +28,11 @@ service SandboxService {
 
   // Reads one file from a sandbox without running anything inside it. For final-state scorers.
   rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  // Puts key paths into a state an earlier run recorded, for a fork: removes paths, then creates
+  // directories, then writes files, and takes the manifest again, so none of it is ever reported
+  // as a change. Only before the sandbox's first Exec, else FAILED_PRECONDITION. Files hold at
+  // most 3 MiB per request; send several to restore more.
+  rpc RestoreFiles(RestoreFilesRequest) returns (RestoreFilesResponse);
 
   // Diffs every sandbox of a run against its last manifest, catching writes by background
   // processes after the last call. Every change is attributed `AMBIGUOUS`.
@@ -191,6 +196,9 @@ message FsChange {
   // The new content follows as a blob with hash `after_sha256`. Unset for files over the
   // content limit.
   bool content = 12;
+  // Modification time after the change as the file system reports it, in nanoseconds since the
+  // Unix epoch; before it for a delete. A process can set it to anything (`touch -d`).
+  int64 mtime_ns = 13;
 }
 
 message Process {
@@ -206,6 +214,42 @@ message BlobChunk {
   string sha256 = 1;
   bytes data = 2;
   bool last = 3;
+}
+
+message RestoreFilesRequest {
+  string run_id = 1;
+  string sandbox_id = 2;
+  // Absolute, clean, and strictly inside a key path. One that does not exist is skipped.
+  repeated string remove = 3;
+  repeated RestoreDir dirs = 4;
+  repeated RestoreFile files = 5;
+}
+
+// Whatever is at `path` and is not a directory is removed first.
+message RestoreDir {
+  // Absolute, clean, and strictly inside a key path.
+  string path = 1;
+  // Permission bits; zero means 0755.
+  uint32 mode = 2;
+  // Owner to give it, when that differs from the owner sandboxd writes as.
+  uint32 uid = 3;
+}
+
+// Whatever is at `path` and is not a regular file (a directory, a symlink) is removed first, so
+// the write never follows a link.
+message RestoreFile {
+  // Absolute, clean, and strictly inside a key path.
+  string path = 1;
+  bytes content = 2;
+  // Permission bits; zero means 0644.
+  uint32 mode = 3;
+  uint32 uid = 4;
+}
+
+message RestoreFilesResponse {
+  // Paths whose owner sandboxd could not set, because it does not run as root. The content and
+  // mode are restored.
+  repeated string unowned = 1;
 }
 
 message ReadFileRequest {

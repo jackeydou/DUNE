@@ -5,6 +5,7 @@ golangci-lint = "2.14.0"
 buf = "1.73.0"
 protoc-gen-go = "1.36.12"
 protoc-gen-go-grpc = "1.6.2"
+"go:connectrpc.com/connect/cmd/protoc-gen-connect-go" = "1.21.0"
 
 [tasks.sync]
 description = "Install the Python version and all dependencies from uv.lock"
@@ -41,7 +42,7 @@ dir = "go"
 run = "go test ./..."
 
 [tasks."go:test-integration"]
-description = "sandboxd against the local docker daemon. Needs busybox:latest and python:3.12-slim on the host"
+description = "sandboxd against the local docker daemon (needs busybox:latest and python:3.12-slim on the host), and edge against a throwaway Postgres"
 dir = "go"
 run = "go test -tags integration -count=1 ./..."
 
@@ -49,7 +50,7 @@ run = "go test -tags integration -count=1 ./..."
 description = "Generate gRPC stubs from proto/: Go with buf, Python with grpcio-tools"
 run = [
   "buf generate",
-  "rm -rf swarmeval/proto && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=. --grpc_python_out=. --mypy_out=quiet:. --mypy_grpc_out=quiet:. $(find proto -name '*.proto')",
+  "rm -rf swarmeval/proto && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=. --grpc_python_out=. --mypy_out=quiet:. --mypy_grpc_out=quiet:. $(find proto -name '*.proto' -not -path 'proto/swarmeval/api/*')",
 ]
 
 [tasks."proto:lint"]
@@ -58,9 +59,13 @@ run = [
   "buf lint",
   "buf format --diff --exit-code",
   "tmp=$(mktemp -d) && buf generate -o \"$tmp\" && diff -r \"$tmp/go/internal/gen\" go/internal/gen && rm -rf \"$tmp\"",
-  "tmp=$(mktemp -d) && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=\"$tmp\" --grpc_python_out=\"$tmp\" --mypy_out=quiet:\"$tmp\" --mypy_grpc_out=quiet:\"$tmp\" $(find proto -name '*.proto') && diff -r -x __pycache__ \"$tmp/swarmeval/proto\" swarmeval/proto && rm -rf \"$tmp\"",
+  "tmp=$(mktemp -d) && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=\"$tmp\" --grpc_python_out=\"$tmp\" --mypy_out=quiet:\"$tmp\" --mypy_grpc_out=quiet:\"$tmp\" $(find proto -name '*.proto' -not -path 'proto/swarmeval/api/*') && diff -r -x __pycache__ \"$tmp/swarmeval/proto\" swarmeval/proto && rm -rf \"$tmp\"",
 ]
+
+[tasks."proto:breaking"]
+description = "buf breaking against the local main branch. Only the public API (proto/swarmeval/api) is checked"
+run = "buf breaking --against '.git#branch=main'"
 
 [tasks.check]
 description = "Everything that must pass before a change is done"
-depends = ["lint", "typecheck", "test", "go:lint", "go:test", "proto:lint"]
+depends = ["lint", "typecheck", "test", "go:lint", "go:test", "proto:lint", "proto:breaking"]

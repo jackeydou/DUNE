@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from swarmeval.db import (
     agent_state,
+    checkpoints,
     control_runs,
     deliveries,
     events,
@@ -53,7 +54,9 @@ class _Tail:
 
 
 class PostgresRunStore:
-    """`sandboxes` maps each agent to its sandbox, to attribute tool events."""
+    """`sandboxes` maps each agent to its sandbox, to attribute tool events. `start` is where
+    the chain begins when the run has no event yet: the genesis value, or for a fork its
+    source's head at the fork point."""
 
     def __init__(
         self,
@@ -63,8 +66,10 @@ class PostgresRunStore:
         workspace: str,
         owner_epoch: int,
         sandboxes: Mapping[str, str | None],
+        start: ChainHead | None = None,
     ) -> None:
         self._engine = engine
+        self._start = start or ChainHead.start(run_id)
         self._run_id = run_id
         self._workspace = workspace
         self._epoch = owner_epoch
@@ -89,6 +94,20 @@ class PostgresRunStore:
             )
             if event_rows:
                 await conn.execute(insert(events), event_rows)
+            if txn.inherited_mail:
+                await conn.execute(
+                    insert(deliveries),
+                    [
+                        {
+                            "run_id": self._run_id,
+                            "msg_seq": m.send_seq,
+                            "recipient": m.recipient,
+                            "status": "pending" if m.due_turn is None else "delayed",
+                            "due_turn": m.due_turn,
+                        }
+                        for m in txn.inherited_mail
+                    ],
+                )
             await self._write_deliveries(conn, committed)
             await self._decide_deliveries(conn, txn.deliveries)
             tails = await self._write_messages(conn, txn, head.seq)
@@ -122,6 +141,15 @@ class PostgresRunStore:
                         }
                         for k, v in txn.extension_states.items()
                     ],
+                )
+            if txn.checkpoint is not None:
+                await conn.execute(
+                    insert(checkpoints).values(
+                        run_id=self._run_id,
+                        turn=txn.checkpoint.turn,
+                        seq=head.seq,
+                        state=txn.checkpoint.model_dump(mode="json"),
+                    )
                 )
             if event_rows:
                 await conn.execute(
@@ -276,12 +304,18 @@ class PostgresRunStore:
             )
         ).one_or_none()
         if last is None:
-            return ChainHead.start(self._run_id)
+            return self._start
         started_at = (
-            await conn.execute(
-                select(events.c.ts).where(events.c.run_id == self._run_id, events.c.seq == 1)
-            )
-        ).scalar_one()
+            self._start.started_at
+            or (
+                await conn.execute(
+                    select(events.c.ts)
+                    .where(events.c.run_id == self._run_id)
+                    .order_by(events.c.seq)
+                    .limit(1)
+                )
+            ).scalar_one()
+        )
         return ChainHead(seq=last.seq, hash=last.hash, started_at=started_at)
 
     async def _write_messages(
@@ -305,8 +339,12 @@ class PostgresRunStore:
             )
             tails[agent_id] = _Tail(gen=tail.gen, next_idx=tail.next_idx + 1)
 
+        for (agent_id, gen), copied in txn.inherited.items():
+            tails[agent_id] = _Tail(gen=gen, next_idx=0)
+            for message in copied:
+                append(agent_id, message)
         for agent_id, initial in txn.new_generations.items():
-            current = await self._tail(conn, agent_id)
+            current = tails.get(agent_id) or await self._tail(conn, agent_id)
             tails[agent_id] = _Tail(gen=0 if current is None else current.gen + 1, next_idx=0)
             for message in initial:
                 append(agent_id, message)

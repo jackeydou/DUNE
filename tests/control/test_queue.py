@@ -189,3 +189,25 @@ async def test_a_missing_summary_fails_only_a_done_run(
         cancelled: ("cancelled", "summary export failed: OSError: full"),
         rerun: ("queued", None),
     }
+
+
+async def test_actors_are_recorded_and_a_rerun_keeps_its_submitter(
+    engine: AsyncEngine, submission: str
+) -> None:
+    queue = Queue(engine)
+    first, second = await enqueue(queue, submission, epochs=2, submitted_by="ada")
+    owner_epoch = await start(engine, first, "w1")
+    assert await queue.pause(first, owner_epoch) == "paused"
+
+    resumed = await queue.resume(first, "grace")
+    cancelled = await queue.cancel(second, "linus")
+    rerun = await queue.finish(first, owner_epoch, "interrupted")
+
+    assert (resumed.submitted_by, resumed.resumed_by, resumed.cancelled_by) == (
+        "ada",
+        "grace",
+        None,
+    )
+    assert (cancelled.submitted_by, cancelled.cancelled_by) == ("ada", "linus")
+    assert rerun is not None
+    assert (await queue.get(rerun)).submitted_by == "ada"

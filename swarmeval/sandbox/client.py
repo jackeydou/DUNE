@@ -40,6 +40,22 @@ class SeedFile:
     mode: int = 0o644
 
 
+RESTORE_BATCH_BYTES = 2 << 20
+"""Paths and content per RestoreFiles request; sandboxd takes up to 3 MiB of content, and gRPC
+4 MiB in all."""
+
+
+@dataclass(frozen=True)
+class RestoreEntry:
+    """A directory or file to restore, with its recorded mode and owner. A directory has no
+    content."""
+
+    path: str
+    mode: int
+    uid: int
+    content: bytes = b""
+
+
 @dataclass(frozen=True)
 class FileContent:
     content: bytes
@@ -191,6 +207,48 @@ class RunSandboxes:
                 for p in header.processes
             ),
         )
+
+    async def restore(
+        self,
+        sandbox_id: str,
+        *,
+        remove: Sequence[str] = (),
+        dirs: Sequence[RestoreEntry] = (),
+        files: Sequence[RestoreEntry] = (),
+    ) -> list[str]:
+        """Puts the sandbox's key paths into a recorded state before its first command, as its
+        baseline: removes `remove`, creates `dirs`, writes `files`. Sent in requests of at most
+        `RESTORE_BATCH_BYTES` (paths and content), removals first, then directories, then files,
+        so each request only needs what earlier ones did. Returns the paths whose owner
+        sandboxd could not set."""
+        batches: list[pb.RestoreFilesRequest] = []
+        size = RESTORE_BATCH_BYTES
+
+        def current(cost: int) -> pb.RestoreFilesRequest:
+            nonlocal size
+            if size + cost > RESTORE_BATCH_BYTES:
+                batches.append(pb.RestoreFilesRequest(run_id=self._run_id, sandbox_id=sandbox_id))
+                size = 0
+            size += cost
+            return batches[-1]
+
+        for path in remove:
+            current(len(path) + 16).remove.append(path)
+        for d in dirs:
+            current(len(d.path) + 16).dirs.append(
+                pb.RestoreDir(path=d.path, mode=d.mode, uid=d.uid)
+            )
+        for f in files:
+            entry = pb.RestoreFile(path=f.path, content=f.content, mode=f.mode, uid=f.uid)
+            current(len(f.path) + len(f.content) + 16).files.append(entry)
+        unowned: list[str] = []
+        for request in batches:
+            try:
+                response = await self._stub.RestoreFiles(request)
+            except grpc.aio.AioRpcError as err:
+                raise self._error("RestoreFiles", sandbox_id, err) from err
+            unowned.extend(response.unowned)
+        return unowned
 
     async def read_file(self, sandbox_id: str, path: str, *, max_bytes: int = 0) -> FileContent:
         """Reads a file without running anything in the sandbox. `max_bytes` of 0 means
@@ -348,4 +406,5 @@ def _change(change: pb.FsChange, where: str) -> FsChange:
         attribution=attribution,
         candidate_calls=tuple(change.candidate_calls),
         content_stored=change.content,
+        mtime_us=change.mtime_ns // 1000 or None,
     )

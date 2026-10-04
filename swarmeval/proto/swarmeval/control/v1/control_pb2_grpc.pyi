@@ -39,12 +39,30 @@ class ControlServiceStub:
     """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
     A case that does not load is INVALID_ARGUMENT, with the loader's message.
     """
+    SubmitSuite: _grpc.UnaryUnaryMultiCallable[_control_pb2.SubmitSuiteRequest, _control_pb2.SubmitSuiteResponse]
+    """Loads a suite with the case bundles it names and queues every case's runs in one
+    transaction, each case its own submission under one suite label: a suite with a case that
+    does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+    the suite entry at fault.
+    """
     GetRun: _grpc.UnaryUnaryMultiCallable[_control_pb2.GetRunRequest, _control_pb2.GetRunResponse]
     ListRuns: _grpc.UnaryUnaryMultiCallable[_control_pb2.ListRunsRequest, _control_pb2.ListRunsResponse]
     """Newest first."""
     CancelRun: _grpc.UnaryUnaryMultiCallable[_control_pb2.CancelRunRequest, _control_pb2.CancelRunResponse]
     """A queued run never starts; a running one stops at its owner's next step, keeps its events,
     and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
+    """
+    ResumeRun: _grpc.UnaryUnaryMultiCallable[_control_pb2.ResumeRunRequest, _control_pb2.ResumeRunResponse]
+    """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+    not paused is FAILED_PRECONDITION.
+    """
+    ForkRun: _grpc.UnaryUnaryMultiCallable[_control_pb2.ForkRunRequest, _control_pb2.ForkRunResponse]
+    """A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+    happened in, with `edits` applied: the same case
+    revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+    epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+    event before the first turn, or an edit that does not fit the state there is
+    FAILED_PRECONDITION.
     """
     StreamEvents: _grpc.UnaryStreamMultiCallable[_control_pb2.StreamEventsRequest, _control_pb2.StreamEventsResponse]
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
@@ -62,12 +80,30 @@ class ControlServiceAsyncStub(ControlServiceStub):
     """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
     A case that does not load is INVALID_ARGUMENT, with the loader's message.
     """
+    SubmitSuite: _aio.UnaryUnaryMultiCallable[_control_pb2.SubmitSuiteRequest, _control_pb2.SubmitSuiteResponse]  # type: ignore[assignment]
+    """Loads a suite with the case bundles it names and queues every case's runs in one
+    transaction, each case its own submission under one suite label: a suite with a case that
+    does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+    the suite entry at fault.
+    """
     GetRun: _aio.UnaryUnaryMultiCallable[_control_pb2.GetRunRequest, _control_pb2.GetRunResponse]  # type: ignore[assignment]
     ListRuns: _aio.UnaryUnaryMultiCallable[_control_pb2.ListRunsRequest, _control_pb2.ListRunsResponse]  # type: ignore[assignment]
     """Newest first."""
     CancelRun: _aio.UnaryUnaryMultiCallable[_control_pb2.CancelRunRequest, _control_pb2.CancelRunResponse]  # type: ignore[assignment]
     """A queued run never starts; a running one stops at its owner's next step, keeps its events,
     and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
+    """
+    ResumeRun: _aio.UnaryUnaryMultiCallable[_control_pb2.ResumeRunRequest, _control_pb2.ResumeRunResponse]  # type: ignore[assignment]
+    """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+    not paused is FAILED_PRECONDITION.
+    """
+    ForkRun: _aio.UnaryUnaryMultiCallable[_control_pb2.ForkRunRequest, _control_pb2.ForkRunResponse]  # type: ignore[assignment]
+    """A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+    happened in, with `edits` applied: the same case
+    revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+    epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+    event before the first turn, or an edit that does not fit the state there is
+    FAILED_PRECONDITION.
     """
     StreamEvents: _aio.UnaryStreamMultiCallable[_control_pb2.StreamEventsRequest, _control_pb2.StreamEventsResponse]  # type: ignore[assignment]
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
@@ -87,6 +123,18 @@ class ControlServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_control_pb2.SubmitRunsResponse, _abc.Awaitable[_control_pb2.SubmitRunsResponse]]:
         """Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
         A case that does not load is INVALID_ARGUMENT, with the loader's message.
+        """
+
+    @_abc_1.abstractmethod
+    def SubmitSuite(
+        self,
+        request: _control_pb2.SubmitSuiteRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.SubmitSuiteResponse, _abc.Awaitable[_control_pb2.SubmitSuiteResponse]]:
+        """Loads a suite with the case bundles it names and queues every case's runs in one
+        transaction, each case its own submission under one suite label: a suite with a case that
+        does not load queues nothing. The format: docs/case-format.md#suites. INVALID_ARGUMENT names
+        the suite entry at fault.
         """
 
     @_abc_1.abstractmethod
@@ -112,6 +160,30 @@ class ControlServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_control_pb2.CancelRunResponse, _abc.Awaitable[_control_pb2.CancelRunResponse]]:
         """A queued run never starts; a running one stops at its owner's next step, keeps its events,
         and is not scored. Cancelling a finished run is FAILED_PRECONDITION.
+        """
+
+    @_abc_1.abstractmethod
+    def ResumeRun(
+        self,
+        request: _control_pb2.ResumeRunRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.ResumeRunResponse, _abc.Awaitable[_control_pb2.ResumeRunResponse]]:
+        """A run paused for a person (a Monitor's `pause`) goes on from where it stopped. A run that is
+        not paused is FAILED_PRECONDITION.
+        """
+
+    @_abc_1.abstractmethod
+    def ForkRun(
+        self,
+        request: _control_pb2.ForkRunRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.ForkRunResponse, _abc.Awaitable[_control_pb2.ForkRunResponse]]:
+        """A new run that goes on from a finished run's state at the start of the turn `at_event_id`
+        happened in, with `edits` applied: the same case
+        revision, variant, and seed, its sandboxes restored from the stored file contents. Not an
+        epoch: reports keep forks apart. An unknown run or event is NOT_FOUND; a run still going, an
+        event before the first turn, or an edit that does not fit the state there is
+        FAILED_PRECONDITION.
         """
 
     @_abc_1.abstractmethod

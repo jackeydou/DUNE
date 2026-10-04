@@ -15,7 +15,13 @@ from swarmeval.core.loader import (
 )
 from swarmeval.core.models import CaseFile, EnvFile
 from swarmeval.core.plan import run_spec
-from swarmeval.core.suite import LoadedSuite, SuiteEntry, SuiteError, load_suite
+from swarmeval.core.suite import (
+    LoadedSuite,
+    SuiteEntry,
+    SuiteError,
+    load_suite,
+    load_suite_text,
+)
 
 __all__ = [
     "AgentPrompts",
@@ -31,5 +37,6 @@ __all__ = [
     "Variant",
     "load_case",
     "load_suite",
+    "load_suite_text",
     "run_spec",
 ]
