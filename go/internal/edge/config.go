@@ -18,6 +18,9 @@ const MaxBundleBytes = 64 << 20
 // larger.
 const maxRequestBytes = MaxBundleBytes*4/3 + 1<<20
 
+// maxAnalysisRequestBytes caps AnalysisService request bodies: a rule set or a SQL statement.
+const maxAnalysisRequestBytes = 1 << 20
+
 // maxAccountRequestBytes caps AuthService and UserService request bodies: usernames, passwords,
 // and token names.
 const maxAccountRequestBytes = 64 << 10

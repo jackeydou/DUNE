@@ -20,6 +20,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/jackeydou/DUNE/go/internal/edge/tenant"
+	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/analysis/v1/analysisv1connect"
 	apiv1 "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1/apiv1connect"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1/controlv1connect"
@@ -106,6 +107,9 @@ type stack struct {
 	users   apiv1connect.UserServiceClient
 	runs    apiv1connect.RunServiceClient
 	cases   apiv1connect.CaseServiceClient
+	// analysisFake answers for the analysis service; analysis is edge's public client for it.
+	analysisFake *fakeAnalysis
+	analysis     apiv1connect.AnalysisServiceClient
 }
 
 func newStack(t *testing.T) *stack {
@@ -114,6 +118,9 @@ func newStack(t *testing.T) *stack {
 	control := newFakeControl()
 	_, controlHandler := controlv1connect.NewControlServiceHandler(control)
 	controlSrv := h2cServer(t, controlHandler)
+	analysisFake := &fakeAnalysis{}
+	_, analysisHandler := analysisv1connect.NewAnalysisServiceHandler(analysisFake)
+	analysisSrv := h2cServer(t, analysisHandler)
 
 	edgeSrv := httptest.NewUnstartedServer(nil)
 	edgeSrv.Config.Protocols = new(http.Protocols)
@@ -129,21 +136,23 @@ func newStack(t *testing.T) *stack {
 		// Short, so a test can outlast them; local requests arrive in well under that.
 		BodyTimeout: testBodyTimeout, UploadTimeout: 5 * time.Second,
 	}
-	edgeSrv.Config.Handler = NewHandler(cfg, store, NewControlClient(controlSrv.URL), quietLog())
+	edgeSrv.Config.Handler = NewHandler(cfg, store, NewControlClient(controlSrv.URL), NewAnalysisClient(analysisSrv.URL), quietLog())
 	edgeSrv.Start()
 	t.Cleanup(edgeSrv.Close)
 
 	client := edgeSrv.Client()
 	return &stack{
-		url:     edgeSrv.URL,
-		cfg:     cfg,
-		store:   store,
-		pool:    pool,
-		control: control,
-		auth:    apiv1connect.NewAuthServiceClient(client, edgeSrv.URL),
-		users:   apiv1connect.NewUserServiceClient(client, edgeSrv.URL),
-		runs:    apiv1connect.NewRunServiceClient(client, edgeSrv.URL),
-		cases:   apiv1connect.NewCaseServiceClient(client, edgeSrv.URL),
+		url:          edgeSrv.URL,
+		cfg:          cfg,
+		store:        store,
+		pool:         pool,
+		control:      control,
+		auth:         apiv1connect.NewAuthServiceClient(client, edgeSrv.URL),
+		users:        apiv1connect.NewUserServiceClient(client, edgeSrv.URL),
+		runs:         apiv1connect.NewRunServiceClient(client, edgeSrv.URL),
+		cases:        apiv1connect.NewCaseServiceClient(client, edgeSrv.URL),
+		analysisFake: analysisFake,
+		analysis:     apiv1connect.NewAnalysisServiceClient(client, edgeSrv.URL),
 	}
 }
 

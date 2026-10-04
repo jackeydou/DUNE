@@ -16,11 +16,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import grpc
 import httpx2
 import pytest
 import yaml
+from sqlalchemy.ext.asyncio import AsyncEngine
 
+from swarmeval.analysis.service import AnalysisService
 from swarmeval.control.bundles import pack
+from swarmeval.events import ObjectStore, events_key, export_key
+from swarmeval.proto.swarmeval.analysis.v1.analysis_pb2_grpc import (
+    add_AnalysisServiceServicer_to_server,
+)
 from tests.containers import free_port, go_build, wait_listening
 from tests.gateway.mock_backend import completion, tool_call
 from tests.worker.conftest import Platform
@@ -90,7 +97,24 @@ def admin(edge_binary: Path, edge_env: dict[str, str]) -> str:
 
 
 @pytest.fixture
-def edge_process(edge_binary: Path, edge_env: dict[str, str], platform: Platform) -> Iterator[str]:
+async def analysis_address(engine: AsyncEngine, object_store: ObjectStore) -> AsyncIterator[str]:
+    """The analysis service on a loopback port, with no judge key."""
+    async with httpx2.AsyncClient() as http:
+        service = AnalysisService(engine=engine, store=object_store, http=http, gateway=None)
+        await service.start()
+        server = grpc.aio.server()
+        add_AnalysisServiceServicer_to_server(service, server)
+        port = server.add_insecure_port("127.0.0.1:0")
+        await server.start()
+        yield f"127.0.0.1:{port}"
+        await server.stop(None)
+        await service.close()
+
+
+@pytest.fixture
+def edge_process(
+    edge_binary: Path, edge_env: dict[str, str], platform: Platform, analysis_address: str
+) -> Iterator[str]:
     port = free_port()
     url = f"http://127.0.0.1:{port}"
     proc = subprocess.Popen(
@@ -103,6 +127,8 @@ def edge_process(edge_binary: Path, edge_env: dict[str, str], platform: Platform
             url,
             "--control",
             platform.control_address,
+            "--analysis",
+            analysis_address,
         ],
         env=edge_env,
     )
@@ -383,3 +409,104 @@ async def test_the_cli_keeps_a_case_in_the_library_and_runs_a_revision(
     assert (await cli.run("case", "unarchive", name))[0] == 0
     code, out, _ = await cli.run("case", "list", "--workspace", workspace)
     assert f"{name}  3" in out, out
+
+
+async def test_the_cli_queries_reports_and_exports_a_finished_run(
+    platform: Platform, edge: Edge, admin: str, cli: Cli, tmp_path: Path
+) -> None:
+    """M4 spec, Plan step 5: `swarm query`, `report`, and `export` through edge and the
+    analysis service, over a run the worker exported."""
+    backend = platform.backend
+    backend.reply(completion("", tool_calls=[tool_call("shell", json.dumps({"cmd": DEV_CMD}))]))
+    backend.reply(completion("all done"))
+    backend.reply(completion("ok"))
+    await cli.run("login", "--endpoint", edge.url, "-u", admin, stdin=PASSWORD + "\n")
+    code, out, err = await cli.run("run", str(write_case(tmp_path / "case")))
+    assert code == 0, err
+    submission = out.split()[1].rstrip(":")
+    run_id = out.splitlines()[1]
+    outcomes = await platform.worker.drain()
+    assert outcomes[run_id].status == "done", outcomes[run_id].error
+
+    sql = (
+        "SELECT r.run_id, r.status, count(*) AS events FROM runs r JOIN events e USING (run_id) "
+        f"WHERE r.submission_id = '{submission}' GROUP BY ALL"
+    )
+    code, out, err = await cli.run("query", sql)
+    assert code == 0, err
+    header, row = (line.split() for line in out.splitlines())
+    assert header == ["run_id", "status", "events"]
+    assert row[:2] == [run_id, "done"] and int(row[2]) > 3
+    code, out, _ = await cli.run("query", sql, "--csv")
+    assert out.splitlines()[0] == "run_id,status,events" and out.splitlines()[1].startswith(run_id)
+    code, out, _ = await cli.run("query", sql, "--json")
+    assert json.loads(out)["status"] == "done"
+    tools = f"SELECT seq FROM events WHERE run_id = '{run_id}' ORDER BY seq"
+    code, out, err = await cli.run("query", tools, "--max-rows", "2")
+    assert code == 0 and out.split() == ["seq", "1", "2"] and "cut at 2 rows" in err
+    code, _, err = await cli.run("query", "SELECT * FROM read_csv('/etc/passwd')")
+    assert code == 1 and "swarm: query: " in err and "disabled by configuration" in err, err
+    code, _, err = await cli.run("query", "SET enable_external_access = true")
+    assert code == 1 and "one SELECT" in err, err
+
+    code, out, err = await cli.run("report", "--submission", submission)
+    assert code == 0, err
+    assert "smoke@" in out and "| 1 |" in out.replace("1.00", "1")
+    code, out, _ = await cli.run("report", "--submission", submission, "--json")
+    report = json.loads(out)
+    assert report["coverage"][0]["done"] == 1 and report["rates"][0]["epochs"] == 1
+    code, _, err = await cli.run("report", "--compare", "nonsense")
+    assert code == 1 and "AXIS=A,B" in err
+
+    target = tmp_path / "out.eval"
+    code, out, err = await cli.run("export", run_id, "-o", str(target))
+    assert code == 0, err
+    assert target.read_bytes() == platform.store.get(export_key(run_id))
+    assert out.strip() == f"{target}: {target.stat().st_size} bytes"
+    code, _, err = await cli.run("export", run_id, "-o", str(target))
+    assert code == 1 and "not overwritten" in err
+    parquet = await cli.start("export", run_id, "--format", "parquet", "-o", "-")
+    raw, _ = await asyncio.wait_for(parquet.communicate(), timeout=60)
+    assert raw == platform.store.get(events_key(run_id))
+    missing = tmp_path / "missing.eval"
+    code, _, err = await cli.run("export", "smoke.00000000.v0.e1", "-o", str(missing))
+    assert code == 1 and "no `runs/smoke.00000000.v0.e1/sample.eval`" in err, err
+    assert not missing.exists()
+
+    # The console's calls, as it sends them.
+    signed_in = await edge.call(
+        "AuthService/LoginForToken", {"username": admin, "password": PASSWORD, "tokenName": "ui"}
+    )
+    auth = {"Authorization": f"Bearer {signed_in.json()['token']}"}
+    calls = await edge.call("AnalysisService/SearchToolCalls", {"runIds": [run_id]}, **auth)
+    assert calls.status_code == 200, calls.text
+    assert [c["tool"] for c in calls.json()["calls"]] == ["shell"]
+    started = await edge.call(
+        "AnalysisService/StartRuleScan",
+        {
+            "rulesYaml": "schema_version: 1\nrules:\n  - id: done\n    keyword: all done\n",
+            "runIds": [run_id],
+        },
+        **auth,
+    )
+    assert started.status_code == 200, started.text
+    job = started.json()["job"]
+    assert job["createdBy"] == admin
+    for _ in range(200):
+        got = await edge.call("AnalysisService/GetJob", {"jobId": job["jobId"]}, **auth)
+        job = got.json()["job"]
+        if job["status"] in ("done", "failed"):
+            break
+        await asyncio.sleep(0.05)
+    assert job["status"] == "done" and job["ruleScan"]["totalMatches"] >= 1, job
+    last_event = (await edge.stream("RunService/StreamEvents", {"runId": run_id}, **auth))[-1]
+    traced = await edge.call(
+        "AnalysisService/GetTrace", {"runId": run_id, "eventId": last_event["eventId"]}, **auth
+    )
+    assert traced.status_code == 200, traced.text
+    links = traced.json()["links"]
+    assert links[0]["seq"] == "1" and links[-1]["eventId"] == last_event["eventId"]
+    judged = await edge.call(
+        "AnalysisService/Judge", {"runId": run_id, "question": "q", "model": "m"}, **auth
+    )
+    assert (judged.status_code, judged.json()["code"]) == (400, "failed_precondition")

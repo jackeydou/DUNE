@@ -42,7 +42,7 @@ Requirements and limits:
 
 The public entry point: authenticates callers and serves the public API
 ([`proto/swarmeval/api/v1`](../proto/swarmeval/api/v1/)), forwarding run and case library
-calls to the orchestrator's Control API. Behavior, flags, and limits:
+calls to the orchestrator's Control API and analysis calls to the analysis service. Behavior, flags, and limits:
 [docs/services/edge.md](../docs/services/edge.md).
 
 ```bash
