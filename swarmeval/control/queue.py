@@ -21,7 +21,7 @@ from pydantic import JsonValue
 from sqlalchemy import ColumnElement, Row, Select, case, func, insert, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from swarmeval.db import control_runs, run_specs
+from swarmeval.db import case_revisions, control_runs, run_specs
 from swarmeval.events.store import FencedError
 
 RunStatus = Literal["queued", "running", "paused", "interrupted", "done", "failed", "cancelled"]
@@ -60,6 +60,8 @@ class NewRun:
     case_id: str
     workspace: str
     case_sha256: str
+    case_revision_id: int
+    """The `control.case_revisions` row whose bundle `case_sha256` is."""
     overrides: dict[str, JsonValue]
     variant: int
     task_args: dict[str, JsonValue]
@@ -78,6 +80,9 @@ class RunRow:
     workspace: str
     status: RunStatus
     case_sha256: str
+    case_revision_id: int
+    case_revision: int
+    """The revision's number within its case."""
     overrides: dict[str, JsonValue]
     variant: int
     task_args: dict[str, JsonValue]
@@ -110,6 +115,8 @@ def _joined() -> Select[*tuple[Any, ...]]:
         r.workspace,
         r.status,
         s.case_sha256,
+        s.case_revision_id,
+        case_revisions.c.revision.label("case_revision"),
         s.overrides,
         s.variant,
         s.task_args,
@@ -131,7 +138,11 @@ def _joined() -> Select[*tuple[Any, ...]]:
         r.created_at,
         r.started_at,
         r.finished_at,
-    ).join_from(control_runs, run_specs, r.run_id == s.run_id)
+    ).select_from(
+        control_runs.join(run_specs, r.run_id == s.run_id).join(
+            case_revisions, s.case_revision_id == case_revisions.c.id
+        )
+    )
 
 
 def _row(row: Row[*tuple[Any, ...]]) -> RunRow:
@@ -161,36 +172,43 @@ class Expired:
     expired_at: datetime
 
 
+async def insert_runs(conn: AsyncConnection, runs: Sequence[NewRun]) -> None:
+    """Queues `runs` in `conn`'s transaction, so they are queued together with whatever else it
+    writes, or not at all."""
+    await conn.execute(
+        insert(control_runs),
+        [{"run_id": r.run_id, "workspace": r.workspace, "status": "queued"} for r in runs],
+    )
+    await conn.execute(
+        insert(run_specs),
+        [
+            {
+                "run_id": r.run_id,
+                "submission_id": r.submission_id,
+                "case_id": r.case_id,
+                "case_sha256": r.case_sha256,
+                "case_revision_id": r.case_revision_id,
+                "overrides": r.overrides,
+                "variant": r.variant,
+                "task_args": r.task_args,
+                "epoch": r.epoch,
+                "epochs": r.epochs,
+                "replaces": r.replaces,
+                "suite": r.suite,
+                "submitted_by": r.submitted_by,
+            }
+            for r in runs
+        ],
+    )
+
+
 class Queue:
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
 
     async def enqueue(self, runs: Sequence[NewRun]) -> None:
         async with self._engine.begin() as conn:
-            await conn.execute(
-                insert(control_runs),
-                [{"run_id": r.run_id, "workspace": r.workspace, "status": "queued"} for r in runs],
-            )
-            await conn.execute(
-                insert(run_specs),
-                [
-                    {
-                        "run_id": r.run_id,
-                        "submission_id": r.submission_id,
-                        "case_id": r.case_id,
-                        "case_sha256": r.case_sha256,
-                        "overrides": r.overrides,
-                        "variant": r.variant,
-                        "task_args": r.task_args,
-                        "epoch": r.epoch,
-                        "epochs": r.epochs,
-                        "replaces": r.replaces,
-                        "suite": r.suite,
-                        "submitted_by": r.submitted_by,
-                    }
-                    for r in runs
-                ],
-            )
+            await insert_runs(conn, runs)
 
     async def get(self, run_id: str) -> RunRow:
         async with self._engine.connect() as conn:
@@ -421,6 +439,7 @@ class Queue:
                     submission_id=source.submission_id,
                     case_id=source.case_id,
                     case_sha256=source.case_sha256,
+                    case_revision_id=source.case_revision_id,
                     overrides=source.overrides,
                     variant=source.variant,
                     task_args=source.task_args,
@@ -562,6 +581,7 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
                     s.submission_id,
                     s.case_id,
                     s.case_sha256,
+                    s.case_revision_id,
                     s.overrides,
                     s.variant,
                     s.task_args,
@@ -603,6 +623,7 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
             submission_id=spec["submission_id"],
             case_id=spec["case_id"],
             case_sha256=spec["case_sha256"],
+            case_revision_id=spec["case_revision_id"],
             overrides=spec["overrides"],
             variant=spec["variant"],
             task_args=spec["task_args"],

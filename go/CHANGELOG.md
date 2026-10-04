@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- Case library. edge serves `swarmeval.api.v1.CaseService` (`PushCase`, `UpdateCaseFiles`,
+  `GetCase`, `ListCases`, `ListCaseRevisions`, `GetCaseRevision`, `ArchiveCase`,
+  `UnarchiveCase`), forwarded to the Control API with the caller as `actor`;
+  `RunService.SubmitRuns` takes a bundle or a library revision (`case`), and runs and submit
+  responses name their `case_revision`. `swarm case list|push|pull|revisions|archive|unarchive`,
+  and `swarm run --case WORKSPACE/CASE[@REVISION]`. `swarm run CASE_DIR` prints the revision its
+  runs use, and `swarm runs get` shows the case as `WORKSPACE/CASE@REVISION`.
 - `swarm`, the command line: `login` (saves an API token), `logout`, `whoami`, `run` (a case
   directory with `-V` overrides and `--epochs`, or a suite file submitted whole), `--follow`
   (streams every run's events, then their statuses; exits 1 unless all ended `done`), `runs

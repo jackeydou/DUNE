@@ -11,6 +11,7 @@ import (
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	controlv1 "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1/controlv1connect"
@@ -77,9 +78,9 @@ func (f *fakeControl) SubmitRuns(_ context.Context, req *connect.Request[control
 	f.runs[id] = &controlv1.Run{
 		RunId: id, SubmissionId: "s1", CaseId: "c", Workspace: "safety", Status: "queued",
 		TaskArgs: &structpb.Struct{Fields: map[string]*structpb.Value{"model": structpb.NewStringValue("m")}},
-		Epoch:    1, Epochs: 1, OwnerId: "worker-7", SubmittedBy: req.Msg.GetActor(),
+		Epoch:    1, Epochs: 1, OwnerId: "worker-7", SubmittedBy: req.Msg.GetActor(), CaseRevision: 4,
 	}
-	return connect.NewResponse(&controlv1.SubmitRunsResponse{SubmissionId: "s1", RunIds: []string{id}}), nil
+	return connect.NewResponse(&controlv1.SubmitRunsResponse{SubmissionId: "s1", RunIds: []string{id}, CaseRevision: 4}), nil
 }
 
 func (f *fakeControl) SubmitSuite(_ context.Context, req *connect.Request[controlv1.SubmitSuiteRequest]) (*connect.Response[controlv1.SubmitSuiteResponse], error) {
@@ -88,7 +89,7 @@ func (f *fakeControl) SubmitSuite(_ context.Context, req *connect.Request[contro
 	}
 	return connect.NewResponse(&controlv1.SubmitSuiteResponse{
 		Suite:       "core.0000aaaa",
-		Submissions: []*controlv1.SuiteSubmission{{CaseId: "c", SubmissionId: "s2", RunIds: []string{"c.s2.v0.e1"}}},
+		Submissions: []*controlv1.SuiteSubmission{{CaseId: "c", SubmissionId: "s2", RunIds: []string{"c.s2.v0.e1"}, CaseRevision: 2}},
 	}), nil
 }
 
@@ -179,4 +180,96 @@ func (f *fakeControl) StreamEvents(_ context.Context, req *connect.Request[contr
 		}
 	}
 	return nil
+}
+
+// The case library: one case, `safety/demo`, whose newest revision is 2.
+
+func fakeRevision(n int32, actor, note string) *controlv1.CaseRevision {
+	return &controlv1.CaseRevision{
+		Workspace: "safety", CaseId: "demo", Revision: n, BundleSha256: "abc123", Actor: actor, Note: note,
+		CreatedAt: timestamppb.New(time.Unix(1_790_000_000, 0)),
+	}
+}
+
+func fakeCase(archived bool) *controlv1.Case {
+	c := &controlv1.Case{Workspace: "safety", CaseId: "demo", Latest: fakeRevision(2, "bob", "")}
+	if archived {
+		c.ArchivedAt = timestamppb.New(time.Unix(1_790_000_100, 0))
+	}
+	return c
+}
+
+func (f *fakeControl) PushCase(_ context.Context, req *connect.Request[controlv1.PushCaseRequest]) (*connect.Response[controlv1.PushCaseResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&controlv1.PushCaseResponse{
+		Revision: fakeRevision(3, req.Msg.GetActor(), req.Msg.GetNote()), Created: true,
+	}), nil
+}
+
+func (f *fakeControl) UpdateCaseFiles(_ context.Context, req *connect.Request[controlv1.UpdateCaseFilesRequest]) (*connect.Response[controlv1.UpdateCaseFilesResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	if req.Msg.GetBaseRevision() != 2 {
+		return nil, connect.NewError(connect.CodeAborted, fmt.Errorf(
+			"case `demo` in workspace `safety` is at revision 2, and the changes were made against revision %d.", req.Msg.GetBaseRevision()))
+	}
+	return connect.NewResponse(&controlv1.UpdateCaseFilesResponse{
+		Revision: fakeRevision(3, req.Msg.GetActor(), req.Msg.GetNote()), Created: true,
+	}), nil
+}
+
+func (f *fakeControl) GetCase(_ context.Context, req *connect.Request[controlv1.GetCaseRequest]) (*connect.Response[controlv1.GetCaseResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	if req.Msg.GetCaseId() != "demo" {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no case `%s` in workspace `%s`.", req.Msg.GetCaseId(), req.Msg.GetWorkspace()))
+	}
+	return connect.NewResponse(&controlv1.GetCaseResponse{Case: fakeCase(false)}), nil
+}
+
+func (f *fakeControl) ListCases(_ context.Context, req *connect.Request[controlv1.ListCasesRequest]) (*connect.Response[controlv1.ListCasesResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&controlv1.ListCasesResponse{Cases: []*controlv1.Case{fakeCase(false)}}), nil
+}
+
+func (f *fakeControl) ListCaseRevisions(_ context.Context, req *connect.Request[controlv1.ListCaseRevisionsRequest]) (*connect.Response[controlv1.ListCaseRevisionsResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&controlv1.ListCaseRevisionsResponse{
+		Revisions: []*controlv1.CaseRevision{fakeRevision(2, "bob", ""), fakeRevision(1, "ada", "first")},
+	}), nil
+}
+
+func (f *fakeControl) GetCaseRevision(_ context.Context, req *connect.Request[controlv1.GetCaseRevisionRequest]) (*connect.Response[controlv1.GetCaseRevisionResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&controlv1.GetCaseRevisionResponse{
+		Revision: fakeRevision(2, "bob", ""),
+		Files: []*controlv1.CaseFile{
+			{Path: "alias.md", LinkTarget: "task.md", Mode: 0o777},
+			{Path: "task.md", Content: []byte("Fix the bug."), Mode: 0o644},
+		},
+	}), nil
+}
+
+func (f *fakeControl) ArchiveCase(_ context.Context, req *connect.Request[controlv1.ArchiveCaseRequest]) (*connect.Response[controlv1.ArchiveCaseResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&controlv1.ArchiveCaseResponse{Case: fakeCase(true)}), nil
+}
+
+func (f *fakeControl) UnarchiveCase(_ context.Context, req *connect.Request[controlv1.UnarchiveCaseRequest]) (*connect.Response[controlv1.UnarchiveCaseResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&controlv1.UnarchiveCaseResponse{Case: fakeCase(false)}), nil
 }

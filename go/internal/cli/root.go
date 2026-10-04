@@ -39,7 +39,7 @@ func NewRoot(in io.Reader, out, errOut io.Writer) *cobra.Command {
 	root.PersistentFlags().BoolVar(&a.asJSON, "json", false, "print results as JSON where a command prints records")
 	root.AddCommand(
 		a.loginCommand(), a.logoutCommand(), a.whoamiCommand(), a.tokenCommand(), a.userCommand(),
-		a.runCommand(), a.runsCommand(), a.eventsCommand(), a.replayCommand(),
+		a.runCommand(), a.runsCommand(), a.eventsCommand(), a.replayCommand(), a.caseCommand(),
 	)
 	return root
 }

@@ -46,7 +46,7 @@ inference, so one asyncio process per worker is enough.
 | Package | Holds |
 |---|---|
 | `swarmeval/core/` | Case and env models, loader, variant expansion |
-| `swarmeval/control/` | Control API servicer, case bundles, the queue (shared with the worker), live event wakeups |
+| `swarmeval/control/` | Control API servicer (`service.py`, and `case_rpcs.py` for the case RPCs), case bundles, the case library (`cases.py`), the queue (shared with the worker), live event wakeups |
 | `swarmeval/worker/` | Worker main loop, run lifecycle, and the isolation self-check |
 | `swarmeval/runtime/` | Turn policies, the ReAct agent loop, tool dispatch, extensions. Knows no database or service |
 | `swarmeval/gateway/bus/` | Message Bus: channel ACLs, deliveries, interventions |
@@ -70,19 +70,21 @@ proposed)*. Messages may be up to 64 MiB, for case bundles.
 
 | RPC | Does | From |
 |---|---|---|
-| `SubmitRuns` | Takes a case bundle, variant overrides (axis → list of values), epochs (0 = the case's), and an optional [suite](#suites) label; validates, stores the bundle, and enqueues one run per variant and epoch; returns the submission id and run ids. A case that does not load is `INVALID_ARGUMENT` with the loader's message | Built |
+| `SubmitRuns` | Takes a case, as a bundle or as a [library](#case-library) revision (`case`: workspace, case id, revision, 0 = newest), exactly one of the two; variant overrides (axis → list of values), epochs (0 = the case's), and an optional [suite](#suites) label. A bundle is validated and pushed to the library as `PushCase` pushes it, in the transaction that queues the runs. Enqueues one run per variant and epoch; returns the submission id, the run ids, and the revision they use. A case that does not load is `INVALID_ARGUMENT` with the loader's message; an unknown case or revision is `NOT_FOUND`; an archived case is `FAILED_PRECONDITION` | Built |
 | `GetRun`, `ListRuns` | Status, variant and its values, epoch, the run it [reruns](#reruns), owner, isolation level, error, timestamps. `ListRuns` filters by submission, suite label, case, and status, newest first | Built. Fidelity arrives with recovery (M3) |
 | `CancelRun` | Marks cancelled. A queued run never starts; a running one stops at its owner's next hook point, is not scored, and is still exported. A finished run is `FAILED_PRECONDITION` | Built |
 | `ResumeRun` | A run paused for a person (a Monitor's `pause`) goes on from the hook point where it stopped. A run that is not paused is `FAILED_PRECONDITION` | Built |
 | `ForkRun` | A new run that goes on from a finished run's state at the start of the turn an event happened in, with edits: replace a message's text, delete a user message, or replace an undelivered message's content ([forks](#forks)). Returns the fork, `<source>.f<n>`, queued. Only a run that ended `done` or `cancelled` (an exported one) can be forked. An unknown run or event is `NOT_FOUND`; any other source run, an event before the first turn, a turn that began with extension background work (`ctx.spawn`) still running, a run recorded before forks were possible, or an edit that does not fit is `FAILED_PRECONDITION`; a malformed edit is `INVALID_ARGUMENT` | Built |
 | `SubmitSuite` | Takes a [suite](#suites) file and one bundle per `cases[].path` it names, loads the suite, and queues every case's runs in one transaction under one suite label; returns the label and one submission per entry. A suite that does not load, a path with no bundle, or a bundle the suite does not name is `INVALID_ARGUMENT`, and nothing is queued | Built |
 | `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent. Each event comes with its stored payload and its `line`, the one-line text the judge reads (`swarmeval.events.render`), cut at 2,000 characters | Built |
-| Case CRUD | Read and write `case.yaml` / `env.yaml` for the console | M4 |
+| `PushCase`, `UpdateCaseFiles`, `GetCase`, `ListCases`, `ListCaseRevisions`, `GetCaseRevision`, `ArchiveCase`, `UnarchiveCase` | The [case library](#case-library) | Built |
 
 `SubmitRuns`, `CancelRun`, `ResumeRun`, and `ForkRun` take an `actor`: the user [edge](edge.md)
 authenticated, empty for internal tooling. It is recorded on the run, not in its events, and `Run`
 returns it as `submitted_by` (a rerun keeps its predecessor's), `cancelled_by`, and `resumed_by`
-(the last resume) ([M4 spec](../../spec/2026-10-03-m4-console/README.md) decision 2).
+(the last resume) ([M4 spec](../../spec/2026-10-03-m4-console/README.md) decision 2). The case
+writes take one too: it is recorded on the revision they make. Who archived or unarchived a case
+is only logged.
 
 Run ids are `<case>.<submission>.v<variant>.e<epoch>`. Override numbers travel as protobuf doubles;
 a whole number becomes an int again.
@@ -91,10 +93,53 @@ a whole number becomes an int again.
 
 `SubmitRuns` carries the case directory as a tar archive. The control plane validates it with
 the same loader the worker uses and stores it in object storage as `cases/sha256/<hex>.tar`.
-Each run row references that hash. Control plane and workers share no disk, and the hash pins the
+Each run row references that hash, and the [library](#case-library) revision that names it. Control plane and workers share no disk, and the hash pins the
 exact prompts, hooks, and data a run used *(proposed)*. Bundles are extracted with tarfile's
 `data` filter: `..`, links that leave the directory, and device files are refused, and absolute
 member paths land inside the directory. `case.yaml` must be at the archive's root.
+
+### Case library
+
+Built. Every case the platform stores or runs is in the library, with its history
+([M4 spec](../../spec/2026-10-03-m4-console/README.md) decision 6).
+
+- **Cases.** `control.cases` has one row per `workspace` and `case_id`, the `workspace` and `id`
+  of the `case.yaml`. The same id in two workspaces is two cases.
+- **Revisions.** `control.case_revisions` numbers a case's revisions from 1. Each names a
+  [bundle](#case-bundles) by hash, the `actor` of the request that made it, and an optional
+  note of at most 1,000 characters. A row is never updated or deleted, and neither is its
+  bundle: every run references one revision (`control.run_specs.case_revision_id`), so they are
+  part of the evidence. `Run` returns the number as `case_revision`. A rerun and a fork use
+  their source's revision.
+- **Push** (`PushCase`, and a bundle given to `SubmitRuns` or `SubmitSuite`). The bundle is
+  loaded as a worker will load it. If its bytes are the case's newest revision, that revision
+  is used; otherwise it becomes the next one. The first push creates the case. A case that
+  does not load is `INVALID_ARGUMENT` and nothing is stored; [case code](#case-code) on a
+  deployment that runs none is `FAILED_PRECONDITION`, as before. A revision pushed by a
+  submission is written in the transaction that queues its runs.
+- **Edit** (`UpdateCaseFiles`, for the console). Takes the revision the changes were made
+  against and a list of changes, each a path with new content or a delete. The control plane
+  unpacks the base bundle, applies the changes, packs it again, and validates the result as a
+  push is validated, so a revision that does not load is never stored. A base that is not the
+  newest revision is `ABORTED`, with the newest revision's number in the message; it is checked
+  under a row lock on the case, so of two edits at once exactly one wins. Base 0 creates a case
+  that does not exist from the written files alone. Changes that leave every file as it was
+  make no revision. Limits and refusals (`INVALID_ARGUMENT`): a written file is at most 1 MiB,
+  and the packed case at most 64 MiB; paths are relative with `/` separators, without `.`, `..`,
+  or `__pycache__` parts, and may not pass through a file or a link; a path may appear once;
+  deleting a file that is not there is refused; `case.yaml` must still name the same
+  `workspace` and `id`. A written file keeps its mode, a new one gets 0644, and a link written
+  to becomes a regular file.
+- **Read.** `ListCases` (by workspace and id; archived cases only with `include_archived`) and
+  `GetCase` return each case with its newest revision. `ListCaseRevisions` is newest first.
+  `GetCaseRevision` returns one revision (0 = newest) with its files: path, content, mode, and
+  for a symbolic link its target. Diffs are the client's to compute.
+- **Archive.** `ArchiveCase` sets `archived_at`: the case leaves the default list and takes no
+  pushes, edits, or runs (`FAILED_PRECONDITION`). Nothing is deleted, old revisions stay
+  readable, and `UnarchiveCase` takes it back.
+- **Runs from before the library.** Migration 0010 gave them cases and revisions: one revision
+  per bundle hash a case's runs had used, numbered in the order the hashes were first used,
+  with the first run's `submitted_by` as actor.
 
 ### Suites
 
@@ -112,8 +157,9 @@ Both send the suite file and one [bundle](#case-bundles) per distinct `cases[].p
 `swarmeval.core.load_suite_text` against them, so the format is checked in one place, and
 queues each entry as its own submission with its overrides (the suite's `models` as the `model`
 axis), its epochs, and the label `<suite id>.<8 hex>`, fresh for each submit *(proposed)*. All
-of a suite's runs go into the queue in one transaction, so a suite with a broken case queues
-nothing. The label is stored as
+of a suite's runs go into the queue in one transaction, together with the
+[library](#case-library) revisions its bundles are pushed as, so a suite with a broken case
+queues nothing and stores no revision. The label is stored as
 `control.run_specs.suite`, copied to reruns and summaries, and `ListRuns` and
 `python -m swarmeval.analysis report --suite` filter on it. Labels are lowercase letters, digits,
 `_`, `.`, and `-`.
@@ -668,8 +714,8 @@ connection.
 ## Not settled
 
 1. RPC names of `ControlService`.
-2. Case bundles uploaded with `SubmitRuns` and stored by hash, as opposed to a case store the
-   Control API manages. M4's case CRUD may change this.
+2. Whether revisions no run references may ever be deleted (M4 spec, open question 3). They
+   are kept.
 3. Concurrency limits expressed in the claim query.
 4. Default lease length of 30 s; stopping held runs two thirds of a lease after the last renewal
    that went out; and, until resuming is built, any worker taking over a run, whatever node its

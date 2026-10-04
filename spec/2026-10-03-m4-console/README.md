@@ -308,6 +308,26 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
    `swarm case`。
    退出条件：推送、编辑、并发冲突返回 `ABORTED`、归档、按修订提交都有测试；回填的迁移在一份带老 run 的数据库上
    测过。
+   （2026-10-04）已实现：迁移 0010（含回填）、Control API 和对外 `CaseService` 的八个 RPC、`SubmitRuns` 的
+   `case` 入参、`swarm case list|push|pull|revisions|archive|unarchive` 和 `swarm run --case`。与决定 6、7
+   不同或决定里没写的地方：
+   - 修订的引用放在 `control.run_specs.case_revision_id`，不在 `control.runs`：`case_id`、`case_sha256` 这些
+     提交时就定下的字段都在 `run_specs`，`control.runs` 只放运行中会变的状态。
+   - `SubmitRuns`、`SubmitSuite` 带 bundle 提交时，推送修订和入队在同一个事务里：入队失败不会留下修订。
+   - `UpdateCaseFiles` 的 `base_revision` 为 0 表示新建：case 不存在时，用写入的文件直接生成第 1 个修订。
+     控制台"新建 case"走这条路，不用在浏览器里打 tar。
+   - 改动后内容没变（保存了一份相同的文件）不产生新修订，和推送相同 bundle 的规则一致。
+   - 编辑不能改 `case.yaml` 的 `id` 和 `workspace`：它们是 case 的身份。改名的做法是另存为新 case，再归档旧的。
+   - 加了 `UnarchiveCase`：归档后不能推送、编辑、提交，没有撤销的话，误归档会让这个 id 永久不可用。
+   - 归档、取消归档由谁发起只写日志，不入表（决定 2 只要求修订上记 `actor`）。
+   - `ABORTED` 里的最新修订号在错误消息里，没有做成结构化的错误详情；控制台收到后重新 `GetCase` 即可。
+   - 1 MiB 的单文件上限只管 `UpdateCaseFiles` 写入的文件；整目录推送只受 64 MiB 的 bundle 上限约束。
+   - `GetCaseRevision` 返回文件列表（路径、内容、权限位、符号链接目标），不返回 tar；`swarm case pull` 和控制台
+     都用它。
+   - 回填的修订带一条固定的说明（"From runs submitted before the case library."），`actor` 取该 hash 第一个
+     run 的 `submitted_by`。
+   都写在 [docs/services/orchestrator.md](../../docs/services/orchestrator.md#case-library) 和
+   [docs/services/edge.md](../../docs/services/edge.md)。
 5. **analysis 服务**：`swarmeval-analysis` 和决定 8 的 RPC；`analysis.jobs`；edge 转发；`swarm query`、
    `swarm report`、`swarm export`。
    退出条件：每个 RPC 有测试；`Query` 尝试读别的文件、修改配置都会失败。

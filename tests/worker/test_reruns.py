@@ -17,7 +17,7 @@ pytestmark = pytest.mark.docker
 async def test_an_outage_reruns_the_run_and_reports_count_the_rerun(
     bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (run_id,) = await enqueue(bare_deps.queue, submission, epochs=1)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission, epochs=1)
 
     async def outage_once(run: RunRow, deps: WorkerDeps) -> Outcome:
         if run.replaces is None:
@@ -45,7 +45,7 @@ async def test_an_outage_reruns_the_run_and_reports_count_the_rerun(
 async def test_a_variant_out_of_reruns_shows_the_gap(
     bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    await enqueue(bare_deps.queue, submission, epochs=2)
+    await enqueue(bare_deps.queue, bare_deps.engine, submission, epochs=2)
 
     async def always_down(run: RunRow, deps: WorkerDeps) -> Outcome:
         return Outcome("interrupted", "model-gateway is unreachable")
@@ -62,7 +62,7 @@ async def test_a_variant_out_of_reruns_shows_the_gap(
 async def test_a_summary_that_cannot_be_written_keeps_an_interrupted_run_and_its_rerun(
     bare_deps: WorkerDeps, submission: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (run_id,) = await enqueue(bare_deps.queue, submission, epochs=1)
+    (run_id,) = await enqueue(bare_deps.queue, bare_deps.engine, submission, epochs=1)
     export_summary = worker_module.export_summary
 
     async def outage_once(run: RunRow, deps: WorkerDeps) -> Outcome:

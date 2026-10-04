@@ -105,6 +105,7 @@ type stack struct {
 	auth    apiv1connect.AuthServiceClient
 	users   apiv1connect.UserServiceClient
 	runs    apiv1connect.RunServiceClient
+	cases   apiv1connect.CaseServiceClient
 }
 
 func newStack(t *testing.T) *stack {
@@ -142,6 +143,7 @@ func newStack(t *testing.T) *stack {
 		auth:    apiv1connect.NewAuthServiceClient(client, edgeSrv.URL),
 		users:   apiv1connect.NewUserServiceClient(client, edgeSrv.URL),
 		runs:    apiv1connect.NewRunServiceClient(client, edgeSrv.URL),
+		cases:   apiv1connect.NewCaseServiceClient(client, edgeSrv.URL),
 	}
 }
 

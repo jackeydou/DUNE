@@ -54,12 +54,36 @@ const (
 	// ControlServiceStreamEventsProcedure is the fully-qualified name of the ControlService's
 	// StreamEvents RPC.
 	ControlServiceStreamEventsProcedure = "/swarmeval.control.v1.ControlService/StreamEvents"
+	// ControlServicePushCaseProcedure is the fully-qualified name of the ControlService's PushCase RPC.
+	ControlServicePushCaseProcedure = "/swarmeval.control.v1.ControlService/PushCase"
+	// ControlServiceUpdateCaseFilesProcedure is the fully-qualified name of the ControlService's
+	// UpdateCaseFiles RPC.
+	ControlServiceUpdateCaseFilesProcedure = "/swarmeval.control.v1.ControlService/UpdateCaseFiles"
+	// ControlServiceGetCaseProcedure is the fully-qualified name of the ControlService's GetCase RPC.
+	ControlServiceGetCaseProcedure = "/swarmeval.control.v1.ControlService/GetCase"
+	// ControlServiceListCasesProcedure is the fully-qualified name of the ControlService's ListCases
+	// RPC.
+	ControlServiceListCasesProcedure = "/swarmeval.control.v1.ControlService/ListCases"
+	// ControlServiceListCaseRevisionsProcedure is the fully-qualified name of the ControlService's
+	// ListCaseRevisions RPC.
+	ControlServiceListCaseRevisionsProcedure = "/swarmeval.control.v1.ControlService/ListCaseRevisions"
+	// ControlServiceGetCaseRevisionProcedure is the fully-qualified name of the ControlService's
+	// GetCaseRevision RPC.
+	ControlServiceGetCaseRevisionProcedure = "/swarmeval.control.v1.ControlService/GetCaseRevision"
+	// ControlServiceArchiveCaseProcedure is the fully-qualified name of the ControlService's
+	// ArchiveCase RPC.
+	ControlServiceArchiveCaseProcedure = "/swarmeval.control.v1.ControlService/ArchiveCase"
+	// ControlServiceUnarchiveCaseProcedure is the fully-qualified name of the ControlService's
+	// UnarchiveCase RPC.
+	ControlServiceUnarchiveCaseProcedure = "/swarmeval.control.v1.ControlService/UnarchiveCase"
 )
 
 // ControlServiceClient is a client for the swarmeval.control.v1.ControlService service.
 type ControlServiceClient interface {
-	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
-	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
+	// Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+	// PushCase pushes it, or a revision already there. A case that does not load is
+	// INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+	// archived case is FAILED_PRECONDITION.
 	SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error)
 	// Loads a suite with the case bundles it names and queues every case's runs in one
 	// transaction, each case its own submission under one suite label: a suite with a case that
@@ -85,6 +109,27 @@ type ControlServiceClient interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(context.Context, *connect.Request[v1.StreamEventsRequest]) (*connect.ServerStreamForClient[v1.StreamEventsResponse], error)
+	// Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
+	// names, creating the case on its first push. A bundle with the same bytes as the newest
+	// revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
+	// stored; an archived case is FAILED_PRECONDITION.
+	PushCase(context.Context, *connect.Request[v1.PushCaseRequest]) (*connect.Response[v1.PushCaseResponse], error)
+	// Applies file changes to revision `base_revision` and stores the result as the next
+	// revision, validated as PushCase validates. ABORTED when `base_revision` is not the newest
+	// revision; the message names the newest. `base_revision` 0 creates the case from the written
+	// files alone.
+	UpdateCaseFiles(context.Context, *connect.Request[v1.UpdateCaseFilesRequest]) (*connect.Response[v1.UpdateCaseFilesResponse], error)
+	GetCase(context.Context, *connect.Request[v1.GetCaseRequest]) (*connect.Response[v1.GetCaseResponse], error)
+	// By workspace, then case id.
+	ListCases(context.Context, *connect.Request[v1.ListCasesRequest]) (*connect.Response[v1.ListCasesResponse], error)
+	// Newest first.
+	ListCaseRevisions(context.Context, *connect.Request[v1.ListCaseRevisionsRequest]) (*connect.Response[v1.ListCaseRevisionsResponse], error)
+	// One revision with its files.
+	GetCaseRevision(context.Context, *connect.Request[v1.GetCaseRevisionRequest]) (*connect.Response[v1.GetCaseRevisionResponse], error)
+	// An archived case is left out of ListCases by default and takes no pushes, edits, or runs.
+	// Its revisions and bundles stay: runs reference them.
+	ArchiveCase(context.Context, *connect.Request[v1.ArchiveCaseRequest]) (*connect.Response[v1.ArchiveCaseResponse], error)
+	UnarchiveCase(context.Context, *connect.Request[v1.UnarchiveCaseRequest]) (*connect.Response[v1.UnarchiveCaseResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the swarmeval.control.v1.ControlService service.
@@ -146,19 +191,75 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("StreamEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		pushCase: connect.NewClient[v1.PushCaseRequest, v1.PushCaseResponse](
+			httpClient,
+			baseURL+ControlServicePushCaseProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("PushCase")),
+			connect.WithClientOptions(opts...),
+		),
+		updateCaseFiles: connect.NewClient[v1.UpdateCaseFilesRequest, v1.UpdateCaseFilesResponse](
+			httpClient,
+			baseURL+ControlServiceUpdateCaseFilesProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("UpdateCaseFiles")),
+			connect.WithClientOptions(opts...),
+		),
+		getCase: connect.NewClient[v1.GetCaseRequest, v1.GetCaseResponse](
+			httpClient,
+			baseURL+ControlServiceGetCaseProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("GetCase")),
+			connect.WithClientOptions(opts...),
+		),
+		listCases: connect.NewClient[v1.ListCasesRequest, v1.ListCasesResponse](
+			httpClient,
+			baseURL+ControlServiceListCasesProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListCases")),
+			connect.WithClientOptions(opts...),
+		),
+		listCaseRevisions: connect.NewClient[v1.ListCaseRevisionsRequest, v1.ListCaseRevisionsResponse](
+			httpClient,
+			baseURL+ControlServiceListCaseRevisionsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListCaseRevisions")),
+			connect.WithClientOptions(opts...),
+		),
+		getCaseRevision: connect.NewClient[v1.GetCaseRevisionRequest, v1.GetCaseRevisionResponse](
+			httpClient,
+			baseURL+ControlServiceGetCaseRevisionProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("GetCaseRevision")),
+			connect.WithClientOptions(opts...),
+		),
+		archiveCase: connect.NewClient[v1.ArchiveCaseRequest, v1.ArchiveCaseResponse](
+			httpClient,
+			baseURL+ControlServiceArchiveCaseProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ArchiveCase")),
+			connect.WithClientOptions(opts...),
+		),
+		unarchiveCase: connect.NewClient[v1.UnarchiveCaseRequest, v1.UnarchiveCaseResponse](
+			httpClient,
+			baseURL+ControlServiceUnarchiveCaseProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("UnarchiveCase")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // controlServiceClient implements ControlServiceClient.
 type controlServiceClient struct {
-	submitRuns   *connect.Client[v1.SubmitRunsRequest, v1.SubmitRunsResponse]
-	submitSuite  *connect.Client[v1.SubmitSuiteRequest, v1.SubmitSuiteResponse]
-	getRun       *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
-	listRuns     *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
-	cancelRun    *connect.Client[v1.CancelRunRequest, v1.CancelRunResponse]
-	resumeRun    *connect.Client[v1.ResumeRunRequest, v1.ResumeRunResponse]
-	forkRun      *connect.Client[v1.ForkRunRequest, v1.ForkRunResponse]
-	streamEvents *connect.Client[v1.StreamEventsRequest, v1.StreamEventsResponse]
+	submitRuns        *connect.Client[v1.SubmitRunsRequest, v1.SubmitRunsResponse]
+	submitSuite       *connect.Client[v1.SubmitSuiteRequest, v1.SubmitSuiteResponse]
+	getRun            *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
+	listRuns          *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
+	cancelRun         *connect.Client[v1.CancelRunRequest, v1.CancelRunResponse]
+	resumeRun         *connect.Client[v1.ResumeRunRequest, v1.ResumeRunResponse]
+	forkRun           *connect.Client[v1.ForkRunRequest, v1.ForkRunResponse]
+	streamEvents      *connect.Client[v1.StreamEventsRequest, v1.StreamEventsResponse]
+	pushCase          *connect.Client[v1.PushCaseRequest, v1.PushCaseResponse]
+	updateCaseFiles   *connect.Client[v1.UpdateCaseFilesRequest, v1.UpdateCaseFilesResponse]
+	getCase           *connect.Client[v1.GetCaseRequest, v1.GetCaseResponse]
+	listCases         *connect.Client[v1.ListCasesRequest, v1.ListCasesResponse]
+	listCaseRevisions *connect.Client[v1.ListCaseRevisionsRequest, v1.ListCaseRevisionsResponse]
+	getCaseRevision   *connect.Client[v1.GetCaseRevisionRequest, v1.GetCaseRevisionResponse]
+	archiveCase       *connect.Client[v1.ArchiveCaseRequest, v1.ArchiveCaseResponse]
+	unarchiveCase     *connect.Client[v1.UnarchiveCaseRequest, v1.UnarchiveCaseResponse]
 }
 
 // SubmitRuns calls swarmeval.control.v1.ControlService.SubmitRuns.
@@ -201,10 +302,52 @@ func (c *controlServiceClient) StreamEvents(ctx context.Context, req *connect.Re
 	return c.streamEvents.CallServerStream(ctx, req)
 }
 
+// PushCase calls swarmeval.control.v1.ControlService.PushCase.
+func (c *controlServiceClient) PushCase(ctx context.Context, req *connect.Request[v1.PushCaseRequest]) (*connect.Response[v1.PushCaseResponse], error) {
+	return c.pushCase.CallUnary(ctx, req)
+}
+
+// UpdateCaseFiles calls swarmeval.control.v1.ControlService.UpdateCaseFiles.
+func (c *controlServiceClient) UpdateCaseFiles(ctx context.Context, req *connect.Request[v1.UpdateCaseFilesRequest]) (*connect.Response[v1.UpdateCaseFilesResponse], error) {
+	return c.updateCaseFiles.CallUnary(ctx, req)
+}
+
+// GetCase calls swarmeval.control.v1.ControlService.GetCase.
+func (c *controlServiceClient) GetCase(ctx context.Context, req *connect.Request[v1.GetCaseRequest]) (*connect.Response[v1.GetCaseResponse], error) {
+	return c.getCase.CallUnary(ctx, req)
+}
+
+// ListCases calls swarmeval.control.v1.ControlService.ListCases.
+func (c *controlServiceClient) ListCases(ctx context.Context, req *connect.Request[v1.ListCasesRequest]) (*connect.Response[v1.ListCasesResponse], error) {
+	return c.listCases.CallUnary(ctx, req)
+}
+
+// ListCaseRevisions calls swarmeval.control.v1.ControlService.ListCaseRevisions.
+func (c *controlServiceClient) ListCaseRevisions(ctx context.Context, req *connect.Request[v1.ListCaseRevisionsRequest]) (*connect.Response[v1.ListCaseRevisionsResponse], error) {
+	return c.listCaseRevisions.CallUnary(ctx, req)
+}
+
+// GetCaseRevision calls swarmeval.control.v1.ControlService.GetCaseRevision.
+func (c *controlServiceClient) GetCaseRevision(ctx context.Context, req *connect.Request[v1.GetCaseRevisionRequest]) (*connect.Response[v1.GetCaseRevisionResponse], error) {
+	return c.getCaseRevision.CallUnary(ctx, req)
+}
+
+// ArchiveCase calls swarmeval.control.v1.ControlService.ArchiveCase.
+func (c *controlServiceClient) ArchiveCase(ctx context.Context, req *connect.Request[v1.ArchiveCaseRequest]) (*connect.Response[v1.ArchiveCaseResponse], error) {
+	return c.archiveCase.CallUnary(ctx, req)
+}
+
+// UnarchiveCase calls swarmeval.control.v1.ControlService.UnarchiveCase.
+func (c *controlServiceClient) UnarchiveCase(ctx context.Context, req *connect.Request[v1.UnarchiveCaseRequest]) (*connect.Response[v1.UnarchiveCaseResponse], error) {
+	return c.unarchiveCase.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the swarmeval.control.v1.ControlService service.
 type ControlServiceHandler interface {
-	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
-	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
+	// Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+	// PushCase pushes it, or a revision already there. A case that does not load is
+	// INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+	// archived case is FAILED_PRECONDITION.
 	SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error)
 	// Loads a suite with the case bundles it names and queues every case's runs in one
 	// transaction, each case its own submission under one suite label: a suite with a case that
@@ -230,6 +373,27 @@ type ControlServiceHandler interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(context.Context, *connect.Request[v1.StreamEventsRequest], *connect.ServerStream[v1.StreamEventsResponse]) error
+	// Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
+	// names, creating the case on its first push. A bundle with the same bytes as the newest
+	// revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
+	// stored; an archived case is FAILED_PRECONDITION.
+	PushCase(context.Context, *connect.Request[v1.PushCaseRequest]) (*connect.Response[v1.PushCaseResponse], error)
+	// Applies file changes to revision `base_revision` and stores the result as the next
+	// revision, validated as PushCase validates. ABORTED when `base_revision` is not the newest
+	// revision; the message names the newest. `base_revision` 0 creates the case from the written
+	// files alone.
+	UpdateCaseFiles(context.Context, *connect.Request[v1.UpdateCaseFilesRequest]) (*connect.Response[v1.UpdateCaseFilesResponse], error)
+	GetCase(context.Context, *connect.Request[v1.GetCaseRequest]) (*connect.Response[v1.GetCaseResponse], error)
+	// By workspace, then case id.
+	ListCases(context.Context, *connect.Request[v1.ListCasesRequest]) (*connect.Response[v1.ListCasesResponse], error)
+	// Newest first.
+	ListCaseRevisions(context.Context, *connect.Request[v1.ListCaseRevisionsRequest]) (*connect.Response[v1.ListCaseRevisionsResponse], error)
+	// One revision with its files.
+	GetCaseRevision(context.Context, *connect.Request[v1.GetCaseRevisionRequest]) (*connect.Response[v1.GetCaseRevisionResponse], error)
+	// An archived case is left out of ListCases by default and takes no pushes, edits, or runs.
+	// Its revisions and bundles stay: runs reference them.
+	ArchiveCase(context.Context, *connect.Request[v1.ArchiveCaseRequest]) (*connect.Response[v1.ArchiveCaseResponse], error)
+	UnarchiveCase(context.Context, *connect.Request[v1.UnarchiveCaseRequest]) (*connect.Response[v1.UnarchiveCaseResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -287,6 +451,54 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("StreamEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServicePushCaseHandler := connect.NewUnaryHandler(
+		ControlServicePushCaseProcedure,
+		svc.PushCase,
+		connect.WithSchema(controlServiceMethods.ByName("PushCase")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceUpdateCaseFilesHandler := connect.NewUnaryHandler(
+		ControlServiceUpdateCaseFilesProcedure,
+		svc.UpdateCaseFiles,
+		connect.WithSchema(controlServiceMethods.ByName("UpdateCaseFiles")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceGetCaseHandler := connect.NewUnaryHandler(
+		ControlServiceGetCaseProcedure,
+		svc.GetCase,
+		connect.WithSchema(controlServiceMethods.ByName("GetCase")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListCasesHandler := connect.NewUnaryHandler(
+		ControlServiceListCasesProcedure,
+		svc.ListCases,
+		connect.WithSchema(controlServiceMethods.ByName("ListCases")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListCaseRevisionsHandler := connect.NewUnaryHandler(
+		ControlServiceListCaseRevisionsProcedure,
+		svc.ListCaseRevisions,
+		connect.WithSchema(controlServiceMethods.ByName("ListCaseRevisions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceGetCaseRevisionHandler := connect.NewUnaryHandler(
+		ControlServiceGetCaseRevisionProcedure,
+		svc.GetCaseRevision,
+		connect.WithSchema(controlServiceMethods.ByName("GetCaseRevision")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceArchiveCaseHandler := connect.NewUnaryHandler(
+		ControlServiceArchiveCaseProcedure,
+		svc.ArchiveCase,
+		connect.WithSchema(controlServiceMethods.ByName("ArchiveCase")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceUnarchiveCaseHandler := connect.NewUnaryHandler(
+		ControlServiceUnarchiveCaseProcedure,
+		svc.UnarchiveCase,
+		connect.WithSchema(controlServiceMethods.ByName("UnarchiveCase")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/swarmeval.control.v1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceSubmitRunsProcedure:
@@ -305,6 +517,22 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceForkRunHandler.ServeHTTP(w, r)
 		case ControlServiceStreamEventsProcedure:
 			controlServiceStreamEventsHandler.ServeHTTP(w, r)
+		case ControlServicePushCaseProcedure:
+			controlServicePushCaseHandler.ServeHTTP(w, r)
+		case ControlServiceUpdateCaseFilesProcedure:
+			controlServiceUpdateCaseFilesHandler.ServeHTTP(w, r)
+		case ControlServiceGetCaseProcedure:
+			controlServiceGetCaseHandler.ServeHTTP(w, r)
+		case ControlServiceListCasesProcedure:
+			controlServiceListCasesHandler.ServeHTTP(w, r)
+		case ControlServiceListCaseRevisionsProcedure:
+			controlServiceListCaseRevisionsHandler.ServeHTTP(w, r)
+		case ControlServiceGetCaseRevisionProcedure:
+			controlServiceGetCaseRevisionHandler.ServeHTTP(w, r)
+		case ControlServiceArchiveCaseProcedure:
+			controlServiceArchiveCaseHandler.ServeHTTP(w, r)
+		case ControlServiceUnarchiveCaseProcedure:
+			controlServiceUnarchiveCaseHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -344,4 +572,36 @@ func (UnimplementedControlServiceHandler) ForkRun(context.Context, *connect.Requ
 
 func (UnimplementedControlServiceHandler) StreamEvents(context.Context, *connect.Request[v1.StreamEventsRequest], *connect.ServerStream[v1.StreamEventsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.StreamEvents is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) PushCase(context.Context, *connect.Request[v1.PushCaseRequest]) (*connect.Response[v1.PushCaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.PushCase is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) UpdateCaseFiles(context.Context, *connect.Request[v1.UpdateCaseFilesRequest]) (*connect.Response[v1.UpdateCaseFilesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.UpdateCaseFiles is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) GetCase(context.Context, *connect.Request[v1.GetCaseRequest]) (*connect.Response[v1.GetCaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.GetCase is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListCases(context.Context, *connect.Request[v1.ListCasesRequest]) (*connect.Response[v1.ListCasesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.ListCases is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListCaseRevisions(context.Context, *connect.Request[v1.ListCaseRevisionsRequest]) (*connect.Response[v1.ListCaseRevisionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.ListCaseRevisions is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) GetCaseRevision(context.Context, *connect.Request[v1.GetCaseRevisionRequest]) (*connect.Response[v1.GetCaseRevisionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.GetCaseRevision is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ArchiveCase(context.Context, *connect.Request[v1.ArchiveCaseRequest]) (*connect.Response[v1.ArchiveCaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.ArchiveCase is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) UnarchiveCase(context.Context, *connect.Request[v1.UnarchiveCaseRequest]) (*connect.Response[v1.UnarchiveCaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.UnarchiveCase is not implemented"))
 }

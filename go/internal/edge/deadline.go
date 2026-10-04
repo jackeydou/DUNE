@@ -12,6 +12,9 @@ import (
 var uploadProcedures = map[string]bool{
 	apiv1connect.RunServiceSubmitRunsProcedure:  true,
 	apiv1connect.RunServiceSubmitSuiteProcedure: true,
+	apiv1connect.CaseServicePushCaseProcedure:   true,
+	// An edit may upload replacement files.
+	apiv1connect.CaseServiceUpdateCaseFilesProcedure: true,
 }
 
 // withBodyDeadline sets a read deadline on the request's connection (its stream, under HTTP/2)

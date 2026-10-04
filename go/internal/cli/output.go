@@ -63,8 +63,7 @@ func printRun(w io.Writer, r *apiv1.Run) error {
 	rows := [][2]string{
 		{"run", r.GetRunId()},
 		{"status", r.GetStatus()},
-		{"case", r.GetCaseId() + "@" + short(r.GetCaseSha256())},
-		{"workspace", r.GetWorkspace()},
+		{"case", fmt.Sprintf("%s/%s@%d (bundle %s)", r.GetWorkspace(), r.GetCaseId(), r.GetCaseRevision(), short(r.GetCaseSha256()))},
 		{"submission", r.GetSubmissionId()},
 		{"suite", orDash(r.GetSuite())},
 		{"variant", fmt.Sprintf("%d %s", r.GetVariant(), values)},

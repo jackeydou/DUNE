@@ -25,8 +25,11 @@ const (
 
 type SubmitRunsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The case directory as an uncompressed tar archive, with `case.yaml` at its root.
+	// The case directory as an uncompressed tar archive, with `case.yaml` at its root. Set this
+	// or `case`, not both.
 	CaseBundle []byte `protobuf:"bytes,1,opt,name=case_bundle,json=caseBundle,proto3" json:"case_bundle,omitempty"`
+	// A revision in the case library, instead of a bundle.
+	Case *CaseRevisionRef `protobuf:"bytes,6,opt,name=case,proto3" json:"case,omitempty"`
 	// Variant axis → list of values, replacing that axis's values in the case.
 	Overrides *structpb.Struct `protobuf:"bytes,2,opt,name=overrides,proto3" json:"overrides,omitempty"`
 	// Runs per variant. Zero means the case's `epochs`.
@@ -77,6 +80,13 @@ func (x *SubmitRunsRequest) GetCaseBundle() []byte {
 	return nil
 }
 
+func (x *SubmitRunsRequest) GetCase() *CaseRevisionRef {
+	if x != nil {
+		return x.Case
+	}
+	return nil
+}
+
 func (x *SubmitRunsRequest) GetOverrides() *structpb.Struct {
 	if x != nil {
 		return x.Overrides
@@ -105,17 +115,81 @@ func (x *SubmitRunsRequest) GetActor() string {
 	return ""
 }
 
+// One revision of a case in the library.
+type CaseRevisionRef struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Workspace string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	CaseId    string                 `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	// Zero means the newest.
+	Revision      int32 `protobuf:"varint,3,opt,name=revision,proto3" json:"revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CaseRevisionRef) Reset() {
+	*x = CaseRevisionRef{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CaseRevisionRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CaseRevisionRef) ProtoMessage() {}
+
+func (x *CaseRevisionRef) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CaseRevisionRef.ProtoReflect.Descriptor instead.
+func (*CaseRevisionRef) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CaseRevisionRef) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *CaseRevisionRef) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *CaseRevisionRef) GetRevision() int32 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
 type SubmitRunsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SubmissionId  string                 `protobuf:"bytes,1,opt,name=submission_id,json=submissionId,proto3" json:"submission_id,omitempty"`
-	RunIds        []string               `protobuf:"bytes,2,rep,name=run_ids,json=runIds,proto3" json:"run_ids,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	SubmissionId string                 `protobuf:"bytes,1,opt,name=submission_id,json=submissionId,proto3" json:"submission_id,omitempty"`
+	RunIds       []string               `protobuf:"bytes,2,rep,name=run_ids,json=runIds,proto3" json:"run_ids,omitempty"`
+	// The revision the runs use.
+	CaseRevision  int32 `protobuf:"varint,3,opt,name=case_revision,json=caseRevision,proto3" json:"case_revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SubmitRunsResponse) Reset() {
 	*x = SubmitRunsResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[1]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -127,7 +201,7 @@ func (x *SubmitRunsResponse) String() string {
 func (*SubmitRunsResponse) ProtoMessage() {}
 
 func (x *SubmitRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[1]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -140,7 +214,7 @@ func (x *SubmitRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitRunsResponse.ProtoReflect.Descriptor instead.
 func (*SubmitRunsResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{1}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *SubmitRunsResponse) GetSubmissionId() string {
@@ -155,6 +229,13 @@ func (x *SubmitRunsResponse) GetRunIds() []string {
 		return x.RunIds
 	}
 	return nil
+}
+
+func (x *SubmitRunsResponse) GetCaseRevision() int32 {
+	if x != nil {
+		return x.CaseRevision
+	}
+	return 0
 }
 
 type SubmitSuiteRequest struct {
@@ -172,7 +253,7 @@ type SubmitSuiteRequest struct {
 
 func (x *SubmitSuiteRequest) Reset() {
 	*x = SubmitSuiteRequest{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[2]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -184,7 +265,7 @@ func (x *SubmitSuiteRequest) String() string {
 func (*SubmitSuiteRequest) ProtoMessage() {}
 
 func (x *SubmitSuiteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[2]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -197,7 +278,7 @@ func (x *SubmitSuiteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitSuiteRequest.ProtoReflect.Descriptor instead.
 func (*SubmitSuiteRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{2}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SubmitSuiteRequest) GetSuiteYaml() string {
@@ -226,13 +307,14 @@ type SuiteSubmission struct {
 	CaseId        string                 `protobuf:"bytes,1,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
 	SubmissionId  string                 `protobuf:"bytes,2,opt,name=submission_id,json=submissionId,proto3" json:"submission_id,omitempty"`
 	RunIds        []string               `protobuf:"bytes,3,rep,name=run_ids,json=runIds,proto3" json:"run_ids,omitempty"`
+	CaseRevision  int32                  `protobuf:"varint,4,opt,name=case_revision,json=caseRevision,proto3" json:"case_revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SuiteSubmission) Reset() {
 	*x = SuiteSubmission{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[3]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -244,7 +326,7 @@ func (x *SuiteSubmission) String() string {
 func (*SuiteSubmission) ProtoMessage() {}
 
 func (x *SuiteSubmission) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[3]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -257,7 +339,7 @@ func (x *SuiteSubmission) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SuiteSubmission.ProtoReflect.Descriptor instead.
 func (*SuiteSubmission) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{3}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SuiteSubmission) GetCaseId() string {
@@ -281,6 +363,13 @@ func (x *SuiteSubmission) GetRunIds() []string {
 	return nil
 }
 
+func (x *SuiteSubmission) GetCaseRevision() int32 {
+	if x != nil {
+		return x.CaseRevision
+	}
+	return 0
+}
+
 type SubmitSuiteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// `<suite id>.<8 hex>`, for reports over the whole suite.
@@ -293,7 +382,7 @@ type SubmitSuiteResponse struct {
 
 func (x *SubmitSuiteResponse) Reset() {
 	*x = SubmitSuiteResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[4]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -305,7 +394,7 @@ func (x *SubmitSuiteResponse) String() string {
 func (*SubmitSuiteResponse) ProtoMessage() {}
 
 func (x *SubmitSuiteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[4]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -318,7 +407,7 @@ func (x *SubmitSuiteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitSuiteResponse.ProtoReflect.Descriptor instead.
 func (*SubmitSuiteResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{4}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SubmitSuiteResponse) GetSuite() string {
@@ -371,15 +460,17 @@ type Run struct {
 	// Empty when the request named none.
 	SubmittedBy string `protobuf:"bytes,22,opt,name=submitted_by,json=submittedBy,proto3" json:"submitted_by,omitempty"`
 	// The actor of the CancelRun that cancelled the run, and of the last ResumeRun.
-	CancelledBy   string `protobuf:"bytes,23,opt,name=cancelled_by,json=cancelledBy,proto3" json:"cancelled_by,omitempty"`
-	ResumedBy     string `protobuf:"bytes,24,opt,name=resumed_by,json=resumedBy,proto3" json:"resumed_by,omitempty"`
+	CancelledBy string `protobuf:"bytes,23,opt,name=cancelled_by,json=cancelledBy,proto3" json:"cancelled_by,omitempty"`
+	ResumedBy   string `protobuf:"bytes,24,opt,name=resumed_by,json=resumedBy,proto3" json:"resumed_by,omitempty"`
+	// The case library revision the run uses; `case_sha256` is that revision's bundle.
+	CaseRevision  int32 `protobuf:"varint,25,opt,name=case_revision,json=caseRevision,proto3" json:"case_revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
 	*x = Run{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[5]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -391,7 +482,7 @@ func (x *Run) String() string {
 func (*Run) ProtoMessage() {}
 
 func (x *Run) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[5]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -404,7 +495,7 @@ func (x *Run) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Run.ProtoReflect.Descriptor instead.
 func (*Run) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{5}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Run) GetRunId() string {
@@ -575,6 +666,13 @@ func (x *Run) GetResumedBy() string {
 	return ""
 }
 
+func (x *Run) GetCaseRevision() int32 {
+	if x != nil {
+		return x.CaseRevision
+	}
+	return 0
+}
+
 type GetRunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -584,7 +682,7 @@ type GetRunRequest struct {
 
 func (x *GetRunRequest) Reset() {
 	*x = GetRunRequest{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[6]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -596,7 +694,7 @@ func (x *GetRunRequest) String() string {
 func (*GetRunRequest) ProtoMessage() {}
 
 func (x *GetRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[6]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -609,7 +707,7 @@ func (x *GetRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunRequest.ProtoReflect.Descriptor instead.
 func (*GetRunRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{6}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetRunRequest) GetRunId() string {
@@ -628,7 +726,7 @@ type GetRunResponse struct {
 
 func (x *GetRunResponse) Reset() {
 	*x = GetRunResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[7]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -640,7 +738,7 @@ func (x *GetRunResponse) String() string {
 func (*GetRunResponse) ProtoMessage() {}
 
 func (x *GetRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[7]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -653,7 +751,7 @@ func (x *GetRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunResponse.ProtoReflect.Descriptor instead.
 func (*GetRunResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{7}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetRunResponse) GetRun() *Run {
@@ -678,7 +776,7 @@ type ListRunsRequest struct {
 
 func (x *ListRunsRequest) Reset() {
 	*x = ListRunsRequest{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[8]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -690,7 +788,7 @@ func (x *ListRunsRequest) String() string {
 func (*ListRunsRequest) ProtoMessage() {}
 
 func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[8]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -703,7 +801,7 @@ func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListRunsRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{8}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListRunsRequest) GetSubmissionId() string {
@@ -750,7 +848,7 @@ type ListRunsResponse struct {
 
 func (x *ListRunsResponse) Reset() {
 	*x = ListRunsResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[9]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -762,7 +860,7 @@ func (x *ListRunsResponse) String() string {
 func (*ListRunsResponse) ProtoMessage() {}
 
 func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[9]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -775,7 +873,7 @@ func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListRunsResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{9}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListRunsResponse) GetRuns() []*Run {
@@ -795,7 +893,7 @@ type CancelRunRequest struct {
 
 func (x *CancelRunRequest) Reset() {
 	*x = CancelRunRequest{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[10]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -807,7 +905,7 @@ func (x *CancelRunRequest) String() string {
 func (*CancelRunRequest) ProtoMessage() {}
 
 func (x *CancelRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[10]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -820,7 +918,7 @@ func (x *CancelRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRunRequest.ProtoReflect.Descriptor instead.
 func (*CancelRunRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{10}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CancelRunRequest) GetRunId() string {
@@ -846,7 +944,7 @@ type CancelRunResponse struct {
 
 func (x *CancelRunResponse) Reset() {
 	*x = CancelRunResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -858,7 +956,7 @@ func (x *CancelRunResponse) String() string {
 func (*CancelRunResponse) ProtoMessage() {}
 
 func (x *CancelRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[11]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -871,7 +969,7 @@ func (x *CancelRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRunResponse.ProtoReflect.Descriptor instead.
 func (*CancelRunResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{11}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CancelRunResponse) GetRun() *Run {
@@ -891,7 +989,7 @@ type ResumeRunRequest struct {
 
 func (x *ResumeRunRequest) Reset() {
 	*x = ResumeRunRequest{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -903,7 +1001,7 @@ func (x *ResumeRunRequest) String() string {
 func (*ResumeRunRequest) ProtoMessage() {}
 
 func (x *ResumeRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[12]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -916,7 +1014,7 @@ func (x *ResumeRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeRunRequest.ProtoReflect.Descriptor instead.
 func (*ResumeRunRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{12}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ResumeRunRequest) GetRunId() string {
@@ -942,7 +1040,7 @@ type ResumeRunResponse struct {
 
 func (x *ResumeRunResponse) Reset() {
 	*x = ResumeRunResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[13]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -954,7 +1052,7 @@ func (x *ResumeRunResponse) String() string {
 func (*ResumeRunResponse) ProtoMessage() {}
 
 func (x *ResumeRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[13]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -967,7 +1065,7 @@ func (x *ResumeRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeRunResponse.ProtoReflect.Descriptor instead.
 func (*ResumeRunResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{13}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ResumeRunResponse) GetRun() *Run {
@@ -989,7 +1087,7 @@ type ForkRunRequest struct {
 
 func (x *ForkRunRequest) Reset() {
 	*x = ForkRunRequest{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[14]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1001,7 +1099,7 @@ func (x *ForkRunRequest) String() string {
 func (*ForkRunRequest) ProtoMessage() {}
 
 func (x *ForkRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[14]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1014,7 +1112,7 @@ func (x *ForkRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForkRunRequest.ProtoReflect.Descriptor instead.
 func (*ForkRunRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{14}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ForkRunRequest) GetRunId() string {
@@ -1059,7 +1157,7 @@ type ForkEdit struct {
 
 func (x *ForkEdit) Reset() {
 	*x = ForkEdit{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[15]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1071,7 +1169,7 @@ func (x *ForkEdit) String() string {
 func (*ForkEdit) ProtoMessage() {}
 
 func (x *ForkEdit) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[15]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1084,7 +1182,7 @@ func (x *ForkEdit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForkEdit.ProtoReflect.Descriptor instead.
 func (*ForkEdit) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{15}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ForkEdit) GetEdit() isForkEdit_Edit {
@@ -1155,7 +1253,7 @@ type ReplaceMessage struct {
 
 func (x *ReplaceMessage) Reset() {
 	*x = ReplaceMessage{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[16]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1167,7 +1265,7 @@ func (x *ReplaceMessage) String() string {
 func (*ReplaceMessage) ProtoMessage() {}
 
 func (x *ReplaceMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[16]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1180,7 +1278,7 @@ func (x *ReplaceMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplaceMessage.ProtoReflect.Descriptor instead.
 func (*ReplaceMessage) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{16}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ReplaceMessage) GetAgentId() string {
@@ -1215,7 +1313,7 @@ type DeleteMessage struct {
 
 func (x *DeleteMessage) Reset() {
 	*x = DeleteMessage{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[17]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1227,7 +1325,7 @@ func (x *DeleteMessage) String() string {
 func (*DeleteMessage) ProtoMessage() {}
 
 func (x *DeleteMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[17]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1240,7 +1338,7 @@ func (x *DeleteMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMessage.ProtoReflect.Descriptor instead.
 func (*DeleteMessage) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{17}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DeleteMessage) GetAgentId() string {
@@ -1269,7 +1367,7 @@ type ReplaceDelivery struct {
 
 func (x *ReplaceDelivery) Reset() {
 	*x = ReplaceDelivery{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[18]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1281,7 +1379,7 @@ func (x *ReplaceDelivery) String() string {
 func (*ReplaceDelivery) ProtoMessage() {}
 
 func (x *ReplaceDelivery) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[18]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1294,7 +1392,7 @@ func (x *ReplaceDelivery) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplaceDelivery.ProtoReflect.Descriptor instead.
 func (*ReplaceDelivery) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{18}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ReplaceDelivery) GetSendEventId() string {
@@ -1327,7 +1425,7 @@ type ForkRunResponse struct {
 
 func (x *ForkRunResponse) Reset() {
 	*x = ForkRunResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[19]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1339,7 +1437,7 @@ func (x *ForkRunResponse) String() string {
 func (*ForkRunResponse) ProtoMessage() {}
 
 func (x *ForkRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[19]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1352,7 +1450,7 @@ func (x *ForkRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForkRunResponse.ProtoReflect.Descriptor instead.
 func (*ForkRunResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{19}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ForkRunResponse) GetRun() *Run {
@@ -1372,7 +1470,7 @@ type StreamEventsRequest struct {
 
 func (x *StreamEventsRequest) Reset() {
 	*x = StreamEventsRequest{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[20]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1384,7 +1482,7 @@ func (x *StreamEventsRequest) String() string {
 func (*StreamEventsRequest) ProtoMessage() {}
 
 func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[20]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1397,7 +1495,7 @@ func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEventsRequest.ProtoReflect.Descriptor instead.
 func (*StreamEventsRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{20}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *StreamEventsRequest) GetRunId() string {
@@ -1432,7 +1530,7 @@ type StreamEventsResponse struct {
 
 func (x *StreamEventsResponse) Reset() {
 	*x = StreamEventsResponse{}
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[21]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1444,7 +1542,7 @@ func (x *StreamEventsResponse) String() string {
 func (*StreamEventsResponse) ProtoMessage() {}
 
 func (x *StreamEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_control_v1_control_proto_msgTypes[21]
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1457,7 +1555,7 @@ func (x *StreamEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEventsResponse.ProtoReflect.Descriptor instead.
 func (*StreamEventsResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{21}
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *StreamEventsResponse) GetSeq() int64 {
@@ -1502,21 +1600,1226 @@ func (x *StreamEventsResponse) GetLine() string {
 	return ""
 }
 
+type Case struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Workspace string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	CaseId    string                 `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// Unset while the case is not archived.
+	ArchivedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=archived_at,json=archivedAt,proto3" json:"archived_at,omitempty"`
+	// The newest revision.
+	Latest        *CaseRevision `protobuf:"bytes,5,opt,name=latest,proto3" json:"latest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Case) Reset() {
+	*x = Case{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Case) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Case) ProtoMessage() {}
+
+func (x *Case) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Case.ProtoReflect.Descriptor instead.
+func (*Case) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *Case) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *Case) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *Case) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *Case) GetArchivedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ArchivedAt
+	}
+	return nil
+}
+
+func (x *Case) GetLatest() *CaseRevision {
+	if x != nil {
+		return x.Latest
+	}
+	return nil
+}
+
+type CaseRevision struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Workspace    string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	CaseId       string                 `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	Revision     int32                  `protobuf:"varint,3,opt,name=revision,proto3" json:"revision,omitempty"`
+	BundleSha256 string                 `protobuf:"bytes,4,opt,name=bundle_sha256,json=bundleSha256,proto3" json:"bundle_sha256,omitempty"`
+	// The actor of the request that made the revision; empty when it named none.
+	Actor         string                 `protobuf:"bytes,5,opt,name=actor,proto3" json:"actor,omitempty"`
+	Note          string                 `protobuf:"bytes,6,opt,name=note,proto3" json:"note,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CaseRevision) Reset() {
+	*x = CaseRevision{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CaseRevision) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CaseRevision) ProtoMessage() {}
+
+func (x *CaseRevision) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CaseRevision.ProtoReflect.Descriptor instead.
+func (*CaseRevision) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *CaseRevision) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *CaseRevision) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *CaseRevision) GetRevision() int32 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *CaseRevision) GetBundleSha256() string {
+	if x != nil {
+		return x.BundleSha256
+	}
+	return ""
+}
+
+func (x *CaseRevision) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+func (x *CaseRevision) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+func (x *CaseRevision) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+// A regular file or a symbolic link of a case bundle.
+type CaseFile struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Relative to the case directory, with `/` separators.
+	Path    string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Content []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	// Unix permission bits.
+	Mode uint32 `protobuf:"varint,3,opt,name=mode,proto3" json:"mode,omitempty"`
+	// For a symbolic link, where it points; `content` is empty.
+	LinkTarget    string `protobuf:"bytes,4,opt,name=link_target,json=linkTarget,proto3" json:"link_target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CaseFile) Reset() {
+	*x = CaseFile{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CaseFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CaseFile) ProtoMessage() {}
+
+func (x *CaseFile) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CaseFile.ProtoReflect.Descriptor instead.
+func (*CaseFile) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *CaseFile) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *CaseFile) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *CaseFile) GetMode() uint32 {
+	if x != nil {
+		return x.Mode
+	}
+	return 0
+}
+
+func (x *CaseFile) GetLinkTarget() string {
+	if x != nil {
+		return x.LinkTarget
+	}
+	return ""
+}
+
+type PushCaseRequest struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	CaseBundle []byte                 `protobuf:"bytes,1,opt,name=case_bundle,json=caseBundle,proto3" json:"case_bundle,omitempty"`
+	Actor      string                 `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
+	// What changed, for the revision list. At most 1,000 characters.
+	Note          string `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PushCaseRequest) Reset() {
+	*x = PushCaseRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushCaseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushCaseRequest) ProtoMessage() {}
+
+func (x *PushCaseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushCaseRequest.ProtoReflect.Descriptor instead.
+func (*PushCaseRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *PushCaseRequest) GetCaseBundle() []byte {
+	if x != nil {
+		return x.CaseBundle
+	}
+	return nil
+}
+
+func (x *PushCaseRequest) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+func (x *PushCaseRequest) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+type PushCaseResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Revision *CaseRevision          `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	// False when the bundle was the newest revision already.
+	Created       bool `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PushCaseResponse) Reset() {
+	*x = PushCaseResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushCaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushCaseResponse) ProtoMessage() {}
+
+func (x *PushCaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushCaseResponse.ProtoReflect.Descriptor instead.
+func (*PushCaseResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *PushCaseResponse) GetRevision() *CaseRevision {
+	if x != nil {
+		return x.Revision
+	}
+	return nil
+}
+
+func (x *PushCaseResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+type FileChange struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Relative to the case directory, with `/` separators and no `..`.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// Types that are valid to be assigned to Change:
+	//
+	//	*FileChange_Content
+	//	*FileChange_Delete
+	Change        isFileChange_Change `protobuf_oneof:"change"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileChange) Reset() {
+	*x = FileChange{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileChange) ProtoMessage() {}
+
+func (x *FileChange) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileChange.ProtoReflect.Descriptor instead.
+func (*FileChange) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *FileChange) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *FileChange) GetChange() isFileChange_Change {
+	if x != nil {
+		return x.Change
+	}
+	return nil
+}
+
+func (x *FileChange) GetContent() []byte {
+	if x != nil {
+		if x, ok := x.Change.(*FileChange_Content); ok {
+			return x.Content
+		}
+	}
+	return nil
+}
+
+func (x *FileChange) GetDelete() bool {
+	if x != nil {
+		if x, ok := x.Change.(*FileChange_Delete); ok {
+			return x.Delete
+		}
+	}
+	return false
+}
+
+type isFileChange_Change interface {
+	isFileChange_Change()
+}
+
+type FileChange_Content struct {
+	// The file's new content, at most 1 MiB. Creates the file, with mode 0644, if it is new.
+	Content []byte `protobuf:"bytes,2,opt,name=content,proto3,oneof"`
+}
+
+type FileChange_Delete struct {
+	// Removes the file. Must be true.
+	Delete bool `protobuf:"varint,3,opt,name=delete,proto3,oneof"`
+}
+
+func (*FileChange_Content) isFileChange_Change() {}
+
+func (*FileChange_Delete) isFileChange_Change() {}
+
+type UpdateCaseFilesRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Workspace string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	CaseId    string                 `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	// The revision the changes were made against. Zero for a case that does not exist yet.
+	BaseRevision  int32         `protobuf:"varint,3,opt,name=base_revision,json=baseRevision,proto3" json:"base_revision,omitempty"`
+	Changes       []*FileChange `protobuf:"bytes,4,rep,name=changes,proto3" json:"changes,omitempty"`
+	Actor         string        `protobuf:"bytes,5,opt,name=actor,proto3" json:"actor,omitempty"`
+	Note          string        `protobuf:"bytes,6,opt,name=note,proto3" json:"note,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateCaseFilesRequest) Reset() {
+	*x = UpdateCaseFilesRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateCaseFilesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateCaseFilesRequest) ProtoMessage() {}
+
+func (x *UpdateCaseFilesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateCaseFilesRequest.ProtoReflect.Descriptor instead.
+func (*UpdateCaseFilesRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *UpdateCaseFilesRequest) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *UpdateCaseFilesRequest) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *UpdateCaseFilesRequest) GetBaseRevision() int32 {
+	if x != nil {
+		return x.BaseRevision
+	}
+	return 0
+}
+
+func (x *UpdateCaseFilesRequest) GetChanges() []*FileChange {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
+func (x *UpdateCaseFilesRequest) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+func (x *UpdateCaseFilesRequest) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+type UpdateCaseFilesResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Revision *CaseRevision          `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	// False when the changes left every file as it was.
+	Created       bool `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateCaseFilesResponse) Reset() {
+	*x = UpdateCaseFilesResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateCaseFilesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateCaseFilesResponse) ProtoMessage() {}
+
+func (x *UpdateCaseFilesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateCaseFilesResponse.ProtoReflect.Descriptor instead.
+func (*UpdateCaseFilesResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *UpdateCaseFilesResponse) GetRevision() *CaseRevision {
+	if x != nil {
+		return x.Revision
+	}
+	return nil
+}
+
+func (x *UpdateCaseFilesResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+type GetCaseRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Workspace     string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	CaseId        string                 `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCaseRequest) Reset() {
+	*x = GetCaseRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCaseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCaseRequest) ProtoMessage() {}
+
+func (x *GetCaseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCaseRequest.ProtoReflect.Descriptor instead.
+func (*GetCaseRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *GetCaseRequest) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *GetCaseRequest) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+type GetCaseResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Case          *Case                  `protobuf:"bytes,1,opt,name=case,proto3" json:"case,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCaseResponse) Reset() {
+	*x = GetCaseResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCaseResponse) ProtoMessage() {}
+
+func (x *GetCaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCaseResponse.ProtoReflect.Descriptor instead.
+func (*GetCaseResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *GetCaseResponse) GetCase() *Case {
+	if x != nil {
+		return x.Case
+	}
+	return nil
+}
+
+type ListCasesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty for every workspace.
+	Workspace       string `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	IncludeArchived bool   `protobuf:"varint,2,opt,name=include_archived,json=includeArchived,proto3" json:"include_archived,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ListCasesRequest) Reset() {
+	*x = ListCasesRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCasesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCasesRequest) ProtoMessage() {}
+
+func (x *ListCasesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCasesRequest.ProtoReflect.Descriptor instead.
+func (*ListCasesRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ListCasesRequest) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *ListCasesRequest) GetIncludeArchived() bool {
+	if x != nil {
+		return x.IncludeArchived
+	}
+	return false
+}
+
+type ListCasesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cases         []*Case                `protobuf:"bytes,1,rep,name=cases,proto3" json:"cases,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCasesResponse) Reset() {
+	*x = ListCasesResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCasesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCasesResponse) ProtoMessage() {}
+
+func (x *ListCasesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCasesResponse.ProtoReflect.Descriptor instead.
+func (*ListCasesResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *ListCasesResponse) GetCases() []*Case {
+	if x != nil {
+		return x.Cases
+	}
+	return nil
+}
+
+type ListCaseRevisionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Workspace     string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	CaseId        string                 `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCaseRevisionsRequest) Reset() {
+	*x = ListCaseRevisionsRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCaseRevisionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCaseRevisionsRequest) ProtoMessage() {}
+
+func (x *ListCaseRevisionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCaseRevisionsRequest.ProtoReflect.Descriptor instead.
+func (*ListCaseRevisionsRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ListCaseRevisionsRequest) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *ListCaseRevisionsRequest) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+type ListCaseRevisionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Revisions     []*CaseRevision        `protobuf:"bytes,1,rep,name=revisions,proto3" json:"revisions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCaseRevisionsResponse) Reset() {
+	*x = ListCaseRevisionsResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCaseRevisionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCaseRevisionsResponse) ProtoMessage() {}
+
+func (x *ListCaseRevisionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCaseRevisionsResponse.ProtoReflect.Descriptor instead.
+func (*ListCaseRevisionsResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *ListCaseRevisionsResponse) GetRevisions() []*CaseRevision {
+	if x != nil {
+		return x.Revisions
+	}
+	return nil
+}
+
+type GetCaseRevisionRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Workspace string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	CaseId    string                 `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	// Zero means the newest.
+	Revision      int32 `protobuf:"varint,3,opt,name=revision,proto3" json:"revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCaseRevisionRequest) Reset() {
+	*x = GetCaseRevisionRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCaseRevisionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCaseRevisionRequest) ProtoMessage() {}
+
+func (x *GetCaseRevisionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCaseRevisionRequest.ProtoReflect.Descriptor instead.
+func (*GetCaseRevisionRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *GetCaseRevisionRequest) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *GetCaseRevisionRequest) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *GetCaseRevisionRequest) GetRevision() int32 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+type GetCaseRevisionResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Revision *CaseRevision          `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	// By path.
+	Files         []*CaseFile `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCaseRevisionResponse) Reset() {
+	*x = GetCaseRevisionResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCaseRevisionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCaseRevisionResponse) ProtoMessage() {}
+
+func (x *GetCaseRevisionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCaseRevisionResponse.ProtoReflect.Descriptor instead.
+func (*GetCaseRevisionResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *GetCaseRevisionResponse) GetRevision() *CaseRevision {
+	if x != nil {
+		return x.Revision
+	}
+	return nil
+}
+
+func (x *GetCaseRevisionResponse) GetFiles() []*CaseFile {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
+type ArchiveCaseRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Workspace     string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	CaseId        string                 `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	Actor         string                 `protobuf:"bytes,3,opt,name=actor,proto3" json:"actor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ArchiveCaseRequest) Reset() {
+	*x = ArchiveCaseRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ArchiveCaseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ArchiveCaseRequest) ProtoMessage() {}
+
+func (x *ArchiveCaseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ArchiveCaseRequest.ProtoReflect.Descriptor instead.
+func (*ArchiveCaseRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *ArchiveCaseRequest) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *ArchiveCaseRequest) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *ArchiveCaseRequest) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+type ArchiveCaseResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Case          *Case                  `protobuf:"bytes,1,opt,name=case,proto3" json:"case,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ArchiveCaseResponse) Reset() {
+	*x = ArchiveCaseResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ArchiveCaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ArchiveCaseResponse) ProtoMessage() {}
+
+func (x *ArchiveCaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ArchiveCaseResponse.ProtoReflect.Descriptor instead.
+func (*ArchiveCaseResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *ArchiveCaseResponse) GetCase() *Case {
+	if x != nil {
+		return x.Case
+	}
+	return nil
+}
+
+type UnarchiveCaseRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Workspace     string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	CaseId        string                 `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	Actor         string                 `protobuf:"bytes,3,opt,name=actor,proto3" json:"actor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnarchiveCaseRequest) Reset() {
+	*x = UnarchiveCaseRequest{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnarchiveCaseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnarchiveCaseRequest) ProtoMessage() {}
+
+func (x *UnarchiveCaseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnarchiveCaseRequest.ProtoReflect.Descriptor instead.
+func (*UnarchiveCaseRequest) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *UnarchiveCaseRequest) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *UnarchiveCaseRequest) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *UnarchiveCaseRequest) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+type UnarchiveCaseResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Case          *Case                  `protobuf:"bytes,1,opt,name=case,proto3" json:"case,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnarchiveCaseResponse) Reset() {
+	*x = UnarchiveCaseResponse{}
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnarchiveCaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnarchiveCaseResponse) ProtoMessage() {}
+
+func (x *UnarchiveCaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_control_v1_control_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnarchiveCaseResponse.ProtoReflect.Descriptor instead.
+func (*UnarchiveCaseResponse) Descriptor() ([]byte, []int) {
+	return file_swarmeval_control_v1_control_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *UnarchiveCaseResponse) GetCase() *Case {
+	if x != nil {
+		return x.Case
+	}
+	return nil
+}
+
 var File_swarmeval_control_v1_control_proto protoreflect.FileDescriptor
 
 const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\n" +
-	"\"swarmeval/control/v1/control.proto\x12\x14swarmeval.control.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaf\x01\n" +
+	"\"swarmeval/control/v1/control.proto\x12\x14swarmeval.control.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xea\x01\n" +
 	"\x11SubmitRunsRequest\x12\x1f\n" +
 	"\vcase_bundle\x18\x01 \x01(\fR\n" +
-	"caseBundle\x125\n" +
+	"caseBundle\x129\n" +
+	"\x04case\x18\x06 \x01(\v2%.swarmeval.control.v1.CaseRevisionRefR\x04case\x125\n" +
 	"\toverrides\x18\x02 \x01(\v2\x17.google.protobuf.StructR\toverrides\x12\x16\n" +
 	"\x06epochs\x18\x03 \x01(\x05R\x06epochs\x12\x14\n" +
 	"\x05suite\x18\x04 \x01(\tR\x05suite\x12\x14\n" +
-	"\x05actor\x18\x05 \x01(\tR\x05actor\"R\n" +
+	"\x05actor\x18\x05 \x01(\tR\x05actor\"d\n" +
+	"\x0fCaseRevisionRef\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
+	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\x05R\brevision\"w\n" +
 	"\x12SubmitRunsResponse\x12#\n" +
 	"\rsubmission_id\x18\x01 \x01(\tR\fsubmissionId\x12\x17\n" +
-	"\arun_ids\x18\x02 \x03(\tR\x06runIds\"\xe7\x01\n" +
+	"\arun_ids\x18\x02 \x03(\tR\x06runIds\x12#\n" +
+	"\rcase_revision\x18\x03 \x01(\x05R\fcaseRevision\"\xe7\x01\n" +
 	"\x12SubmitSuiteRequest\x12\x1d\n" +
 	"\n" +
 	"suite_yaml\x18\x01 \x01(\tR\tsuiteYaml\x12\\\n" +
@@ -1524,14 +2827,15 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\x05actor\x18\x03 \x01(\tR\x05actor\x1a>\n" +
 	"\x10CaseBundlesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"h\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x8d\x01\n" +
 	"\x0fSuiteSubmission\x12\x17\n" +
 	"\acase_id\x18\x01 \x01(\tR\x06caseId\x12#\n" +
 	"\rsubmission_id\x18\x02 \x01(\tR\fsubmissionId\x12\x17\n" +
-	"\arun_ids\x18\x03 \x03(\tR\x06runIds\"t\n" +
+	"\arun_ids\x18\x03 \x03(\tR\x06runIds\x12#\n" +
+	"\rcase_revision\x18\x04 \x01(\x05R\fcaseRevision\"t\n" +
 	"\x13SubmitSuiteResponse\x12\x14\n" +
 	"\x05suite\x18\x01 \x01(\tR\x05suite\x12G\n" +
-	"\vsubmissions\x18\x02 \x03(\v2%.swarmeval.control.v1.SuiteSubmissionR\vsubmissions\"\xa0\x06\n" +
+	"\vsubmissions\x18\x02 \x03(\v2%.swarmeval.control.v1.SuiteSubmissionR\vsubmissions\"\xc5\x06\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12#\n" +
 	"\rsubmission_id\x18\x02 \x01(\tR\fsubmissionId\x12\x17\n" +
@@ -1563,7 +2867,8 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\fsubmitted_by\x18\x16 \x01(\tR\vsubmittedBy\x12!\n" +
 	"\fcancelled_by\x18\x17 \x01(\tR\vcancelledBy\x12\x1d\n" +
 	"\n" +
-	"resumed_by\x18\x18 \x01(\tR\tresumedBy\"&\n" +
+	"resumed_by\x18\x18 \x01(\tR\tresumedBy\x12#\n" +
+	"\rcase_revision\x18\x19 \x01(\x05R\fcaseRevision\"&\n" +
 	"\rGetRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"=\n" +
 	"\x0eGetRunResponse\x12+\n" +
@@ -1618,7 +2923,88 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12\x19\n" +
 	"\bagent_id\x18\x04 \x01(\tR\aagentId\x12!\n" +
 	"\fpayload_json\x18\x05 \x01(\tR\vpayloadJson\x12\x12\n" +
-	"\x04line\x18\x06 \x01(\tR\x04line2\x82\x06\n" +
+	"\x04line\x18\x06 \x01(\tR\x04line\"\xf1\x01\n" +
+	"\x04Case\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
+	"\acase_id\x18\x02 \x01(\tR\x06caseId\x129\n" +
+	"\n" +
+	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12;\n" +
+	"\varchived_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"archivedAt\x12:\n" +
+	"\x06latest\x18\x05 \x01(\v2\".swarmeval.control.v1.CaseRevisionR\x06latest\"\xeb\x01\n" +
+	"\fCaseRevision\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
+	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\x05R\brevision\x12#\n" +
+	"\rbundle_sha256\x18\x04 \x01(\tR\fbundleSha256\x12\x14\n" +
+	"\x05actor\x18\x05 \x01(\tR\x05actor\x12\x12\n" +
+	"\x04note\x18\x06 \x01(\tR\x04note\x129\n" +
+	"\n" +
+	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"m\n" +
+	"\bCaseFile\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent\x12\x12\n" +
+	"\x04mode\x18\x03 \x01(\rR\x04mode\x12\x1f\n" +
+	"\vlink_target\x18\x04 \x01(\tR\n" +
+	"linkTarget\"\\\n" +
+	"\x0fPushCaseRequest\x12\x1f\n" +
+	"\vcase_bundle\x18\x01 \x01(\fR\n" +
+	"caseBundle\x12\x14\n" +
+	"\x05actor\x18\x02 \x01(\tR\x05actor\x12\x12\n" +
+	"\x04note\x18\x03 \x01(\tR\x04note\"l\n" +
+	"\x10PushCaseResponse\x12>\n" +
+	"\brevision\x18\x01 \x01(\v2\".swarmeval.control.v1.CaseRevisionR\brevision\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"`\n" +
+	"\n" +
+	"FileChange\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1a\n" +
+	"\acontent\x18\x02 \x01(\fH\x00R\acontent\x12\x18\n" +
+	"\x06delete\x18\x03 \x01(\bH\x00R\x06deleteB\b\n" +
+	"\x06change\"\xda\x01\n" +
+	"\x16UpdateCaseFilesRequest\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
+	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12#\n" +
+	"\rbase_revision\x18\x03 \x01(\x05R\fbaseRevision\x12:\n" +
+	"\achanges\x18\x04 \x03(\v2 .swarmeval.control.v1.FileChangeR\achanges\x12\x14\n" +
+	"\x05actor\x18\x05 \x01(\tR\x05actor\x12\x12\n" +
+	"\x04note\x18\x06 \x01(\tR\x04note\"s\n" +
+	"\x17UpdateCaseFilesResponse\x12>\n" +
+	"\brevision\x18\x01 \x01(\v2\".swarmeval.control.v1.CaseRevisionR\brevision\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"G\n" +
+	"\x0eGetCaseRequest\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
+	"\acase_id\x18\x02 \x01(\tR\x06caseId\"A\n" +
+	"\x0fGetCaseResponse\x12.\n" +
+	"\x04case\x18\x01 \x01(\v2\x1a.swarmeval.control.v1.CaseR\x04case\"[\n" +
+	"\x10ListCasesRequest\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12)\n" +
+	"\x10include_archived\x18\x02 \x01(\bR\x0fincludeArchived\"E\n" +
+	"\x11ListCasesResponse\x120\n" +
+	"\x05cases\x18\x01 \x03(\v2\x1a.swarmeval.control.v1.CaseR\x05cases\"Q\n" +
+	"\x18ListCaseRevisionsRequest\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
+	"\acase_id\x18\x02 \x01(\tR\x06caseId\"]\n" +
+	"\x19ListCaseRevisionsResponse\x12@\n" +
+	"\trevisions\x18\x01 \x03(\v2\".swarmeval.control.v1.CaseRevisionR\trevisions\"k\n" +
+	"\x16GetCaseRevisionRequest\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
+	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\x05R\brevision\"\x8f\x01\n" +
+	"\x17GetCaseRevisionResponse\x12>\n" +
+	"\brevision\x18\x01 \x01(\v2\".swarmeval.control.v1.CaseRevisionR\brevision\x124\n" +
+	"\x05files\x18\x02 \x03(\v2\x1e.swarmeval.control.v1.CaseFileR\x05files\"a\n" +
+	"\x12ArchiveCaseRequest\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
+	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12\x14\n" +
+	"\x05actor\x18\x03 \x01(\tR\x05actor\"E\n" +
+	"\x13ArchiveCaseResponse\x12.\n" +
+	"\x04case\x18\x01 \x01(\v2\x1a.swarmeval.control.v1.CaseR\x04case\"c\n" +
+	"\x14UnarchiveCaseRequest\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
+	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12\x14\n" +
+	"\x05actor\x18\x03 \x01(\tR\x05actor\"G\n" +
+	"\x15UnarchiveCaseResponse\x12.\n" +
+	"\x04case\x18\x01 \x01(\v2\x1a.swarmeval.control.v1.CaseR\x04case2\xb7\f\n" +
 	"\x0eControlService\x12_\n" +
 	"\n" +
 	"SubmitRuns\x12'.swarmeval.control.v1.SubmitRunsRequest\x1a(.swarmeval.control.v1.SubmitRunsResponse\x12b\n" +
@@ -1628,7 +3014,15 @@ const file_swarmeval_control_v1_control_proto_rawDesc = "" +
 	"\tCancelRun\x12&.swarmeval.control.v1.CancelRunRequest\x1a'.swarmeval.control.v1.CancelRunResponse\x12\\\n" +
 	"\tResumeRun\x12&.swarmeval.control.v1.ResumeRunRequest\x1a'.swarmeval.control.v1.ResumeRunResponse\x12V\n" +
 	"\aForkRun\x12$.swarmeval.control.v1.ForkRunRequest\x1a%.swarmeval.control.v1.ForkRunResponse\x12g\n" +
-	"\fStreamEvents\x12).swarmeval.control.v1.StreamEventsRequest\x1a*.swarmeval.control.v1.StreamEventsResponse0\x01BJZHgithub.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1;controlv1b\x06proto3"
+	"\fStreamEvents\x12).swarmeval.control.v1.StreamEventsRequest\x1a*.swarmeval.control.v1.StreamEventsResponse0\x01\x12Y\n" +
+	"\bPushCase\x12%.swarmeval.control.v1.PushCaseRequest\x1a&.swarmeval.control.v1.PushCaseResponse\x12n\n" +
+	"\x0fUpdateCaseFiles\x12,.swarmeval.control.v1.UpdateCaseFilesRequest\x1a-.swarmeval.control.v1.UpdateCaseFilesResponse\x12V\n" +
+	"\aGetCase\x12$.swarmeval.control.v1.GetCaseRequest\x1a%.swarmeval.control.v1.GetCaseResponse\x12\\\n" +
+	"\tListCases\x12&.swarmeval.control.v1.ListCasesRequest\x1a'.swarmeval.control.v1.ListCasesResponse\x12t\n" +
+	"\x11ListCaseRevisions\x12..swarmeval.control.v1.ListCaseRevisionsRequest\x1a/.swarmeval.control.v1.ListCaseRevisionsResponse\x12n\n" +
+	"\x0fGetCaseRevision\x12,.swarmeval.control.v1.GetCaseRevisionRequest\x1a-.swarmeval.control.v1.GetCaseRevisionResponse\x12b\n" +
+	"\vArchiveCase\x12(.swarmeval.control.v1.ArchiveCaseRequest\x1a).swarmeval.control.v1.ArchiveCaseResponse\x12h\n" +
+	"\rUnarchiveCase\x12*.swarmeval.control.v1.UnarchiveCaseRequest\x1a+.swarmeval.control.v1.UnarchiveCaseResponseBJZHgithub.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1;controlv1b\x06proto3"
 
 var (
 	file_swarmeval_control_v1_control_proto_rawDescOnce sync.Once
@@ -1642,72 +3036,124 @@ func file_swarmeval_control_v1_control_proto_rawDescGZIP() []byte {
 	return file_swarmeval_control_v1_control_proto_rawDescData
 }
 
-var file_swarmeval_control_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_swarmeval_control_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_swarmeval_control_v1_control_proto_goTypes = []any{
-	(*SubmitRunsRequest)(nil),     // 0: swarmeval.control.v1.SubmitRunsRequest
-	(*SubmitRunsResponse)(nil),    // 1: swarmeval.control.v1.SubmitRunsResponse
-	(*SubmitSuiteRequest)(nil),    // 2: swarmeval.control.v1.SubmitSuiteRequest
-	(*SuiteSubmission)(nil),       // 3: swarmeval.control.v1.SuiteSubmission
-	(*SubmitSuiteResponse)(nil),   // 4: swarmeval.control.v1.SubmitSuiteResponse
-	(*Run)(nil),                   // 5: swarmeval.control.v1.Run
-	(*GetRunRequest)(nil),         // 6: swarmeval.control.v1.GetRunRequest
-	(*GetRunResponse)(nil),        // 7: swarmeval.control.v1.GetRunResponse
-	(*ListRunsRequest)(nil),       // 8: swarmeval.control.v1.ListRunsRequest
-	(*ListRunsResponse)(nil),      // 9: swarmeval.control.v1.ListRunsResponse
-	(*CancelRunRequest)(nil),      // 10: swarmeval.control.v1.CancelRunRequest
-	(*CancelRunResponse)(nil),     // 11: swarmeval.control.v1.CancelRunResponse
-	(*ResumeRunRequest)(nil),      // 12: swarmeval.control.v1.ResumeRunRequest
-	(*ResumeRunResponse)(nil),     // 13: swarmeval.control.v1.ResumeRunResponse
-	(*ForkRunRequest)(nil),        // 14: swarmeval.control.v1.ForkRunRequest
-	(*ForkEdit)(nil),              // 15: swarmeval.control.v1.ForkEdit
-	(*ReplaceMessage)(nil),        // 16: swarmeval.control.v1.ReplaceMessage
-	(*DeleteMessage)(nil),         // 17: swarmeval.control.v1.DeleteMessage
-	(*ReplaceDelivery)(nil),       // 18: swarmeval.control.v1.ReplaceDelivery
-	(*ForkRunResponse)(nil),       // 19: swarmeval.control.v1.ForkRunResponse
-	(*StreamEventsRequest)(nil),   // 20: swarmeval.control.v1.StreamEventsRequest
-	(*StreamEventsResponse)(nil),  // 21: swarmeval.control.v1.StreamEventsResponse
-	nil,                           // 22: swarmeval.control.v1.SubmitSuiteRequest.CaseBundlesEntry
-	(*structpb.Struct)(nil),       // 23: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil), // 24: google.protobuf.Timestamp
+	(*SubmitRunsRequest)(nil),         // 0: swarmeval.control.v1.SubmitRunsRequest
+	(*CaseRevisionRef)(nil),           // 1: swarmeval.control.v1.CaseRevisionRef
+	(*SubmitRunsResponse)(nil),        // 2: swarmeval.control.v1.SubmitRunsResponse
+	(*SubmitSuiteRequest)(nil),        // 3: swarmeval.control.v1.SubmitSuiteRequest
+	(*SuiteSubmission)(nil),           // 4: swarmeval.control.v1.SuiteSubmission
+	(*SubmitSuiteResponse)(nil),       // 5: swarmeval.control.v1.SubmitSuiteResponse
+	(*Run)(nil),                       // 6: swarmeval.control.v1.Run
+	(*GetRunRequest)(nil),             // 7: swarmeval.control.v1.GetRunRequest
+	(*GetRunResponse)(nil),            // 8: swarmeval.control.v1.GetRunResponse
+	(*ListRunsRequest)(nil),           // 9: swarmeval.control.v1.ListRunsRequest
+	(*ListRunsResponse)(nil),          // 10: swarmeval.control.v1.ListRunsResponse
+	(*CancelRunRequest)(nil),          // 11: swarmeval.control.v1.CancelRunRequest
+	(*CancelRunResponse)(nil),         // 12: swarmeval.control.v1.CancelRunResponse
+	(*ResumeRunRequest)(nil),          // 13: swarmeval.control.v1.ResumeRunRequest
+	(*ResumeRunResponse)(nil),         // 14: swarmeval.control.v1.ResumeRunResponse
+	(*ForkRunRequest)(nil),            // 15: swarmeval.control.v1.ForkRunRequest
+	(*ForkEdit)(nil),                  // 16: swarmeval.control.v1.ForkEdit
+	(*ReplaceMessage)(nil),            // 17: swarmeval.control.v1.ReplaceMessage
+	(*DeleteMessage)(nil),             // 18: swarmeval.control.v1.DeleteMessage
+	(*ReplaceDelivery)(nil),           // 19: swarmeval.control.v1.ReplaceDelivery
+	(*ForkRunResponse)(nil),           // 20: swarmeval.control.v1.ForkRunResponse
+	(*StreamEventsRequest)(nil),       // 21: swarmeval.control.v1.StreamEventsRequest
+	(*StreamEventsResponse)(nil),      // 22: swarmeval.control.v1.StreamEventsResponse
+	(*Case)(nil),                      // 23: swarmeval.control.v1.Case
+	(*CaseRevision)(nil),              // 24: swarmeval.control.v1.CaseRevision
+	(*CaseFile)(nil),                  // 25: swarmeval.control.v1.CaseFile
+	(*PushCaseRequest)(nil),           // 26: swarmeval.control.v1.PushCaseRequest
+	(*PushCaseResponse)(nil),          // 27: swarmeval.control.v1.PushCaseResponse
+	(*FileChange)(nil),                // 28: swarmeval.control.v1.FileChange
+	(*UpdateCaseFilesRequest)(nil),    // 29: swarmeval.control.v1.UpdateCaseFilesRequest
+	(*UpdateCaseFilesResponse)(nil),   // 30: swarmeval.control.v1.UpdateCaseFilesResponse
+	(*GetCaseRequest)(nil),            // 31: swarmeval.control.v1.GetCaseRequest
+	(*GetCaseResponse)(nil),           // 32: swarmeval.control.v1.GetCaseResponse
+	(*ListCasesRequest)(nil),          // 33: swarmeval.control.v1.ListCasesRequest
+	(*ListCasesResponse)(nil),         // 34: swarmeval.control.v1.ListCasesResponse
+	(*ListCaseRevisionsRequest)(nil),  // 35: swarmeval.control.v1.ListCaseRevisionsRequest
+	(*ListCaseRevisionsResponse)(nil), // 36: swarmeval.control.v1.ListCaseRevisionsResponse
+	(*GetCaseRevisionRequest)(nil),    // 37: swarmeval.control.v1.GetCaseRevisionRequest
+	(*GetCaseRevisionResponse)(nil),   // 38: swarmeval.control.v1.GetCaseRevisionResponse
+	(*ArchiveCaseRequest)(nil),        // 39: swarmeval.control.v1.ArchiveCaseRequest
+	(*ArchiveCaseResponse)(nil),       // 40: swarmeval.control.v1.ArchiveCaseResponse
+	(*UnarchiveCaseRequest)(nil),      // 41: swarmeval.control.v1.UnarchiveCaseRequest
+	(*UnarchiveCaseResponse)(nil),     // 42: swarmeval.control.v1.UnarchiveCaseResponse
+	nil,                               // 43: swarmeval.control.v1.SubmitSuiteRequest.CaseBundlesEntry
+	(*structpb.Struct)(nil),           // 44: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),     // 45: google.protobuf.Timestamp
 }
 var file_swarmeval_control_v1_control_proto_depIdxs = []int32{
-	23, // 0: swarmeval.control.v1.SubmitRunsRequest.overrides:type_name -> google.protobuf.Struct
-	22, // 1: swarmeval.control.v1.SubmitSuiteRequest.case_bundles:type_name -> swarmeval.control.v1.SubmitSuiteRequest.CaseBundlesEntry
-	3,  // 2: swarmeval.control.v1.SubmitSuiteResponse.submissions:type_name -> swarmeval.control.v1.SuiteSubmission
-	23, // 3: swarmeval.control.v1.Run.task_args:type_name -> google.protobuf.Struct
-	24, // 4: swarmeval.control.v1.Run.created_at:type_name -> google.protobuf.Timestamp
-	24, // 5: swarmeval.control.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	24, // 6: swarmeval.control.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
-	5,  // 7: swarmeval.control.v1.GetRunResponse.run:type_name -> swarmeval.control.v1.Run
-	5,  // 8: swarmeval.control.v1.ListRunsResponse.runs:type_name -> swarmeval.control.v1.Run
-	5,  // 9: swarmeval.control.v1.CancelRunResponse.run:type_name -> swarmeval.control.v1.Run
-	5,  // 10: swarmeval.control.v1.ResumeRunResponse.run:type_name -> swarmeval.control.v1.Run
-	15, // 11: swarmeval.control.v1.ForkRunRequest.edits:type_name -> swarmeval.control.v1.ForkEdit
-	16, // 12: swarmeval.control.v1.ForkEdit.replace_message:type_name -> swarmeval.control.v1.ReplaceMessage
-	17, // 13: swarmeval.control.v1.ForkEdit.delete_message:type_name -> swarmeval.control.v1.DeleteMessage
-	18, // 14: swarmeval.control.v1.ForkEdit.replace_delivery:type_name -> swarmeval.control.v1.ReplaceDelivery
-	5,  // 15: swarmeval.control.v1.ForkRunResponse.run:type_name -> swarmeval.control.v1.Run
-	0,  // 16: swarmeval.control.v1.ControlService.SubmitRuns:input_type -> swarmeval.control.v1.SubmitRunsRequest
-	2,  // 17: swarmeval.control.v1.ControlService.SubmitSuite:input_type -> swarmeval.control.v1.SubmitSuiteRequest
-	6,  // 18: swarmeval.control.v1.ControlService.GetRun:input_type -> swarmeval.control.v1.GetRunRequest
-	8,  // 19: swarmeval.control.v1.ControlService.ListRuns:input_type -> swarmeval.control.v1.ListRunsRequest
-	10, // 20: swarmeval.control.v1.ControlService.CancelRun:input_type -> swarmeval.control.v1.CancelRunRequest
-	12, // 21: swarmeval.control.v1.ControlService.ResumeRun:input_type -> swarmeval.control.v1.ResumeRunRequest
-	14, // 22: swarmeval.control.v1.ControlService.ForkRun:input_type -> swarmeval.control.v1.ForkRunRequest
-	20, // 23: swarmeval.control.v1.ControlService.StreamEvents:input_type -> swarmeval.control.v1.StreamEventsRequest
-	1,  // 24: swarmeval.control.v1.ControlService.SubmitRuns:output_type -> swarmeval.control.v1.SubmitRunsResponse
-	4,  // 25: swarmeval.control.v1.ControlService.SubmitSuite:output_type -> swarmeval.control.v1.SubmitSuiteResponse
-	7,  // 26: swarmeval.control.v1.ControlService.GetRun:output_type -> swarmeval.control.v1.GetRunResponse
-	9,  // 27: swarmeval.control.v1.ControlService.ListRuns:output_type -> swarmeval.control.v1.ListRunsResponse
-	11, // 28: swarmeval.control.v1.ControlService.CancelRun:output_type -> swarmeval.control.v1.CancelRunResponse
-	13, // 29: swarmeval.control.v1.ControlService.ResumeRun:output_type -> swarmeval.control.v1.ResumeRunResponse
-	19, // 30: swarmeval.control.v1.ControlService.ForkRun:output_type -> swarmeval.control.v1.ForkRunResponse
-	21, // 31: swarmeval.control.v1.ControlService.StreamEvents:output_type -> swarmeval.control.v1.StreamEventsResponse
-	24, // [24:32] is the sub-list for method output_type
-	16, // [16:24] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	1,  // 0: swarmeval.control.v1.SubmitRunsRequest.case:type_name -> swarmeval.control.v1.CaseRevisionRef
+	44, // 1: swarmeval.control.v1.SubmitRunsRequest.overrides:type_name -> google.protobuf.Struct
+	43, // 2: swarmeval.control.v1.SubmitSuiteRequest.case_bundles:type_name -> swarmeval.control.v1.SubmitSuiteRequest.CaseBundlesEntry
+	4,  // 3: swarmeval.control.v1.SubmitSuiteResponse.submissions:type_name -> swarmeval.control.v1.SuiteSubmission
+	44, // 4: swarmeval.control.v1.Run.task_args:type_name -> google.protobuf.Struct
+	45, // 5: swarmeval.control.v1.Run.created_at:type_name -> google.protobuf.Timestamp
+	45, // 6: swarmeval.control.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	45, // 7: swarmeval.control.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
+	6,  // 8: swarmeval.control.v1.GetRunResponse.run:type_name -> swarmeval.control.v1.Run
+	6,  // 9: swarmeval.control.v1.ListRunsResponse.runs:type_name -> swarmeval.control.v1.Run
+	6,  // 10: swarmeval.control.v1.CancelRunResponse.run:type_name -> swarmeval.control.v1.Run
+	6,  // 11: swarmeval.control.v1.ResumeRunResponse.run:type_name -> swarmeval.control.v1.Run
+	16, // 12: swarmeval.control.v1.ForkRunRequest.edits:type_name -> swarmeval.control.v1.ForkEdit
+	17, // 13: swarmeval.control.v1.ForkEdit.replace_message:type_name -> swarmeval.control.v1.ReplaceMessage
+	18, // 14: swarmeval.control.v1.ForkEdit.delete_message:type_name -> swarmeval.control.v1.DeleteMessage
+	19, // 15: swarmeval.control.v1.ForkEdit.replace_delivery:type_name -> swarmeval.control.v1.ReplaceDelivery
+	6,  // 16: swarmeval.control.v1.ForkRunResponse.run:type_name -> swarmeval.control.v1.Run
+	45, // 17: swarmeval.control.v1.Case.created_at:type_name -> google.protobuf.Timestamp
+	45, // 18: swarmeval.control.v1.Case.archived_at:type_name -> google.protobuf.Timestamp
+	24, // 19: swarmeval.control.v1.Case.latest:type_name -> swarmeval.control.v1.CaseRevision
+	45, // 20: swarmeval.control.v1.CaseRevision.created_at:type_name -> google.protobuf.Timestamp
+	24, // 21: swarmeval.control.v1.PushCaseResponse.revision:type_name -> swarmeval.control.v1.CaseRevision
+	28, // 22: swarmeval.control.v1.UpdateCaseFilesRequest.changes:type_name -> swarmeval.control.v1.FileChange
+	24, // 23: swarmeval.control.v1.UpdateCaseFilesResponse.revision:type_name -> swarmeval.control.v1.CaseRevision
+	23, // 24: swarmeval.control.v1.GetCaseResponse.case:type_name -> swarmeval.control.v1.Case
+	23, // 25: swarmeval.control.v1.ListCasesResponse.cases:type_name -> swarmeval.control.v1.Case
+	24, // 26: swarmeval.control.v1.ListCaseRevisionsResponse.revisions:type_name -> swarmeval.control.v1.CaseRevision
+	24, // 27: swarmeval.control.v1.GetCaseRevisionResponse.revision:type_name -> swarmeval.control.v1.CaseRevision
+	25, // 28: swarmeval.control.v1.GetCaseRevisionResponse.files:type_name -> swarmeval.control.v1.CaseFile
+	23, // 29: swarmeval.control.v1.ArchiveCaseResponse.case:type_name -> swarmeval.control.v1.Case
+	23, // 30: swarmeval.control.v1.UnarchiveCaseResponse.case:type_name -> swarmeval.control.v1.Case
+	0,  // 31: swarmeval.control.v1.ControlService.SubmitRuns:input_type -> swarmeval.control.v1.SubmitRunsRequest
+	3,  // 32: swarmeval.control.v1.ControlService.SubmitSuite:input_type -> swarmeval.control.v1.SubmitSuiteRequest
+	7,  // 33: swarmeval.control.v1.ControlService.GetRun:input_type -> swarmeval.control.v1.GetRunRequest
+	9,  // 34: swarmeval.control.v1.ControlService.ListRuns:input_type -> swarmeval.control.v1.ListRunsRequest
+	11, // 35: swarmeval.control.v1.ControlService.CancelRun:input_type -> swarmeval.control.v1.CancelRunRequest
+	13, // 36: swarmeval.control.v1.ControlService.ResumeRun:input_type -> swarmeval.control.v1.ResumeRunRequest
+	15, // 37: swarmeval.control.v1.ControlService.ForkRun:input_type -> swarmeval.control.v1.ForkRunRequest
+	21, // 38: swarmeval.control.v1.ControlService.StreamEvents:input_type -> swarmeval.control.v1.StreamEventsRequest
+	26, // 39: swarmeval.control.v1.ControlService.PushCase:input_type -> swarmeval.control.v1.PushCaseRequest
+	29, // 40: swarmeval.control.v1.ControlService.UpdateCaseFiles:input_type -> swarmeval.control.v1.UpdateCaseFilesRequest
+	31, // 41: swarmeval.control.v1.ControlService.GetCase:input_type -> swarmeval.control.v1.GetCaseRequest
+	33, // 42: swarmeval.control.v1.ControlService.ListCases:input_type -> swarmeval.control.v1.ListCasesRequest
+	35, // 43: swarmeval.control.v1.ControlService.ListCaseRevisions:input_type -> swarmeval.control.v1.ListCaseRevisionsRequest
+	37, // 44: swarmeval.control.v1.ControlService.GetCaseRevision:input_type -> swarmeval.control.v1.GetCaseRevisionRequest
+	39, // 45: swarmeval.control.v1.ControlService.ArchiveCase:input_type -> swarmeval.control.v1.ArchiveCaseRequest
+	41, // 46: swarmeval.control.v1.ControlService.UnarchiveCase:input_type -> swarmeval.control.v1.UnarchiveCaseRequest
+	2,  // 47: swarmeval.control.v1.ControlService.SubmitRuns:output_type -> swarmeval.control.v1.SubmitRunsResponse
+	5,  // 48: swarmeval.control.v1.ControlService.SubmitSuite:output_type -> swarmeval.control.v1.SubmitSuiteResponse
+	8,  // 49: swarmeval.control.v1.ControlService.GetRun:output_type -> swarmeval.control.v1.GetRunResponse
+	10, // 50: swarmeval.control.v1.ControlService.ListRuns:output_type -> swarmeval.control.v1.ListRunsResponse
+	12, // 51: swarmeval.control.v1.ControlService.CancelRun:output_type -> swarmeval.control.v1.CancelRunResponse
+	14, // 52: swarmeval.control.v1.ControlService.ResumeRun:output_type -> swarmeval.control.v1.ResumeRunResponse
+	20, // 53: swarmeval.control.v1.ControlService.ForkRun:output_type -> swarmeval.control.v1.ForkRunResponse
+	22, // 54: swarmeval.control.v1.ControlService.StreamEvents:output_type -> swarmeval.control.v1.StreamEventsResponse
+	27, // 55: swarmeval.control.v1.ControlService.PushCase:output_type -> swarmeval.control.v1.PushCaseResponse
+	30, // 56: swarmeval.control.v1.ControlService.UpdateCaseFiles:output_type -> swarmeval.control.v1.UpdateCaseFilesResponse
+	32, // 57: swarmeval.control.v1.ControlService.GetCase:output_type -> swarmeval.control.v1.GetCaseResponse
+	34, // 58: swarmeval.control.v1.ControlService.ListCases:output_type -> swarmeval.control.v1.ListCasesResponse
+	36, // 59: swarmeval.control.v1.ControlService.ListCaseRevisions:output_type -> swarmeval.control.v1.ListCaseRevisionsResponse
+	38, // 60: swarmeval.control.v1.ControlService.GetCaseRevision:output_type -> swarmeval.control.v1.GetCaseRevisionResponse
+	40, // 61: swarmeval.control.v1.ControlService.ArchiveCase:output_type -> swarmeval.control.v1.ArchiveCaseResponse
+	42, // 62: swarmeval.control.v1.ControlService.UnarchiveCase:output_type -> swarmeval.control.v1.UnarchiveCaseResponse
+	47, // [47:63] is the sub-list for method output_type
+	31, // [31:47] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_swarmeval_control_v1_control_proto_init() }
@@ -1715,10 +3161,14 @@ func file_swarmeval_control_v1_control_proto_init() {
 	if File_swarmeval_control_v1_control_proto != nil {
 		return
 	}
-	file_swarmeval_control_v1_control_proto_msgTypes[15].OneofWrappers = []any{
+	file_swarmeval_control_v1_control_proto_msgTypes[16].OneofWrappers = []any{
 		(*ForkEdit_ReplaceMessage)(nil),
 		(*ForkEdit_DeleteMessage)(nil),
 		(*ForkEdit_ReplaceDelivery)(nil),
+	}
+	file_swarmeval_control_v1_control_proto_msgTypes[28].OneofWrappers = []any{
+		(*FileChange_Content)(nil),
+		(*FileChange_Delete)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1726,7 +3176,7 @@ func file_swarmeval_control_v1_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_swarmeval_control_v1_control_proto_rawDesc), len(file_swarmeval_control_v1_control_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

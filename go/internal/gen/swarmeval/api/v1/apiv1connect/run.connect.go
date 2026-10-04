@@ -53,8 +53,10 @@ const (
 
 // RunServiceClient is a client for the swarmeval.api.v1.RunService service.
 type RunServiceClient interface {
-	// Validates a case bundle and queues one run per variant and epoch. A case that does not load
-	// is INVALID_ARGUMENT, with the loader's message.
+	// Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+	// CaseService.PushCase pushes it, or a revision already there. A case that does not load is
+	// INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+	// archived case is FAILED_PRECONDITION.
 	SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error)
 	// Loads a suite with the case directories it names and queues every case's runs, each case
 	// its own submission under one suite label. A suite with a case that does not load queues
@@ -196,8 +198,10 @@ func (c *runServiceClient) StreamEvents(ctx context.Context, req *connect.Reques
 
 // RunServiceHandler is an implementation of the swarmeval.api.v1.RunService service.
 type RunServiceHandler interface {
-	// Validates a case bundle and queues one run per variant and epoch. A case that does not load
-	// is INVALID_ARGUMENT, with the loader's message.
+	// Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+	// CaseService.PushCase pushes it, or a revision already there. A case that does not load is
+	// INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+	// archived case is FAILED_PRECONDITION.
 	SubmitRuns(context.Context, *connect.Request[v1.SubmitRunsRequest]) (*connect.Response[v1.SubmitRunsResponse], error)
 	// Loads a suite with the case directories it names and queues every case's runs, each case
 	// its own submission under one suite label. A suite with a case that does not load queues

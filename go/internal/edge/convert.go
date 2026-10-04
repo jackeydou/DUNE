@@ -61,6 +61,7 @@ func runProto(r *controlv1.Run) *apiv1.Run {
 		Epoch:         r.GetEpoch(),
 		Epochs:        r.GetEpochs(),
 		CaseSha256:    r.GetCaseSha256(),
+		CaseRevision:  r.GetCaseRevision(),
 		Isolation:     r.GetIsolation(),
 		Error:         r.GetError(),
 		CreatedAt:     r.GetCreatedAt(),
@@ -97,4 +98,45 @@ func forkEditProto(e *apiv1.ForkEdit) *controlv1.ForkEdit {
 	}
 	// An empty edit: the Control API refuses it as INVALID_ARGUMENT with its own message.
 	return &controlv1.ForkEdit{}
+}
+
+func caseRevisionProto(r *controlv1.CaseRevision) *apiv1.CaseRevision {
+	if r == nil {
+		return nil
+	}
+	return &apiv1.CaseRevision{
+		Workspace:    r.GetWorkspace(),
+		CaseId:       r.GetCaseId(),
+		Revision:     r.GetRevision(),
+		BundleSha256: r.GetBundleSha256(),
+		CreatedBy:    r.GetActor(),
+		Note:         r.GetNote(),
+		CreatedAt:    r.GetCreatedAt(),
+	}
+}
+
+func caseProto(c *controlv1.Case) *apiv1.Case {
+	if c == nil {
+		return nil
+	}
+	return &apiv1.Case{
+		Workspace:  c.GetWorkspace(),
+		CaseId:     c.GetCaseId(),
+		CreatedAt:  c.GetCreatedAt(),
+		ArchivedAt: c.GetArchivedAt(),
+		Latest:     caseRevisionProto(c.GetLatest()),
+	}
+}
+
+func fileChangeProto(c *apiv1.FileChange) *controlv1.FileChange {
+	out := &controlv1.FileChange{Path: c.GetPath()}
+	switch change := c.GetChange().(type) {
+	case *apiv1.FileChange_Content:
+		out.Change = &controlv1.FileChange_Content{Content: change.Content}
+	case *apiv1.FileChange_Delete:
+		out.Change = &controlv1.FileChange_Delete{Delete: change.Delete}
+	}
+	// A change that sets neither: the Control API refuses it as INVALID_ARGUMENT with its own
+	// message.
+	return out
 }

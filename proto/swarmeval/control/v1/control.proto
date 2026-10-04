@@ -10,8 +10,10 @@ option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control
 // ControlService is the orchestrator control plane's API. Until edge exists (M4) it is bound to
 // the internal network and has no authentication. Behavior: docs/services/orchestrator.md.
 service ControlService {
-  // Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
-  // A case that does not load is INVALID_ARGUMENT, with the loader's message.
+  // Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+  // PushCase pushes it, or a revision already there. A case that does not load is
+  // INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+  // archived case is FAILED_PRECONDITION.
   rpc SubmitRuns(SubmitRunsRequest) returns (SubmitRunsResponse);
   // Loads a suite with the case bundles it names and queues every case's runs in one
   // transaction, each case its own submission under one suite label: a suite with a case that
@@ -37,11 +39,39 @@ service ControlService {
   // A run's events with seq greater than `after_seq`, live while the run is going. The stream
   // ends once the run has finished and every event was sent.
   rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
+
+  // The case library (docs/services/orchestrator.md#case-library). A case is `workspace` and
+  // `case_id`, as its `case.yaml` names them; its revisions are numbered from 1 and never change.
+
+  // Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
+  // names, creating the case on its first push. A bundle with the same bytes as the newest
+  // revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
+  // stored; an archived case is FAILED_PRECONDITION.
+  rpc PushCase(PushCaseRequest) returns (PushCaseResponse);
+  // Applies file changes to revision `base_revision` and stores the result as the next
+  // revision, validated as PushCase validates. ABORTED when `base_revision` is not the newest
+  // revision; the message names the newest. `base_revision` 0 creates the case from the written
+  // files alone.
+  rpc UpdateCaseFiles(UpdateCaseFilesRequest) returns (UpdateCaseFilesResponse);
+  rpc GetCase(GetCaseRequest) returns (GetCaseResponse);
+  // By workspace, then case id.
+  rpc ListCases(ListCasesRequest) returns (ListCasesResponse);
+  // Newest first.
+  rpc ListCaseRevisions(ListCaseRevisionsRequest) returns (ListCaseRevisionsResponse);
+  // One revision with its files.
+  rpc GetCaseRevision(GetCaseRevisionRequest) returns (GetCaseRevisionResponse);
+  // An archived case is left out of ListCases by default and takes no pushes, edits, or runs.
+  // Its revisions and bundles stay: runs reference them.
+  rpc ArchiveCase(ArchiveCaseRequest) returns (ArchiveCaseResponse);
+  rpc UnarchiveCase(UnarchiveCaseRequest) returns (UnarchiveCaseResponse);
 }
 
 message SubmitRunsRequest {
-  // The case directory as an uncompressed tar archive, with `case.yaml` at its root.
+  // The case directory as an uncompressed tar archive, with `case.yaml` at its root. Set this
+  // or `case`, not both.
   bytes case_bundle = 1;
+  // A revision in the case library, instead of a bundle.
+  CaseRevisionRef case = 6;
   // Variant axis → list of values, replacing that axis's values in the case.
   google.protobuf.Struct overrides = 2;
   // Runs per variant. Zero means the case's `epochs`.
@@ -53,9 +83,19 @@ message SubmitRunsRequest {
   string actor = 5;
 }
 
+// One revision of a case in the library.
+message CaseRevisionRef {
+  string workspace = 1;
+  string case_id = 2;
+  // Zero means the newest.
+  int32 revision = 3;
+}
+
 message SubmitRunsResponse {
   string submission_id = 1;
   repeated string run_ids = 2;
+  // The revision the runs use.
+  int32 case_revision = 3;
 }
 
 message SubmitSuiteRequest {
@@ -72,6 +112,7 @@ message SuiteSubmission {
   string case_id = 1;
   string submission_id = 2;
   repeated string run_ids = 3;
+  int32 case_revision = 4;
 }
 
 message SubmitSuiteResponse {
@@ -118,6 +159,8 @@ message Run {
   // The actor of the CancelRun that cancelled the run, and of the last ResumeRun.
   string cancelled_by = 23;
   string resumed_by = 24;
+  // The case library revision the run uses; `case_sha256` is that revision's bundle.
+  int32 case_revision = 25;
 }
 
 message GetRunRequest {
@@ -215,4 +258,137 @@ message StreamEventsResponse {
   // The event on one line, as the judge and the timeline show it (swarmeval.events.render),
   // cut at 2,000 characters.
   string line = 6;
+}
+
+message Case {
+  string workspace = 1;
+  string case_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // Unset while the case is not archived.
+  google.protobuf.Timestamp archived_at = 4;
+  // The newest revision.
+  CaseRevision latest = 5;
+}
+
+message CaseRevision {
+  string workspace = 1;
+  string case_id = 2;
+  int32 revision = 3;
+  string bundle_sha256 = 4;
+  // The actor of the request that made the revision; empty when it named none.
+  string actor = 5;
+  string note = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// A regular file or a symbolic link of a case bundle.
+message CaseFile {
+  // Relative to the case directory, with `/` separators.
+  string path = 1;
+  bytes content = 2;
+  // Unix permission bits.
+  uint32 mode = 3;
+  // For a symbolic link, where it points; `content` is empty.
+  string link_target = 4;
+}
+
+message PushCaseRequest {
+  bytes case_bundle = 1;
+  string actor = 2;
+  // What changed, for the revision list. At most 1,000 characters.
+  string note = 3;
+}
+
+message PushCaseResponse {
+  CaseRevision revision = 1;
+  // False when the bundle was the newest revision already.
+  bool created = 2;
+}
+
+message FileChange {
+  // Relative to the case directory, with `/` separators and no `..`.
+  string path = 1;
+  oneof change {
+    // The file's new content, at most 1 MiB. Creates the file, with mode 0644, if it is new.
+    bytes content = 2;
+    // Removes the file. Must be true.
+    bool delete = 3;
+  }
+}
+
+message UpdateCaseFilesRequest {
+  string workspace = 1;
+  string case_id = 2;
+  // The revision the changes were made against. Zero for a case that does not exist yet.
+  int32 base_revision = 3;
+  repeated FileChange changes = 4;
+  string actor = 5;
+  string note = 6;
+}
+
+message UpdateCaseFilesResponse {
+  CaseRevision revision = 1;
+  // False when the changes left every file as it was.
+  bool created = 2;
+}
+
+message GetCaseRequest {
+  string workspace = 1;
+  string case_id = 2;
+}
+
+message GetCaseResponse {
+  Case case = 1;
+}
+
+message ListCasesRequest {
+  // Empty for every workspace.
+  string workspace = 1;
+  bool include_archived = 2;
+}
+
+message ListCasesResponse {
+  repeated Case cases = 1;
+}
+
+message ListCaseRevisionsRequest {
+  string workspace = 1;
+  string case_id = 2;
+}
+
+message ListCaseRevisionsResponse {
+  repeated CaseRevision revisions = 1;
+}
+
+message GetCaseRevisionRequest {
+  string workspace = 1;
+  string case_id = 2;
+  // Zero means the newest.
+  int32 revision = 3;
+}
+
+message GetCaseRevisionResponse {
+  CaseRevision revision = 1;
+  // By path.
+  repeated CaseFile files = 2;
+}
+
+message ArchiveCaseRequest {
+  string workspace = 1;
+  string case_id = 2;
+  string actor = 3;
+}
+
+message ArchiveCaseResponse {
+  Case case = 1;
+}
+
+message UnarchiveCaseRequest {
+  string workspace = 1;
+  string case_id = 2;
+  string actor = 3;
+}
+
+message UnarchiveCaseResponse {
+  Case case = 1;
 }

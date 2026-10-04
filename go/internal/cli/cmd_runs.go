@@ -15,18 +15,31 @@ func (a *app) runCommand() *cobra.Command {
 		overrides []string
 		epochs    int32
 		suite     string
+		library   string
 		followRun bool
 	)
 	cmd := &cobra.Command{
-		Use:   "run CASE_DIR | SUITE_FILE",
-		Short: "Submit a case directory or a suite file",
+		Use:   "run CASE_DIR | SUITE_FILE | --case WORKSPACE/CASE[@REVISION]",
+		Short: "Submit a case directory, a suite file, or a case in the library",
 		Long: "Submits a case directory, one run per variant and epoch, or a suite file, each case\n" +
-			"its own submission under one suite label. A suite that does not load submits nothing.\n\n" +
+			"its own submission under one suite label. A suite that does not load submits nothing.\n" +
+			"A directory is stored in the case library as `swarm case push` stores it, and its runs\n" +
+			"use that revision. --case runs a revision already there: the newest, or @REVISION.\n\n" +
 			"-V replaces a variant axis's values: -V model=qwen3-8b,glm-5. Values are read as a\n" +
 			"YAML flow sequence, so -V paraphrased=[],[dm_ab] gives two list values.",
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			isSuite, err := isSuiteFile(args[0])
+			if (len(args) == 1) == (library != "") {
+				return errors.New("give what to run as one of CASE_DIR, SUITE_FILE, and --case WORKSPACE/CASE[@REVISION]")
+			}
+			var ref *apiv1.CaseRevisionRef
+			isSuite := false
+			var err error
+			if library != "" {
+				ref, err = parseCaseRef(library)
+			} else {
+				isSuite, err = isSuiteFile(args[0])
+			}
 			if err != nil {
 				return err
 			}
@@ -59,18 +72,19 @@ func (a *app) runCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				bundle, err := pack(args[0])
-				if err != nil {
-					return err
+				req, what := &apiv1.SubmitRunsRequest{Case: ref, Overrides: values, Epochs: epochs, Suite: suite}, library
+				if ref == nil {
+					what = args[0]
+					if req.CaseBundle, err = pack(args[0]); err != nil {
+						return err
+					}
 				}
-				res, err := c.runs.SubmitRuns(cmd.Context(), connect.NewRequest(&apiv1.SubmitRunsRequest{
-					CaseBundle: bundle, Overrides: values, Epochs: epochs, Suite: suite,
-				}))
+				res, err := c.runs.SubmitRuns(cmd.Context(), connect.NewRequest(req))
 				if err != nil {
-					return explain("submit "+args[0], err)
+					return explain("submit "+what, err)
 				}
 				runIDs = res.Msg.GetRunIds()
-				_, _ = fmt.Fprintf(a.out, "submission %s: %d runs\n", res.Msg.GetSubmissionId(), len(runIDs))
+				_, _ = fmt.Fprintf(a.out, "submission %s: %d runs of revision %d\n", res.Msg.GetSubmissionId(), len(runIDs), res.Msg.GetCaseRevision())
 			}
 			if !followRun {
 				for _, id := range runIDs {
@@ -84,6 +98,7 @@ func (a *app) runCommand() *cobra.Command {
 	cmd.Flags().StringArrayVarP(&overrides, "variant", "V", nil, "axis=values replacing a variant axis's values (repeatable)")
 	cmd.Flags().Int32Var(&epochs, "epochs", 0, "runs per variant (default: the case's epochs)")
 	cmd.Flags().StringVar(&suite, "suite", "", "label the submission as part of a suite run")
+	cmd.Flags().StringVar(&library, "case", "", "run a case in the library, WORKSPACE/CASE[@REVISION], instead of a directory")
 	cmd.Flags().BoolVarP(&followRun, "follow", "f", false, "print the runs' events as they happen, until every run has finished")
 	return cmd
 }

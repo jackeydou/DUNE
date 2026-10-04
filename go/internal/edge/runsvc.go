@@ -35,7 +35,8 @@ var passedThrough = map[connect.Code]bool{
 	connect.CodeDeadlineExceeded:   true,
 }
 
-func (s *RunService) upstream(op string, err error) error {
+// upstream turns a failed Control API call into what the caller sees.
+func upstream(log *slog.Logger, op string, err error) error {
 	var cerr *connect.Error
 	if errors.As(err, &cerr) && passedThrough[cerr.Code()] {
 		return connect.NewError(cerr.Code(), errors.New(cerr.Message()))
@@ -43,29 +44,48 @@ func (s *RunService) upstream(op string, err error) error {
 	if errors.Is(err, context.Canceled) {
 		return connect.NewError(connect.CodeCanceled, err)
 	}
-	s.log.Error("control plane call failed", "op", op, "err", err)
+	log.Error("control plane call failed", "op", op, "err", err)
 	return connect.NewError(connect.CodeUnavailable, fmt.Errorf(
 		"%s: the control plane did not answer; try again, and tell the operator if it persists", op))
 }
 
-func (s *RunService) SubmitRuns(ctx context.Context, req *connect.Request[apiv1.SubmitRunsRequest]) (*connect.Response[apiv1.SubmitRunsResponse], error) {
-	if n := len(req.Msg.GetCaseBundle()); n > MaxBundleBytes {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+func (s *RunService) upstream(op string, err error) error {
+	return upstream(s.log, op, err)
+}
+
+// checkBundleSize refuses a bundle the Control API would not take, before it is sent on.
+func checkBundleSize(bundle []byte) error {
+	if n := len(bundle); n > MaxBundleBytes {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
 			"the case bundle is %d bytes; the limit is %d (64 MiB). Move large data out of the case directory", n, MaxBundleBytes))
 	}
-	res, err := s.control.SubmitRuns(ctx, connect.NewRequest(&controlv1.SubmitRunsRequest{
+	return nil
+}
+
+func (s *RunService) SubmitRuns(ctx context.Context, req *connect.Request[apiv1.SubmitRunsRequest]) (*connect.Response[apiv1.SubmitRunsResponse], error) {
+	if err := checkBundleSize(req.Msg.GetCaseBundle()); err != nil {
+		return nil, err
+	}
+	sent := &controlv1.SubmitRunsRequest{
 		CaseBundle: req.Msg.GetCaseBundle(),
 		Overrides:  req.Msg.GetOverrides(),
 		Epochs:     req.Msg.GetEpochs(),
 		Suite:      req.Msg.GetSuite(),
 		Actor:      callerOf(ctx).user.Username,
-	}))
+	}
+	if ref := req.Msg.GetCase(); ref != nil {
+		sent.Case = &controlv1.CaseRevisionRef{
+			Workspace: ref.GetWorkspace(), CaseId: ref.GetCaseId(), Revision: ref.GetRevision(),
+		}
+	}
+	res, err := s.control.SubmitRuns(ctx, connect.NewRequest(sent))
 	if err != nil {
 		return nil, s.upstream("SubmitRuns", err)
 	}
 	return connect.NewResponse(&apiv1.SubmitRunsResponse{
 		SubmissionId: res.Msg.GetSubmissionId(),
 		RunIds:       res.Msg.GetRunIds(),
+		CaseRevision: res.Msg.GetCaseRevision(),
 	}), nil
 }
 
@@ -90,6 +110,7 @@ func (s *RunService) SubmitSuite(ctx context.Context, req *connect.Request[apiv1
 	for _, sub := range res.Msg.GetSubmissions() {
 		out.Submissions = append(out.Submissions, &apiv1.SuiteSubmission{
 			CaseId: sub.GetCaseId(), SubmissionId: sub.GetSubmissionId(), RunIds: sub.GetRunIds(),
+			CaseRevision: sub.GetCaseRevision(),
 		})
 	}
 	return connect.NewResponse(out), nil

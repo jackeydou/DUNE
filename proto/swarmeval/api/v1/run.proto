@@ -11,8 +11,10 @@ option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1;
 // orchestrator's Control API and records the caller as the actor of every change. Run statuses,
 // reruns, and forks: docs/services/orchestrator.md.
 service RunService {
-  // Validates a case bundle and queues one run per variant and epoch. A case that does not load
-  // is INVALID_ARGUMENT, with the loader's message.
+  // Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+  // CaseService.PushCase pushes it, or a revision already there. A case that does not load is
+  // INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+  // archived case is FAILED_PRECONDITION.
   rpc SubmitRuns(SubmitRunsRequest) returns (SubmitRunsResponse);
   // Loads a suite with the case directories it names and queues every case's runs, each case
   // its own submission under one suite label. A suite with a case that does not load queues
@@ -40,8 +42,10 @@ service RunService {
 
 message SubmitRunsRequest {
   // The case directory as an uncompressed tar archive, with `case.yaml` at its root. At most
-  // 64 MiB.
+  // 64 MiB. Set this or `case`, not both.
   bytes case_bundle = 1;
+  // A revision in the case library, instead of a bundle.
+  CaseRevisionRef case = 5;
   // Variant axis → list of values, replacing that axis's values in the case.
   google.protobuf.Struct overrides = 2;
   // Runs per variant. Zero means the case's `epochs`.
@@ -51,9 +55,19 @@ message SubmitRunsRequest {
   string suite = 4;
 }
 
+// One revision of a case in the library.
+message CaseRevisionRef {
+  string workspace = 1;
+  string case_id = 2;
+  // Zero means the newest.
+  int32 revision = 3;
+}
+
 message SubmitRunsResponse {
   string submission_id = 1;
   repeated string run_ids = 2;
+  // The case library revision the runs use.
+  int32 case_revision = 3;
 }
 
 message SubmitSuiteRequest {
@@ -68,6 +82,7 @@ message SuiteSubmission {
   string case_id = 1;
   string submission_id = 2;
   repeated string run_ids = 3;
+  int32 case_revision = 4;
 }
 
 message SubmitSuiteResponse {
@@ -113,6 +128,8 @@ message Run {
   // Who cancelled the run, and who last resumed it.
   string cancelled_by = 22;
   string resumed_by = 23;
+  // The case library revision the run uses; `case_sha256` is that revision's bundle.
+  int32 case_revision = 24;
 }
 
 message GetRunRequest {

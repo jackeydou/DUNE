@@ -19,14 +19,22 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ControlService_SubmitRuns_FullMethodName   = "/swarmeval.control.v1.ControlService/SubmitRuns"
-	ControlService_SubmitSuite_FullMethodName  = "/swarmeval.control.v1.ControlService/SubmitSuite"
-	ControlService_GetRun_FullMethodName       = "/swarmeval.control.v1.ControlService/GetRun"
-	ControlService_ListRuns_FullMethodName     = "/swarmeval.control.v1.ControlService/ListRuns"
-	ControlService_CancelRun_FullMethodName    = "/swarmeval.control.v1.ControlService/CancelRun"
-	ControlService_ResumeRun_FullMethodName    = "/swarmeval.control.v1.ControlService/ResumeRun"
-	ControlService_ForkRun_FullMethodName      = "/swarmeval.control.v1.ControlService/ForkRun"
-	ControlService_StreamEvents_FullMethodName = "/swarmeval.control.v1.ControlService/StreamEvents"
+	ControlService_SubmitRuns_FullMethodName        = "/swarmeval.control.v1.ControlService/SubmitRuns"
+	ControlService_SubmitSuite_FullMethodName       = "/swarmeval.control.v1.ControlService/SubmitSuite"
+	ControlService_GetRun_FullMethodName            = "/swarmeval.control.v1.ControlService/GetRun"
+	ControlService_ListRuns_FullMethodName          = "/swarmeval.control.v1.ControlService/ListRuns"
+	ControlService_CancelRun_FullMethodName         = "/swarmeval.control.v1.ControlService/CancelRun"
+	ControlService_ResumeRun_FullMethodName         = "/swarmeval.control.v1.ControlService/ResumeRun"
+	ControlService_ForkRun_FullMethodName           = "/swarmeval.control.v1.ControlService/ForkRun"
+	ControlService_StreamEvents_FullMethodName      = "/swarmeval.control.v1.ControlService/StreamEvents"
+	ControlService_PushCase_FullMethodName          = "/swarmeval.control.v1.ControlService/PushCase"
+	ControlService_UpdateCaseFiles_FullMethodName   = "/swarmeval.control.v1.ControlService/UpdateCaseFiles"
+	ControlService_GetCase_FullMethodName           = "/swarmeval.control.v1.ControlService/GetCase"
+	ControlService_ListCases_FullMethodName         = "/swarmeval.control.v1.ControlService/ListCases"
+	ControlService_ListCaseRevisions_FullMethodName = "/swarmeval.control.v1.ControlService/ListCaseRevisions"
+	ControlService_GetCaseRevision_FullMethodName   = "/swarmeval.control.v1.ControlService/GetCaseRevision"
+	ControlService_ArchiveCase_FullMethodName       = "/swarmeval.control.v1.ControlService/ArchiveCase"
+	ControlService_UnarchiveCase_FullMethodName     = "/swarmeval.control.v1.ControlService/UnarchiveCase"
 )
 
 // ControlServiceClient is the client API for ControlService service.
@@ -36,8 +44,10 @@ const (
 // ControlService is the orchestrator control plane's API. Until edge exists (M4) it is bound to
 // the internal network and has no authentication. Behavior: docs/services/orchestrator.md.
 type ControlServiceClient interface {
-	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
-	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
+	// Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+	// PushCase pushes it, or a revision already there. A case that does not load is
+	// INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+	// archived case is FAILED_PRECONDITION.
 	SubmitRuns(ctx context.Context, in *SubmitRunsRequest, opts ...grpc.CallOption) (*SubmitRunsResponse, error)
 	// Loads a suite with the case bundles it names and queues every case's runs in one
 	// transaction, each case its own submission under one suite label: a suite with a case that
@@ -63,6 +73,27 @@ type ControlServiceClient interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error)
+	// Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
+	// names, creating the case on its first push. A bundle with the same bytes as the newest
+	// revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
+	// stored; an archived case is FAILED_PRECONDITION.
+	PushCase(ctx context.Context, in *PushCaseRequest, opts ...grpc.CallOption) (*PushCaseResponse, error)
+	// Applies file changes to revision `base_revision` and stores the result as the next
+	// revision, validated as PushCase validates. ABORTED when `base_revision` is not the newest
+	// revision; the message names the newest. `base_revision` 0 creates the case from the written
+	// files alone.
+	UpdateCaseFiles(ctx context.Context, in *UpdateCaseFilesRequest, opts ...grpc.CallOption) (*UpdateCaseFilesResponse, error)
+	GetCase(ctx context.Context, in *GetCaseRequest, opts ...grpc.CallOption) (*GetCaseResponse, error)
+	// By workspace, then case id.
+	ListCases(ctx context.Context, in *ListCasesRequest, opts ...grpc.CallOption) (*ListCasesResponse, error)
+	// Newest first.
+	ListCaseRevisions(ctx context.Context, in *ListCaseRevisionsRequest, opts ...grpc.CallOption) (*ListCaseRevisionsResponse, error)
+	// One revision with its files.
+	GetCaseRevision(ctx context.Context, in *GetCaseRevisionRequest, opts ...grpc.CallOption) (*GetCaseRevisionResponse, error)
+	// An archived case is left out of ListCases by default and takes no pushes, edits, or runs.
+	// Its revisions and bundles stay: runs reference them.
+	ArchiveCase(ctx context.Context, in *ArchiveCaseRequest, opts ...grpc.CallOption) (*ArchiveCaseResponse, error)
+	UnarchiveCase(ctx context.Context, in *UnarchiveCaseRequest, opts ...grpc.CallOption) (*UnarchiveCaseResponse, error)
 }
 
 type controlServiceClient struct {
@@ -162,6 +193,86 @@ func (c *controlServiceClient) StreamEvents(ctx context.Context, in *StreamEvent
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ControlService_StreamEventsClient = grpc.ServerStreamingClient[StreamEventsResponse]
 
+func (c *controlServiceClient) PushCase(ctx context.Context, in *PushCaseRequest, opts ...grpc.CallOption) (*PushCaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PushCaseResponse)
+	err := c.cc.Invoke(ctx, ControlService_PushCase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) UpdateCaseFiles(ctx context.Context, in *UpdateCaseFilesRequest, opts ...grpc.CallOption) (*UpdateCaseFilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateCaseFilesResponse)
+	err := c.cc.Invoke(ctx, ControlService_UpdateCaseFiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) GetCase(ctx context.Context, in *GetCaseRequest, opts ...grpc.CallOption) (*GetCaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCaseResponse)
+	err := c.cc.Invoke(ctx, ControlService_GetCase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) ListCases(ctx context.Context, in *ListCasesRequest, opts ...grpc.CallOption) (*ListCasesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListCasesResponse)
+	err := c.cc.Invoke(ctx, ControlService_ListCases_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) ListCaseRevisions(ctx context.Context, in *ListCaseRevisionsRequest, opts ...grpc.CallOption) (*ListCaseRevisionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListCaseRevisionsResponse)
+	err := c.cc.Invoke(ctx, ControlService_ListCaseRevisions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) GetCaseRevision(ctx context.Context, in *GetCaseRevisionRequest, opts ...grpc.CallOption) (*GetCaseRevisionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCaseRevisionResponse)
+	err := c.cc.Invoke(ctx, ControlService_GetCaseRevision_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) ArchiveCase(ctx context.Context, in *ArchiveCaseRequest, opts ...grpc.CallOption) (*ArchiveCaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ArchiveCaseResponse)
+	err := c.cc.Invoke(ctx, ControlService_ArchiveCase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlServiceClient) UnarchiveCase(ctx context.Context, in *UnarchiveCaseRequest, opts ...grpc.CallOption) (*UnarchiveCaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnarchiveCaseResponse)
+	err := c.cc.Invoke(ctx, ControlService_UnarchiveCase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ControlServiceServer is the server API for ControlService service.
 // All implementations must embed UnimplementedControlServiceServer
 // for forward compatibility.
@@ -169,8 +280,10 @@ type ControlService_StreamEventsClient = grpc.ServerStreamingClient[StreamEvents
 // ControlService is the orchestrator control plane's API. Until edge exists (M4) it is bound to
 // the internal network and has no authentication. Behavior: docs/services/orchestrator.md.
 type ControlServiceServer interface {
-	// Validates a case bundle, stores it by hash, and queues one run per variant and epoch.
-	// A case that does not load is INVALID_ARGUMENT, with the loader's message.
+	// Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
+	// PushCase pushes it, or a revision already there. A case that does not load is
+	// INVALID_ARGUMENT, with the loader's message; an unknown case or revision is NOT_FOUND; an
+	// archived case is FAILED_PRECONDITION.
 	SubmitRuns(context.Context, *SubmitRunsRequest) (*SubmitRunsResponse, error)
 	// Loads a suite with the case bundles it names and queues every case's runs in one
 	// transaction, each case its own submission under one suite label: a suite with a case that
@@ -196,6 +309,27 @@ type ControlServiceServer interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error
+	// Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
+	// names, creating the case on its first push. A bundle with the same bytes as the newest
+	// revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
+	// stored; an archived case is FAILED_PRECONDITION.
+	PushCase(context.Context, *PushCaseRequest) (*PushCaseResponse, error)
+	// Applies file changes to revision `base_revision` and stores the result as the next
+	// revision, validated as PushCase validates. ABORTED when `base_revision` is not the newest
+	// revision; the message names the newest. `base_revision` 0 creates the case from the written
+	// files alone.
+	UpdateCaseFiles(context.Context, *UpdateCaseFilesRequest) (*UpdateCaseFilesResponse, error)
+	GetCase(context.Context, *GetCaseRequest) (*GetCaseResponse, error)
+	// By workspace, then case id.
+	ListCases(context.Context, *ListCasesRequest) (*ListCasesResponse, error)
+	// Newest first.
+	ListCaseRevisions(context.Context, *ListCaseRevisionsRequest) (*ListCaseRevisionsResponse, error)
+	// One revision with its files.
+	GetCaseRevision(context.Context, *GetCaseRevisionRequest) (*GetCaseRevisionResponse, error)
+	// An archived case is left out of ListCases by default and takes no pushes, edits, or runs.
+	// Its revisions and bundles stay: runs reference them.
+	ArchiveCase(context.Context, *ArchiveCaseRequest) (*ArchiveCaseResponse, error)
+	UnarchiveCase(context.Context, *UnarchiveCaseRequest) (*UnarchiveCaseResponse, error)
 	mustEmbedUnimplementedControlServiceServer()
 }
 
@@ -229,6 +363,30 @@ func (UnimplementedControlServiceServer) ForkRun(context.Context, *ForkRunReques
 }
 func (UnimplementedControlServiceServer) StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error {
 	return status.Error(codes.Unimplemented, "method StreamEvents not implemented")
+}
+func (UnimplementedControlServiceServer) PushCase(context.Context, *PushCaseRequest) (*PushCaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PushCase not implemented")
+}
+func (UnimplementedControlServiceServer) UpdateCaseFiles(context.Context, *UpdateCaseFilesRequest) (*UpdateCaseFilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateCaseFiles not implemented")
+}
+func (UnimplementedControlServiceServer) GetCase(context.Context, *GetCaseRequest) (*GetCaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetCase not implemented")
+}
+func (UnimplementedControlServiceServer) ListCases(context.Context, *ListCasesRequest) (*ListCasesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListCases not implemented")
+}
+func (UnimplementedControlServiceServer) ListCaseRevisions(context.Context, *ListCaseRevisionsRequest) (*ListCaseRevisionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListCaseRevisions not implemented")
+}
+func (UnimplementedControlServiceServer) GetCaseRevision(context.Context, *GetCaseRevisionRequest) (*GetCaseRevisionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetCaseRevision not implemented")
+}
+func (UnimplementedControlServiceServer) ArchiveCase(context.Context, *ArchiveCaseRequest) (*ArchiveCaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ArchiveCase not implemented")
+}
+func (UnimplementedControlServiceServer) UnarchiveCase(context.Context, *UnarchiveCaseRequest) (*UnarchiveCaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UnarchiveCase not implemented")
 }
 func (UnimplementedControlServiceServer) mustEmbedUnimplementedControlServiceServer() {}
 func (UnimplementedControlServiceServer) testEmbeddedByValue()                        {}
@@ -388,6 +546,150 @@ func _ControlService_StreamEvents_Handler(srv interface{}, stream grpc.ServerStr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ControlService_StreamEventsServer = grpc.ServerStreamingServer[StreamEventsResponse]
 
+func _ControlService_PushCase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PushCaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).PushCase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_PushCase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).PushCase(ctx, req.(*PushCaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_UpdateCaseFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateCaseFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).UpdateCaseFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_UpdateCaseFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).UpdateCaseFiles(ctx, req.(*UpdateCaseFilesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_GetCase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).GetCase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_GetCase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).GetCase(ctx, req.(*GetCaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_ListCases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListCasesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).ListCases(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_ListCases_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).ListCases(ctx, req.(*ListCasesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_ListCaseRevisions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListCaseRevisionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).ListCaseRevisions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_ListCaseRevisions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).ListCaseRevisions(ctx, req.(*ListCaseRevisionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_GetCaseRevision_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCaseRevisionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).GetCaseRevision(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_GetCaseRevision_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).GetCaseRevision(ctx, req.(*GetCaseRevisionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_ArchiveCase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ArchiveCaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).ArchiveCase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_ArchiveCase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).ArchiveCase(ctx, req.(*ArchiveCaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlService_UnarchiveCase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnarchiveCaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).UnarchiveCase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_UnarchiveCase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).UnarchiveCase(ctx, req.(*UnarchiveCaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ControlService_ServiceDesc is the grpc.ServiceDesc for ControlService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -422,6 +724,38 @@ var ControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ForkRun",
 			Handler:    _ControlService_ForkRun_Handler,
+		},
+		{
+			MethodName: "PushCase",
+			Handler:    _ControlService_PushCase_Handler,
+		},
+		{
+			MethodName: "UpdateCaseFiles",
+			Handler:    _ControlService_UpdateCaseFiles_Handler,
+		},
+		{
+			MethodName: "GetCase",
+			Handler:    _ControlService_GetCase_Handler,
+		},
+		{
+			MethodName: "ListCases",
+			Handler:    _ControlService_ListCases_Handler,
+		},
+		{
+			MethodName: "ListCaseRevisions",
+			Handler:    _ControlService_ListCaseRevisions_Handler,
+		},
+		{
+			MethodName: "GetCaseRevision",
+			Handler:    _ControlService_GetCaseRevision_Handler,
+		},
+		{
+			MethodName: "ArchiveCase",
+			Handler:    _ControlService_ArchiveCase_Handler,
+		},
+		{
+			MethodName: "UnarchiveCase",
+			Handler:    _ControlService_UnarchiveCase_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from swarmeval.control.cases import add_revision
 from swarmeval.control.queue import NewRun, Queue, run_id_of
 from swarmeval.db import control_runs, run_specs
 
@@ -28,8 +29,19 @@ async def submission(engine: AsyncEngine) -> AsyncIterator[str]:
         )
 
 
+async def revision_id(engine: AsyncEngine, case_id: str, sha256: str = "ab" * 32) -> int:
+    """The library revision of `case_id` in `ws_test` that names bundle `sha256`, added if it
+    is not the case's newest."""
+    async with engine.begin() as conn:
+        revision, _ = await add_revision(
+            conn, workspace="ws_test", case_id=case_id, sha256=sha256, actor=None, note=None
+        )
+    return revision.id
+
+
 async def enqueue(
     queue: Queue,
+    engine: AsyncEngine,
     submission_id: str,
     *,
     variants: int = 1,
@@ -38,6 +50,7 @@ async def enqueue(
     suite: str | None = None,
     submitted_by: str | None = None,
 ) -> list[str]:
+    case_revision_id = await revision_id(engine, case_id)
     runs = [
         NewRun(
             run_id=run_id_of(case_id, submission_id, variant, epoch),
@@ -45,6 +58,7 @@ async def enqueue(
             case_id=case_id,
             workspace="ws_test",
             case_sha256="ab" * 32,
+            case_revision_id=case_revision_id,
             overrides={},
             variant=variant,
             task_args={"v": variant},

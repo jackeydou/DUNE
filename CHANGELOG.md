@@ -3,6 +3,18 @@
 ## [Unreleased]
 
 ### Added
+- Case library: `control.cases` and `control.case_revisions` (migration 0010). Every case the
+  platform stores or runs has numbered, immutable revisions, each naming a bundle and who made
+  it, and every run references one (`control.run_specs.case_revision_id`, `Run.case_revision`).
+  Control API: `PushCase` (a bundle that is the newest revision already makes no new one),
+  `UpdateCaseFiles` (file changes against a base revision, `ABORTED` when the base is no
+  longer the newest; base 0 creates the case), `GetCase`, `ListCases`, `ListCaseRevisions`,
+  `GetCaseRevision` (a revision's files), `ArchiveCase`, and `UnarchiveCase`. Every write is
+  validated with the loader a worker uses; a case that does not load stores nothing.
+  `SubmitRuns` takes a bundle or a library revision (`case`), and a submitted bundle is pushed
+  to the library in the transaction that queues its runs; `SubmitSuite` likewise. The
+  migration gives runs queued before it cases and revisions, one revision per bundle hash in
+  order of first use.
 - Control API `SubmitSuite`: a suite file and one bundle per `cases[].path`, loaded by the
   control plane and queued in one transaction under one suite label, so a suite with a broken
   case queues nothing. `swarmeval.core.load_suite_text` loads a suite from its text with any

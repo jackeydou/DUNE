@@ -17,7 +17,7 @@ async def test_an_interrupted_run_is_rerun_at_the_next_epoch(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    first, _ = await enqueue(queue, submission, epochs=2)
+    first, _ = await enqueue(queue, engine, submission, epochs=2)
     owner_epoch = await start(engine, first, "w1")
 
     rerun = await queue.finish(first, owner_epoch, "interrupted", "sandboxd unavailable")
@@ -41,7 +41,7 @@ async def test_an_interrupted_run_is_rerun_at_the_next_epoch(
 
 async def test_a_variant_gets_at_most_epochs_reruns(engine: AsyncEngine, submission: str) -> None:
     queue = Queue(engine)
-    (run,) = await enqueue(queue, submission, epochs=1)
+    (run,) = await enqueue(queue, engine, submission, epochs=1)
 
     rerun = await queue.finish(run, await start(engine, run, "w1"), "interrupted")
     assert rerun is not None
@@ -58,7 +58,7 @@ async def test_failed_and_cancelled_runs_are_not_rerun(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    failed, cancelled = await enqueue(queue, submission, epochs=2)
+    failed, cancelled = await enqueue(queue, engine, submission, epochs=2)
     failed_epoch = await start(engine, failed, "w1")
     cancelled_epoch = await start(engine, cancelled, "w1")
     await queue.cancel(cancelled)
@@ -74,7 +74,7 @@ async def test_failed_and_cancelled_runs_are_not_rerun(
 
 async def test_a_stale_owner_cannot_finish_or_rerun(engine: AsyncEngine, submission: str) -> None:
     queue = Queue(engine)
-    (run,) = await enqueue(queue, submission)
+    (run,) = await enqueue(queue, engine, submission)
     owner_epoch = await start(engine, run, "w1")
 
     with pytest.raises(FencedError, match=f"run {run} is at owner_epoch {owner_epoch}"):
@@ -88,7 +88,7 @@ async def test_runs_interrupted_at_once_take_distinct_epochs(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    runs = await enqueue(queue, submission, epochs=4)
+    runs = await enqueue(queue, engine, submission, epochs=4)
     epochs = [await start(engine, r, f"w{i}") for i, r in enumerate(runs)]
 
     reruns = await asyncio.gather(
@@ -104,7 +104,7 @@ async def test_a_restarted_worker_finishes_only_its_own_runs(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    mine, cancelled, theirs = await enqueue(queue, submission, epochs=3)
+    mine, cancelled, theirs = await enqueue(queue, engine, submission, epochs=3)
     await start(engine, mine, "w_restarted")
     await start(engine, cancelled, "w_restarted")
     await queue.cancel(cancelled)
@@ -126,7 +126,7 @@ async def test_a_stale_owner_cannot_overwrite_a_run_its_restarted_worker_interru
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    (run,) = await enqueue(queue, submission, epochs=1)
+    (run,) = await enqueue(queue, engine, submission, epochs=1)
     w1 = f"w1_{submission}"
     old_epoch = await start(engine, run, w1)
     stale = PostgresRunStore(
@@ -155,7 +155,7 @@ async def test_finish_leaves_an_already_finished_run_alone(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    run, other = await enqueue(queue, submission, epochs=2)
+    run, other = await enqueue(queue, engine, submission, epochs=2)
     owner_epoch = await start(engine, run, "w1")
     await queue.finish(run, owner_epoch, "failed", "backend 502")
 
@@ -169,7 +169,7 @@ async def test_a_missing_summary_fails_only_a_done_run(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    done, interrupted, cancelled = await enqueue(queue, submission, epochs=3)
+    done, interrupted, cancelled = await enqueue(queue, engine, submission, epochs=3)
     epochs = {r: await start(engine, r, "w1") for r in (done, interrupted, cancelled)}
     await queue.cancel(cancelled)
     await queue.finish(done, epochs[done], "done")
@@ -195,7 +195,7 @@ async def test_actors_are_recorded_and_a_rerun_keeps_its_submitter(
     engine: AsyncEngine, submission: str
 ) -> None:
     queue = Queue(engine)
-    first, second = await enqueue(queue, submission, epochs=2, submitted_by="ada")
+    first, second = await enqueue(queue, engine, submission, epochs=2, submitted_by="ada")
     owner_epoch = await start(engine, first, "w1")
     assert await queue.pause(first, owner_epoch) == "paused"
 
