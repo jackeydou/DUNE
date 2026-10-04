@@ -56,7 +56,7 @@ func call(address string, config *tls.Config) error {
 func TestServerAcceptsOnlyListedServices(t *testing.T) {
 	dir, other := t.TempDir(), t.TempDir()
 	for _, d := range []string{dir, other} {
-		if err := Generate(d, Options{Now: time.Now()}); err != nil {
+		if _, err := Generate(d, Options{Now: time.Now()}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -95,7 +95,7 @@ func TestServerAcceptsOnlyListedServices(t *testing.T) {
 
 func TestClientConnectsOnlyToTheNamedService(t *testing.T) {
 	dir := t.TempDir()
-	if err := Generate(dir, Options{Now: time.Now()}); err != nil {
+	if _, err := Generate(dir, Options{Now: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))

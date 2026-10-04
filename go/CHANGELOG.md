@@ -3,6 +3,19 @@
 ## [Unreleased]
 
 ### Added
+- `swarm login --ca-file`, config `ca_file`, and `$SWARM_CA_FILE`: a PEM file the CLI trusts
+  for edge besides the system's authorities, for an edge with a self-signed certificate.
+- `swarm-certs --public-host NAME`: also writes `public/{tls.crt,tls.key}`, a self-signed
+  certificate for edge's `--tls-cert`, kept while it names the same hosts and has more than
+  30 days left. `swarm-certs --renew` replaces every service certificate.
+- `deploy/images/go.Dockerfile`: one image with `edge`, `sandboxd`, `swarm-certs`, and `swarm`.
+
+### Changed
+- `swarm-certs` keeps a service certificate that its CA signed, that names the same hosts, and
+  that has more than 30 days left, where it replaced every certificate on every run. A
+  deployment can now run it at every start.
+
+### Added
 - `swarm-certs`: writes a CA of the deployment's own and one certificate per service (`edge`,
   `control`, `worker`, `analysis`, `model-gateway`, `sandboxd`, `operator`), each naming its
   service in a URI SAN, `spiffe://swarmeval/<service>`. ECDSA P-256, one year; running it again

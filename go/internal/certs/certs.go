@@ -25,9 +25,11 @@ import (
 )
 
 const (
-	// LeafValidity is how long a service certificate lasts. Run swarm-certs again before it
-	// ends and restart the services.
+	// LeafValidity is how long a certificate lasts.
 	LeafValidity = 365 * 24 * time.Hour
+	// RenewBefore is how long before its end a certificate is replaced by the next run. Until
+	// then a run leaves it alone, so running at every start of a deployment changes nothing.
+	RenewBefore = 30 * 24 * time.Hour
 	// CAValidity outlasts many leaf rotations, so rotating leaves never changes what services
 	// trust.
 	CAValidity = 10 * 365 * 24 * time.Hour
@@ -60,40 +62,70 @@ type Options struct {
 	// NewCA replaces an existing CA. Every service then needs its new certificate before any
 	// two of them can talk.
 	NewCA bool
+	// Renew replaces every service certificate, also those with time left.
+	Renew bool
 	Now   time.Time
 }
 
-// Generate writes `ca.crt`, `ca.key`, and `<service>/{ca.crt,tls.crt,tls.key}` under dir. An
-// existing CA is kept and signs the new certificates, so services restarted one at a time keep
-// trusting each other; existing service certificates are replaced.
-func Generate(dir string, opts Options) error {
+// Generate writes `ca.crt`, `ca.key`, and `<service>/{ca.crt,tls.crt,tls.key}` under dir, and
+// returns the services whose certificate it wrote. An existing CA is kept and signs the new
+// certificates, so services restarted one at a time keep trusting each other. A service
+// certificate is kept while the CA signed it, it names the same hosts, and it has more than
+// RenewBefore left.
+func Generate(dir string, opts Options) ([]string, error) {
 	services := opts.Services
 	if len(services) == 0 {
 		services = Services
 	}
 	for _, s := range services {
 		if !slices.Contains(Services, s) {
-			return fmt.Errorf("unknown service %q: the services are %v", s, Services)
+			return nil, fmt.Errorf("unknown service %q: the services are %v", s, Services)
 		}
 	}
 	for s := range opts.Hosts {
 		if !slices.Contains(Servers, s) {
-			return fmt.Errorf("host names for %q: only %v accept connections", s, Servers)
+			return nil, fmt.Errorf("host names for %q: only %v accept connections", s, Servers)
 		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create %s: %w", dir, err)
+		return nil, fmt.Errorf("create %s: %w", dir, err)
 	}
 	ca, caKey, caPEM, err := loadOrCreateCA(dir, opts)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var written []string
 	for _, service := range services {
-		if err := issue(dir, service, opts, ca, caKey, caPEM); err != nil {
-			return fmt.Errorf("certificate for %s: %w", service, err)
+		template := leaf(service, opts)
+		if !opts.Renew && current(dir, service, template, ca, opts.Now) {
+			continue
 		}
+		if err := issue(dir, service, template, ca, caKey, caPEM); err != nil {
+			return nil, fmt.Errorf("certificate for %s: %w", service, err)
+		}
+		written = append(written, service)
 	}
-	return nil
+	return written, nil
+}
+
+// current reports whether service's files under dir can stay: a certificate the CA signed,
+// with the names template would give it, its key beside it, and more than RenewBefore left.
+func current(dir, service string, template, ca *x509.Certificate, now time.Time) bool {
+	files := Paths(dir, service)
+	cert, err := readCertificate(files.Cert)
+	if err != nil {
+		return false
+	}
+	if _, err := os.Stat(files.Key); err != nil {
+		return false
+	}
+	if trusted, err := readCertificate(files.CA); err != nil || !trusted.Equal(ca) {
+		return false
+	}
+	return cert.CheckSignatureFrom(ca) == nil &&
+		slices.Equal(cert.DNSNames, template.DNSNames) &&
+		slices.EqualFunc(cert.IPAddresses, template.IPAddresses, net.IP.Equal) &&
+		cert.NotAfter.After(now.Add(RenewBefore))
 }
 
 func loadOrCreateCA(dir string, opts Options) (*x509.Certificate, *ecdsa.PrivateKey, []byte, error) {
@@ -163,11 +195,8 @@ func createCA(certPath, keyPath string, now time.Time) (*x509.Certificate, *ecds
 	return ca, key, certPEM, nil
 }
 
-func issue(dir, service string, opts Options, ca *x509.Certificate, caKey *ecdsa.PrivateKey, caPEM []byte) error {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return err
-	}
+// leaf is the certificate service gets, before signing.
+func leaf(service string, opts Options) *x509.Certificate {
 	template := &x509.Certificate{
 		SerialNumber: serial(),
 		Subject:      pkix.Name{CommonName: service},
@@ -188,6 +217,14 @@ func issue(dir, service string, opts Options, ca *x509.Certificate, caKey *ecdsa
 				template.DNSNames = append(template.DNSNames, host)
 			}
 		}
+	}
+	return template
+}
+
+func issue(dir, service string, template, ca *x509.Certificate, caKey *ecdsa.PrivateKey, caPEM []byte) error {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return err
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, ca, &key.PublicKey, caKey)
 	if err != nil {
@@ -244,6 +281,74 @@ func write(path string, data []byte, mode fs.FileMode) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// PublicDir is where Public writes, under the output directory.
+const PublicDir = "public"
+
+// Public writes `public/{tls.crt,tls.key}` under dir: a self-signed certificate for the
+// address people reach edge at, for a deployment that has no certificate from a public CA.
+// It is not signed by the service CA, so trusting it trusts nothing else. People pin it in
+// their browser and CLI, so a certificate already there is kept while it names the same hosts
+// and has more than RenewBefore left. It reports whether it wrote a new one.
+func Public(dir string, hosts []string, now time.Time) (bool, error) {
+	if len(hosts) == 0 {
+		return false, errors.New("no host for the public certificate: give the name or address people reach edge at")
+	}
+	out := filepath.Join(dir, PublicDir)
+	certPath, keyPath := filepath.Join(out, CertFile), filepath.Join(out, KeyFile)
+	template := &x509.Certificate{
+		SerialNumber:          serial(),
+		Subject:               pkix.Name{CommonName: hosts[0]},
+		NotBefore:             now.Add(-backdate),
+		NotAfter:              now.Add(LeafValidity),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	for _, host := range hosts {
+		if ip := net.ParseIP(host); ip != nil {
+			template.IPAddresses = append(template.IPAddresses, ip)
+		} else {
+			template.DNSNames = append(template.DNSNames, host)
+		}
+	}
+	if current, err := readCertificate(certPath); err == nil {
+		sameIPs := slices.EqualFunc(current.IPAddresses, template.IPAddresses, net.IP.Equal)
+		_, keyErr := os.Stat(keyPath)
+		if keyErr == nil && sameIPs && slices.Equal(current.DNSNames, template.DNSNames) && current.NotAfter.After(now.Add(RenewBefore)) {
+			return false, nil
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("read the public certificate: %w. Delete %s to have it replaced", err, out)
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return false, err
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return false, fmt.Errorf("sign the public certificate: %w", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		return false, err
+	}
+	if err := writeKey(keyPath, key); err != nil {
+		return false, err
+	}
+	return true, write(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+}
+
+func readCertificate(path string) (*x509.Certificate, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("%s is not PEM", path)
+	}
+	return x509.ParseCertificate(block.Bytes)
 }
 
 // Paths are the files Generate wrote for service under dir.

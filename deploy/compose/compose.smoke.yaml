@@ -1,0 +1,15 @@
+# Added to compose.yaml by smoke.sh: a recorded model backend on the platform network, so the
+# smoke test calls no model and nothing outside this machine.
+services:
+  recorded-model:
+    image: swarmeval/python:${SWARM_VERSION:-dev}
+    pull_policy: never
+    restart: "no"
+    command: [python, /smoke/backend.py]
+    volumes:
+      - ./smoke:/smoke:ro
+    networks: [platform]
+
+  model-gateway:
+    depends_on:
+      recorded-model: { condition: service_started }

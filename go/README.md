@@ -67,7 +67,7 @@ The command line, a client of edge. Commands and config:
 
 ```bash
 go build -o swarm ./cmd/swarm
-./swarm login --endpoint http://127.0.0.1:7443
+./swarm login --endpoint http://127.0.0.1:7443    # --ca-file edge.crt for a self-signed https edge
 ./swarm run ../cases/scorer_misbelief --follow
 ```
 
@@ -83,10 +83,12 @@ go run ./cmd/swarm-certs --out /etc/swarmeval/certs --host control=control.inter
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--out` | required | Directory for `ca.crt`, `ca.key`, and `<service>/{ca.crt,tls.crt,tls.key}`. A CA already there is kept and signs the new certificates |
+| `--out` | required | Directory for `ca.crt`, `ca.key`, and `<service>/{ca.crt,tls.crt,tls.key}`. A CA already there is kept, and so is each certificate it signed that names the same hosts and has more than 30 days left |
+| `--renew` | off | Replace every service certificate, whatever time it has left |
+| `--public-host` | none | Also write `public/{tls.crt,tls.key}`, a self-signed certificate for edge's `--tls-cert` naming this DNS name or IP address; repeatable. Kept while it names the same hosts and has more than 30 days left |
 | `--service` | all | Issue for this service only; repeatable. One of `edge`, `control`, `worker`, `analysis`, `model-gateway`, `sandboxd`, `operator` |
 | `--host` | none | `SERVICE=NAME`: a DNS name or IP address clients reach a server at, besides its service name and loopback; repeatable |
-| `--new-ca` | off | Replace the CA. Every service must then restart with its new certificate |
+| `--new-ca` | off | Replace the CA and every service certificate. Every service must then restart |
 
 Keys are written with mode 0600; `ca.key` signs for every service, so keep it off the service
 hosts once the certificates are issued.

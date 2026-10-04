@@ -8,7 +8,8 @@ web console are its two clients. Their place among the services is in
 
 **Status:** edge is built with authentication, run and case forwarding, and mutual TLS to the
 Control API, and the CLI with sign-in, runs, suites, events, forks, and the case library (M4
-Plan steps 2, 3, 4, and 7). Analysis calls, the console, and deployment are not built yet. Items marked
+Plan steps 2, 3, 4, and 7), and both run in the [compose deployment](../deployment.md) (step
+8). Analysis calls and the console are not built yet. Items marked
 *(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ## edge
@@ -157,7 +158,7 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 
 | Command | Does |
 |---|---|
-| `login` | Signs in with a username and password (asked on a terminal, otherwise the first line of stdin) and saves a new API token named `swarm CLI on <hostname>`; or `--token` saves one you have, after checking it |
+| `login` | Signs in with a username and password (asked on a terminal, otherwise the first line of stdin) and saves a new API token named `swarm CLI on <hostname>`; or `--token` saves one you have, after checking it. `--ca-file` saves a certificate to trust for edge |
 | `logout` | Revokes the token `login` made and forgets it. A token given with `--token` is only forgotten |
 | `whoami` | Who the token signs in as |
 | `run CASE_DIR` | Packs the directory and submits it, with `-V axis=values` (repeatable), `--epochs`, and `--suite`. The directory is stored in the case library as `case push` stores it. Prints the submission, the revision its runs use, and the run ids |
@@ -190,8 +191,13 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
   inside the directory, so nothing is ever written through a link. A pulled directory packs
   back to the same files.
 - **Config.** `~/.config/swarm/config.yaml` (`$XDG_CONFIG_HOME/swarm/`, or `$SWARM_CONFIG`) holds
-  `endpoint`, `token`, and the id of a token `login` made. It is written mode 0600, through a
-  rename. `$SWARM_ENDPOINT` and `$SWARM_TOKEN` override it, and `--endpoint` overrides both.
+  `endpoint`, `token`, the id of a token `login` made, and `ca_file`. It is written mode 0600,
+  through a rename. `$SWARM_ENDPOINT`, `$SWARM_TOKEN`, and `$SWARM_CA_FILE` override it, and
+  `--endpoint` overrides both.
+- **Self-signed edge.** `ca_file` is a PEM file trusted for edge besides the system's
+  authorities: the certificate of an edge that serves a self-signed one
+  ([deployment.md](../deployment.md#certificates)), or the CA that signed it. `login --ca-file`
+  saves its absolute path. There is no switch that turns verification off.
 - **Output.** Tables for people; `--json` prints records as protobuf JSON. Errors go to stderr as
   `swarm: <what>: <edge's message>`, with a hint for a missing sign-in or an unreachable edge, and
   exit 1.

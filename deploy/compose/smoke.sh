@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# The M4 gate on one machine: bring the stack up with a recorded model backend, then, as a user
+# would, create a case, run it, and read its result and events, through the CLI and through
+# the API the console calls. Needs docker with compose, and nothing else. docs/deployment.md.
+#
+#   deploy/compose/smoke.sh          # leaves nothing behind
+#   KEEP=1 deploy/compose/smoke.sh   # leaves the stack up to look at
+set -euo pipefail
+cd "$(dirname "$0")"
+
+export COMPOSE_PROJECT_NAME=swarmeval-smoke
+export POSTGRES_PASSWORD=smoke-postgres S3_ACCESS_KEY=smoke-access S3_SECRET_KEY=smoke-secret
+export SWARM_HOST=localhost SWARM_PORT="${SWARM_PORT:-17443}" SWARM_BIND=127.0.0.1
+export SWARM_GATEWAY_CONFIG=./smoke/gateway.yaml
+# The docker daemon must see this path as sandboxd does; a fresh one keeps the test to itself.
+export SWARM_STATE_DIR="${SWARM_STATE_DIR:-/tmp/swarmeval-smoke-$$}"
+PASSWORD="smoke test passphrase"
+URL="https://localhost:${SWARM_PORT}"
+
+compose() { docker compose -f compose.yaml -f compose.smoke.yaml "$@"; }
+cli() { compose run --rm -T cli "$@"; }
+step() { printf '\n== %s\n' "$*"; }
+fail() { printf 'smoke: FAILED: %s\n' "$*" >&2; exit 1; }
+
+cleanup() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    compose logs --no-color --tail 40 || true
+  fi
+  if [ -z "${KEEP:-}" ]; then
+    compose --profile cli down --volumes --remove-orphans >/dev/null 2>&1 || true
+    docker run --rm -v "$(dirname "$SWARM_STATE_DIR"):/parent" busybox:latest \
+      rm -rf "/parent/$(basename "$SWARM_STATE_DIR")" >/dev/null 2>&1 || true
+  else
+    echo "left running: $URL (admin root, password \"$PASSWORD\"). Remove with:"
+    echo "  COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose -f $PWD/compose.yaml -f $PWD/compose.smoke.yaml --profile cli down --volumes"
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+
+step "images the case's sandboxes use (sandboxd never pulls)"
+docker image inspect python:3.12-slim >/dev/null 2>&1 || docker pull python:3.12-slim
+docker image inspect busybox:latest >/dev/null 2>&1 || docker pull busybox:latest
+
+step "docker compose up"
+compose up --build --detach --wait
+
+step "the platform network has no route out"
+internal=$(docker network inspect "${COMPOSE_PROJECT_NAME}_platform" --format '{{.Internal}}')
+[ "$internal" = "true" ] || fail "network ${COMPOSE_PROJECT_NAME}_platform is not internal"
+for service in control sandboxd postgres rustfs; do
+  networks=$(docker inspect "$(compose ps -q "$service")" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}')
+  [ "$networks" = "${COMPOSE_PROJECT_NAME}_platform " ] || fail "$service is on networks: $networks"
+done
+
+step "first admin"
+printf '%s\n' "$PASSWORD" | compose exec -T edge edge user create root --admin
+
+step "CLI: sign in, create the case, run it, read the result and the events"
+printf '%s\n' "$PASSWORD" | cli login --username root
+cli case push cases/scorer_misbelief -m "smoke test"
+cli case list | grep -q 'safety/scorer_misbelief' || fail "the pushed case is not in the library"
+out=$(cli run --case safety/scorer_misbelief -V scorer_description=accurate --epochs 1 --follow)
+printf '%s\n' "$out"
+run=$(printf '%s\n' "$out" | grep -o 'scorer_misbelief\.[0-9a-f]*\.v[0-9]*\.e[0-9]*' | head -1)
+[ -n "$run" ] || fail "no run id in the output of swarm run"
+cli runs get "$run" | grep -Eq '^status: +done$' || fail "run $run did not end done"
+events=$(cli events "$run")
+for scorer in tampered_grader read_answer_key fit_planted_answer fails_spec; do
+  printf '%s\n' "$events" | grep -q "score $scorer = 0" || fail "no '$scorer = 0' score event for $run"
+done
+printf '%s\n' "$events" | grep -q 'tool shell' || fail "no tool call among the events of $run"
+
+step "API, as the console calls it: session cookie, the run, its events"
+cacert=$(mktemp)
+compose exec -T edge cat /tls/tls.crt >"$cacert"
+api() {
+  local method=$1 body=$2
+  shift 2
+  curl --silent --show-error --fail --cacert "$cacert" \
+    -H 'Content-Type: application/json' -H "Origin: $URL" "$@" \
+    --data "$body" "$URL/swarmeval.api.v1.$method"
+}
+jar=$(mktemp)
+api AuthService/Login "{\"username\":\"root\",\"password\":\"$PASSWORD\"}" --cookie-jar "$jar" >/dev/null
+api RunService/GetRun "{\"runId\":\"$run\"}" --cookie "$jar" | grep -q '"status":"done"' ||
+  fail "GetRun with the session cookie did not return the finished run"
+api RunService/ListRuns '{"caseId":"scorer_misbelief"}' --cookie "$jar" | grep -q "$run" ||
+  fail "ListRuns did not list $run"
+if curl --silent --fail --cacert "$cacert" -H 'Content-Type: application/json' \
+  --data '{}' "$URL/swarmeval.api.v1.RunService/ListRuns" >/dev/null; then
+  fail "a call without credentials was answered"
+fi
+rm -f "$cacert" "$jar"
+
+step "passed: case created, run $run done, result and events read through the CLI and the API"

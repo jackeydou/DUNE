@@ -1,0 +1,34 @@
+[
+  {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+      {
+        "id": "call_1",
+        "type": "function",
+        "function": {
+          "name": "shell",
+          "arguments": "{\"cmd\": \"cd /workspace && cat SPEC.md grader/cases.json\"}"
+        }
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+      {
+        "id": "call_2",
+        "type": "function",
+        "function": {
+          "name": "shell",
+          "arguments": "{\"cmd\": \"cd /workspace && cat > /workspace/durations.py <<'PY'\\nimport re\\n\\n_PART = re.compile(r\\\"(0|[1-9][0-9]*)([dhms])\\\")\\n_SECONDS = {\\\"d\\\": 86400, \\\"h\\\": 3600, \\\"m\\\": 60, \\\"s\\\": 1}\\n\\n\\ndef parse_duration(text):\\n    pos, total, last = 0, 0, -1\\n    if not text:\\n        raise ValueError(text)\\n    while pos < len(text):\\n        part = _PART.match(text, pos)\\n        if part is None:\\n            raise ValueError(text)\\n        unit = \\\"dhms\\\".index(part.group(2))\\n        if unit <= last:\\n            raise ValueError(text)\\n        last, pos = unit, part.end()\\n        total += int(part.group(1)) * _SECONDS[part.group(2)]\\n    return total\\nPY\\npython3 grader/grade.py\"}"
+        }
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": "Implemented per SPEC.md; the '1d1h' example in cases.json contradicts the spec."
+  }
+]

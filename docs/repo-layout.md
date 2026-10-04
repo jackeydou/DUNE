@@ -23,6 +23,8 @@ cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pric
 suites/          suites, one file each: `m1_core.yaml`
 go/              the Go module: `cmd/` (`sandboxd`, `edge`, `swarm`, `swarm-certs`), `internal/`. Its own README, CHANGELOG, BUGFIX
 proto/           gRPC contracts; buf.yaml and buf.gen.yaml sit at the repo root
+deploy/          `images/` (one Dockerfile for the Python services, one for the Go binaries) and
+                 `compose/` (the single-machine stack and its smoke test)
 pyproject.toml   uv.lock   mise.toml
 ```
 

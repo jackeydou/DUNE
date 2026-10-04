@@ -38,7 +38,7 @@ func TestWithoutACertificateSandboxdListensOnLoopbackOnly(t *testing.T) {
 
 func TestWithACertificateSandboxdServesOnlyWorkers(t *testing.T) {
 	dir := t.TempDir()
-	if err := certs.Generate(dir, certs.Options{Now: time.Now()}); err != nil {
+	if _, err := certs.Generate(dir, certs.Options{Now: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	options, err := serverOptions(certs.Paths(dir, mtls.Sandboxd), "0.0.0.0:7071", quiet)

@@ -46,6 +46,10 @@ description = "sandboxd against the local docker daemon (needs busybox:latest an
 dir = "go"
 run = "go test -tags integration -count=1 ./..."
 
+[tasks."deploy:smoke"]
+description = "The compose stack with a recorded model backend: a case created, run, and read through the CLI and the API. Needs docker"
+run = "deploy/compose/smoke.sh"
+
 [tasks."proto:gen"]
 description = "Generate gRPC stubs from proto/: Go with buf, Python with grpcio-tools"
 run = [

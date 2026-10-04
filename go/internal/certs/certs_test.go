@@ -36,8 +36,9 @@ func verify(ca, leaf *x509.Certificate, usage x509.ExtKeyUsage, at time.Time) er
 
 func TestGenerateIssuesOneIdentityPerService(t *testing.T) {
 	dir, now := t.TempDir(), time.Now()
-	if err := Generate(dir, Options{Now: now, Hosts: map[string][]string{mtls.Control: {"control.internal", "10.0.0.7"}}}); err != nil {
-		t.Fatal(err)
+	written, err := Generate(dir, Options{Now: now, Hosts: map[string][]string{mtls.Control: {"control.internal", "10.0.0.7"}}})
+	if err != nil || !slices.Equal(written, Services) {
+		t.Fatalf("wrote %v, %v", written, err)
 	}
 	ca := readCert(t, filepath.Join(dir, CAFile))
 	for _, service := range Services {
@@ -76,15 +77,46 @@ func TestGenerateIssuesOneIdentityPerService(t *testing.T) {
 	}
 }
 
-func TestRunningAgainKeepsTheCAAndReplacesCertificates(t *testing.T) {
+func TestRunningAgainKeepsWhatHasTimeLeft(t *testing.T) {
 	dir, now := t.TempDir(), time.Now()
-	if err := Generate(dir, Options{Now: now}); err != nil {
+	generate := func(opts Options) []string {
+		t.Helper()
+		written, err := Generate(dir, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return written
+	}
+	generate(Options{Now: now})
+	ca, old := readCert(t, filepath.Join(dir, CAFile)), readCert(t, Paths(dir, mtls.Worker).Cert)
+
+	// A deployment runs it at every start: nothing changes under running services.
+	if written := generate(Options{Now: now.Add(300 * 24 * time.Hour)}); written != nil {
+		t.Fatalf("with 65 days left it rewrote %v", written)
+	}
+	if !readCert(t, Paths(dir, mtls.Worker).Cert).Equal(old) {
+		t.Fatal("worker's certificate changed")
+	}
+
+	// Other hosts, a lost key, and a forced renewal each replace one certificate.
+	hosts := map[string][]string{mtls.Control: {"control.internal"}}
+	if written := generate(Options{Now: now, Hosts: hosts}); !slices.Equal(written, []string{mtls.Control}) {
+		t.Fatalf("with a new host for control it wrote %v", written)
+	}
+	if err := os.Remove(Paths(dir, mtls.Sandboxd).Key); err != nil {
 		t.Fatal(err)
 	}
-	ca, old := readCert(t, filepath.Join(dir, CAFile)), readCert(t, Paths(dir, mtls.Worker).Cert)
-	later := now.Add(300 * 24 * time.Hour)
-	if err := Generate(dir, Options{Now: later, Services: []string{mtls.Worker}}); err != nil {
-		t.Fatal(err)
+	if written := generate(Options{Now: now, Hosts: hosts}); !slices.Equal(written, []string{mtls.Sandboxd}) {
+		t.Fatalf("with sandboxd's key gone it wrote %v", written)
+	}
+	if written := generate(Options{Now: now, Hosts: hosts, Renew: true, Services: []string{mtls.Edge}}); !slices.Equal(written, []string{mtls.Edge}) {
+		t.Fatalf("--renew for edge wrote %v", written)
+	}
+
+	// Within 30 days of the end, every certificate is renewed under the same CA.
+	later := now.Add(340 * 24 * time.Hour)
+	if written := generate(Options{Now: later, Hosts: hosts}); !slices.Equal(written, Services) {
+		t.Fatalf("with 25 days left it wrote %v", written)
 	}
 	if !readCert(t, filepath.Join(dir, CAFile)).Equal(ca) {
 		t.Fatal("the CA was replaced")
@@ -94,8 +126,9 @@ func TestRunningAgainKeepsTheCAAndReplacesCertificates(t *testing.T) {
 		t.Fatalf("worker's certificate was not renewed under the same CA: until %s", renewed.NotAfter)
 	}
 
-	if err := Generate(dir, Options{Now: later, NewCA: true}); err != nil {
-		t.Fatal(err)
+	// A new CA replaces every certificate, whatever time they had left.
+	if written := generate(Options{Now: later, Hosts: hosts, NewCA: true}); !slices.Equal(written, Services) {
+		t.Fatalf("--new-ca wrote %v", written)
 	}
 	if replaced := readCert(t, filepath.Join(dir, CAFile)); replaced.Equal(ca) {
 		t.Fatal("--new-ca kept the CA")
@@ -117,7 +150,7 @@ func TestGenerateRefuses(t *testing.T) {
 		},
 		"a CA without its key": {
 			prepare: func(t *testing.T, dir string) {
-				if err := Generate(dir, Options{Now: now}); err != nil {
+				if _, err := Generate(dir, Options{Now: now}); err != nil {
 					t.Fatal(err)
 				}
 				if err := os.Remove(filepath.Join(dir, CAKey)); err != nil {
@@ -128,7 +161,7 @@ func TestGenerateRefuses(t *testing.T) {
 		},
 		"a CA that ends before the certificates would": {
 			prepare: func(t *testing.T, dir string) {
-				if err := Generate(dir, Options{Now: now.Add(-CAValidity + 24*time.Hour)}); err != nil {
+				if _, err := Generate(dir, Options{Now: now.Add(-CAValidity + 24*time.Hour)}); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -141,10 +174,49 @@ func TestGenerateRefuses(t *testing.T) {
 				tc.prepare(t, dir)
 			}
 			tc.opts.Now = now
-			err := Generate(dir, tc.opts)
+			_, err := Generate(dir, tc.opts)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want an error containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestPublicCertificateIsSelfSignedAndKeptWhileItFits(t *testing.T) {
+	dir, now := t.TempDir(), time.Now()
+	hosts := []string{"swarm.example.com", "localhost", "192.0.2.10"}
+	if wrote, err := Public(dir, hosts, now); err != nil || !wrote {
+		t.Fatalf("first run: wrote %v, %v", wrote, err)
+	}
+	path := filepath.Join(dir, PublicDir, CertFile)
+	first := readCert(t, path)
+	if err := verify(first, first, x509.ExtKeyUsageServerAuth, now); err != nil {
+		t.Fatalf("not a server certificate that verifies against itself: %v", err)
+	}
+	if err := first.VerifyHostname("swarm.example.com"); err != nil {
+		t.Error(err)
+	}
+	if err := first.VerifyHostname("192.0.2.10"); err != nil {
+		t.Error(err)
+	}
+	if first.IsCA || len(first.URIs) != 0 {
+		t.Errorf("the public certificate could sign others or names a service: CA %v, URIs %v", first.IsCA, first.URIs)
+	}
+
+	// People have pinned it: the same hosts with time left keep it.
+	if wrote, err := Public(dir, hosts, now.Add(300*24*time.Hour)); err != nil || wrote {
+		t.Fatalf("with 65 days left: wrote %v, %v", wrote, err)
+	}
+	if wrote, err := Public(dir, hosts, now.Add(340*24*time.Hour)); err != nil || !wrote {
+		t.Fatalf("with 25 days left: wrote %v, %v", wrote, err)
+	}
+	if wrote, err := Public(dir, []string{"other.example.com"}, now.Add(340*24*time.Hour)); err != nil || !wrote {
+		t.Fatalf("with other hosts: wrote %v, %v", wrote, err)
+	}
+	if got := readCert(t, path).DNSNames; !slices.Equal(got, []string{"other.example.com"}) {
+		t.Errorf("names %v", got)
+	}
+	if _, err := Public(dir, nil, now); err == nil {
+		t.Error("a public certificate for no host was accepted")
 	}
 }

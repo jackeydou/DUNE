@@ -115,10 +115,15 @@ certificates only.
   P-256. Each service's directory holds what that service needs and no other's key, so it can
   be mounted alone. Server certificates name the service (`control`, `model-gateway`, …),
   `localhost`, `127.0.0.1`, and `::1`; `--host SERVICE=NAME` adds a DNS name or address.
-- **Rotation.** Certificates last one year. Running `swarm-certs` again keeps the CA (ten
-  years) and replaces the certificates, so services can be restarted one at a time; a service
-  reads its files once, at start. `--new-ca` replaces the CA, after which every service must
-  restart before any two can talk.
+- **Rotation.** Certificates last one year, the CA ten. Running `swarm-certs` again keeps the
+  CA, and keeps each certificate that the CA signed, names the same hosts, and has more than
+  30 days left, so a deployment can run it at every start; the rest it replaces. `--renew`
+  replaces them all. A service reads its files once, at start, and services can be restarted
+  one at a time. `--new-ca` replaces the CA and every certificate, after which every service
+  must restart before any two can talk.
+- **edge's public certificate** is a different thing: `--public-host NAME` also writes
+  `public/{tls.crt,tls.key}`, self-signed and not from the service CA, for a deployment without
+  a certificate from a public CA ([deployment.md](deployment.md#certificates)).
 - The actor edge passes to the control plane is trusted because only `edge` and `operator`
   can connect ([edge](services/edge.md)).
 
@@ -236,7 +241,7 @@ build the single-machine column; the k8s column arrives in M5.
 
 | | Single machine (physical or VM) | k8s |
 |---|---|---|
-| Orchestration | docker compose | Helm chart |
+| Orchestration | docker compose ([deployment.md](deployment.md)) | Helm chart |
 | Sandbox driver | docker API, gVisor | k8s API: Pod + RuntimeClass (gVisor) |
 | Sandbox network | None (`--network none`) | No egress: a deny-all NetworkPolicy on sandbox Pods |
 | Worker egress | Outbound internet, for `web_request` | The same, from worker Pods |

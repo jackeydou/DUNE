@@ -1,0 +1,15 @@
+# Copy to gateway.yaml and edit. Format: docs/services/model-gateway.md.
+# Keys go in gateway.env (one NAME=value per line), never in this file.
+backends:
+  vllm:
+    base_url: http://gpu-host.internal:8000/v1
+  hosted:
+    base_url: https://api.example.com/v1
+    api_key_env: HOSTED_API_KEY
+models:
+  qwen3-8b:
+    backend: vllm
+    upstream_model: Qwen/Qwen3-8B
+  glm-5:
+    backend: hosted
+    upstream_model: glm-5

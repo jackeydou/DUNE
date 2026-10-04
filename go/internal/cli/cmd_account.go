@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"text/tabwriter"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func (a *app) loginCommand() *cobra.Command {
-	var username, token, tokenName string
+	var username, token, tokenName, caFile string
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Sign in to edge and save an API token for later commands",
@@ -27,7 +28,13 @@ func (a *app) loginCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			c, err := newClients(cfg.Endpoint, token)
+			if caFile != "" {
+				// Later commands run from other directories.
+				if cfg.CAFile, err = filepath.Abs(caFile); err != nil {
+					return fmt.Errorf("--ca-file %s: %w", caFile, err)
+				}
+			}
+			c, err := newClients(Config{Endpoint: cfg.Endpoint, Token: token, CAFile: cfg.CAFile})
 			if err != nil {
 				return err
 			}
@@ -77,6 +84,7 @@ func (a *app) loginCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&username, "username", "u", "", "username (asked when omitted)")
 	cmd.Flags().StringVar(&token, "token", "", "save this API token instead of signing in with a password")
+	cmd.Flags().StringVar(&caFile, "ca-file", "", "PEM certificate to trust for edge besides the system's, saved for later commands: a self-signed edge's own certificate, or the CA that signed it")
 	cmd.Flags().StringVar(&tokenName, "token-name", "", `name of the new token (default "swarm CLI on <hostname>")`)
 	return cmd
 }
@@ -97,7 +105,7 @@ func (a *app) logoutCommand() *cobra.Command {
 			}
 			note := "token revoked"
 			if cfg.TokenID != "" {
-				c, err := newClients(cfg.Endpoint, cfg.Token)
+				c, err := newClients(cfg)
 				if err != nil {
 					return err
 				}

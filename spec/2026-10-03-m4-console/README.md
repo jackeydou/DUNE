@@ -356,4 +356,23 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
 8. **compose 与门槛**：`deploy/compose/`、镜像、部署文档。
    退出条件：在一台干净的 Linux 机器上 `docker compose up` 后，用录制的模型后端跑完 M4 门槛：Web 和 CLI 各走一遍
    "创建 case → 运行 → 看结果和回放"。
+   （2026-10-04）已实现能实现的部分，基于第 7 步的分支。第 5 步（analysis 服务）和第 6 步（控制台）当时还没
+   合并，所以 compose 里没有 `analysis` 服务，edge 也还不提供页面；退出条件里 Web 的那一半没有走，等控制台合并后
+   补。`deploy/compose/smoke.sh` 走的是：CLI 完成"创建 case → 运行 → 看结果和事件"，再用控制台将来的调用方式
+   （Connect JSON、会话 cookie、`Origin`）读同一个 run。它在 macOS 上的 OrbStack（Linux 虚拟机里的 docker，
+   runc）上跑通了；"干净的 Linux 机器"和 gVisor 还没有验证。与决定 13 不同或决定里没写的地方：
+   - model-gateway 也接出网的网络：模型后端在 compose 之外，要由它去连。决定 13 写的是只有 worker 能出网。
+   - edge 另接一个非 internal 的网络：docker 只给非 internal 网络上的容器发布端口。
+   - edge 默认用 https：容器里必须监听非回环地址，而 edge 没有证书时拒绝这样做（决定 4）。`swarm-certs
+     --public-host` 为 `SWARM_HOST` 生成一张自签的公开证书，不由服务 CA 签发，信任它不会连带信任别的；到期前
+     30 天以上、主机名不变就沿用，用户钉住的证书不会因为重启而失效。要用公共 CA 的证书时用 override 挂进去。
+   - CLI 增加 `ca_file`（`swarm login --ca-file`、`SWARM_CA_FILE`）：信任一张指定的证书，没有"关闭校验"的开关。
+   - `swarm-certs` 改成沿用还有 30 天以上有效期的服务证书（第 7 步是每次都重签），`--renew` 才全部重签。
+     compose 每次 `up` 都跑它，否则每次 CLI 调用都会在运行中的服务脚下换证书。
+   - Go 镜像里还带 `swarm`，compose 里有一个 `cli` 服务（`docker compose run --rm cli …`），机器上不需要 Go。
+   - 每个镜像只由一个服务构建（`control`、`certs`），其余服务只引用镜像：多个服务同时构建同一个 tag 时，
+     容器会落在不同的构建结果上，下一次 compose 命令会重建它们。
+   - 存储桶由一个一次性的 `bucket` 服务创建。没有开对象锁（architecture.md 写的是导出桶开对象锁，现有的开发
+     流程和测试也没有开），留给导出保留策略定下来时一起做。
+   都写在 [docs/deployment.md](../../docs/deployment.md)。
 9. **M3 衔接**（M3 合并后）：决定 12。

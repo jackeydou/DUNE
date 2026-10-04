@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- Single-machine deployment, `deploy/compose/`: `docker compose up` runs edge, the control
+  plane, a worker, model-gateway, sandboxd, Postgres, and RustFS, with mutual TLS between the
+  services from certificates generated at start, platform services on a network with no route
+  out, and edge the only published port, on https. `deploy/images/python.Dockerfile` is the
+  image of the Python services. `deploy/compose/smoke.sh` (`mise run deploy:smoke`) runs
+  `cases/scorer_misbelief` through the stack with a recorded model backend. Setup and
+  operations: `docs/deployment.md`.
 - Mutual TLS between services (`swarmeval.mtls`). `swarmeval-control`, `swarmeval-worker`,
   `swarmeval-model-gateway`, `python -m swarmeval.control.suite submit`, and `python -m
   swarmeval.analysis judge` take `--mtls-cert`, `--mtls-key`, and `--mtls-ca`, the files
