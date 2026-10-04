@@ -56,6 +56,8 @@ Requirements and limits:
 - Postgres with the shared database; edge creates and migrates the `tenant` schema itself.
 - Without `--tls-cert` / `--tls-key` it listens only on loopback.
 - Sign-in throttling is kept in memory, per process.
+- The console is embedded from `internal/edge/webui/static/`, which `mise run console:build`
+  fills and git ignores. Build it first, or edge serves the API without the pages.
 
 ## swarm
 

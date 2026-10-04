@@ -40,7 +40,7 @@ func NewRoot(in io.Reader, out, errOut io.Writer) *cobra.Command {
 	root.AddCommand(
 		a.loginCommand(), a.logoutCommand(), a.whoamiCommand(), a.tokenCommand(), a.userCommand(),
 		a.runCommand(), a.runsCommand(), a.eventsCommand(), a.replayCommand(), a.caseCommand(),
-		a.queryCommand(), a.reportCommand(), a.exportCommand(),
+		a.queryCommand(), a.reportCommand(), a.exportCommand(), a.viewCommand(),
 	)
 	return root
 }

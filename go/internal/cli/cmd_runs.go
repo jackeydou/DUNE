@@ -3,6 +3,9 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"os/exec"
+	"runtime"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -276,5 +279,56 @@ func (a *app) replayCommand() *cobra.Command {
 	cmd.Flags().StringVar(&at, "fork-at", "", "the event to fork at (required)")
 	cmd.Flags().StringVar(&editFile, "edit", "", "a YAML or JSON file listing the edits")
 	cmd.Flags().BoolVarP(&followRun, "follow", "f", false, "print the fork's events as they happen")
+	return cmd
+}
+
+// opener is the command that opens a URL in the user's browser on this system.
+func opener() (string, bool) {
+	switch runtime.GOOS {
+	case "darwin":
+		return "open", true
+	case "linux":
+		return "xdg-open", true
+	}
+	return "", false
+}
+
+func (a *app) viewCommand() *cobra.Command {
+	var noOpen bool
+	cmd := &cobra.Command{
+		Use:   "view RUN",
+		Short: "Print the run's replay page in the console, and open it in a browser",
+		Long: "Prints the address of the run's page in the console, which edge serves, and opens it\n" +
+			"in your browser. The console asks you to sign in there: it does not use the CLI's token.\n" +
+			"--no-open only prints.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, _, err := a.config()
+			if err != nil {
+				return err
+			}
+			base, err := checkEndpoint(cfg.Endpoint)
+			if err != nil {
+				return err
+			}
+			page := base + "/runs/" + url.PathEscape(args[0])
+			if _, err := fmt.Fprintln(a.out, page); err != nil {
+				return err
+			}
+			if noOpen {
+				return nil
+			}
+			name, ok := opener()
+			if !ok {
+				return nil
+			}
+			// The address is printed either way, so a machine with no browser loses nothing.
+			if err := exec.CommandContext(cmd.Context(), name, page).Start(); err != nil {
+				_, _ = fmt.Fprintf(a.err, "swarm: could not open a browser (%v); open the address above\n", err)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&noOpen, "no-open", false, "print the address without opening a browser")
 	return cmd
 }

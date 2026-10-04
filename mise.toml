@@ -3,6 +3,8 @@ uv = "0.10.5"
 go = "1.27.1"
 golangci-lint = "2.14.0"
 buf = "1.73.0"
+node = "24"
+pnpm = "11.24.0"
 protoc-gen-go = "1.36.12"
 protoc-gen-go-grpc = "1.6.2"
 "go:connectrpc.com/connect/cmd/protoc-gen-connect-go" = "1.21.0"
@@ -46,10 +48,34 @@ description = "sandboxd against the local docker daemon (needs busybox:latest an
 dir = "go"
 run = "go test -tags integration -count=1 ./..."
 
+[tasks."console:install"]
+description = "Install the console's dependencies from pnpm-lock.yaml"
+dir = "console"
+run = "pnpm install --frozen-lockfile"
+
+[tasks."console:check"]
+description = "The console's typecheck, lint, and unit tests"
+dir = "console"
+depends = ["console:install"]
+run = ["pnpm typecheck", "pnpm lint", "pnpm test"]
+
+[tasks."console:build"]
+description = "Build the console into go/internal/edge/webui/static, where edge embeds it from. Build edge after it"
+dir = "console"
+depends = ["console:install"]
+run = "pnpm build"
+
+[tasks."console:e2e"]
+description = "Playwright walks the console's threshold flow against a local stack. Needs docker and a Chromium (Playwright's own, or PLAYWRIGHT_CHROMIUM)"
+depends = ["console:install"]
+run = "uv run pytest -m browser"
+
 [tasks."proto:gen"]
-description = "Generate gRPC stubs from proto/: Go with buf, Python with grpcio-tools"
+description = "Generate gRPC stubs from proto/: Go with buf, Python with grpcio-tools, the console's client with protoc-gen-es"
+depends = ["console:install"]
 run = [
   "buf generate",
+  "buf generate --template console/buf.gen.yaml --path proto/swarmeval/api",
   "rm -rf swarmeval/proto && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=. --grpc_python_out=. --mypy_out=quiet:. --mypy_grpc_out=quiet:. $(find proto -name '*.proto' -not -path 'proto/swarmeval/api/*')",
 ]
 
@@ -62,10 +88,15 @@ run = [
   "tmp=$(mktemp -d) && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=\"$tmp\" --grpc_python_out=\"$tmp\" --mypy_out=quiet:\"$tmp\" --mypy_grpc_out=quiet:\"$tmp\" $(find proto -name '*.proto' -not -path 'proto/swarmeval/api/*') && diff -r -x __pycache__ \"$tmp/swarmeval/proto\" swarmeval/proto && rm -rf \"$tmp\"",
 ]
 
+[tasks."proto:lint:console"]
+description = "A check that the console's generated client matches proto/"
+depends = ["console:install"]
+run = "tmp=$(mktemp -d) && sed \"s|out: console/src/gen|out: $tmp|\" console/buf.gen.yaml > \"$tmp.yaml\" && buf generate --template \"$tmp.yaml\" --path proto/swarmeval/api && diff -r \"$tmp\" console/src/gen && rm -rf \"$tmp\" \"$tmp.yaml\""
+
 [tasks."proto:breaking"]
 description = "buf breaking against the local main branch. Only the public API (proto/swarmeval/api) is checked"
 run = "buf breaking --against '.git#branch=main'"
 
 [tasks.check]
 description = "Everything that must pass before a change is done"
-depends = ["lint", "typecheck", "test", "go:lint", "go:test", "proto:lint", "proto:breaking"]
+depends = ["lint", "typecheck", "test", "go:lint", "go:test", "proto:lint", "proto:lint:console", "proto:breaking", "console:check"]

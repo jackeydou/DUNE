@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- [mise](https://mise.jdx.dev/) — pins uv, Go, golangci-lint, buf, and the protoc plugins, and
-  runs the tasks below.
+- [mise](https://mise.jdx.dev/) — pins uv, Go, golangci-lint, buf, the protoc plugins, node, and
+  pnpm, and runs the tasks below.
 - Docker — for the tests that start containers (`test:docker`, `go:test-integration`) and for
   running sandboxes. `mise run check` does not need it. On Linux, install gVisor (`runsc`) and
   register it with docker (`runsc install`): sandboxd then uses it by default, and records `runc`
@@ -26,17 +26,22 @@ mise run sync
 
 | Task | What it runs |
 |---|---|
-| `mise run check` | `lint`, `typecheck`, `test`, `go:lint`, `go:test`, `proto:lint`, `proto:breaking`. Must pass before a change is done |
+| `mise run check` | `lint`, `typecheck`, `test`, `go:lint`, `go:test`, `proto:lint`, `proto:lint:console`, `proto:breaking`, `console:check`. Must pass before a change is done |
 | `mise run fmt` | `ruff format`, `golangci-lint fmt`, and `buf format` in place |
 | `mise run lint` | `ruff format --check .` and `ruff check .` |
 | `mise run typecheck` | `pyright` in strict mode over `swarmeval/` and `tests/` |
-| `mise run test` | `pytest` (asyncio mode `auto`), without tests marked `docker` |
+| `mise run test` | `pytest` (asyncio mode `auto`), without tests marked `docker` or `browser` |
 | `mise run test:docker` | `pytest -m docker`: the Postgres store, migrations, and export against a throwaway `postgres:18-alpine` and `rustfs/rustfs` from testcontainers, the sandboxd client against a sandboxd it builds from `go/` (needs `busybox:latest`), and the public API through an `edge` it builds from `go/`. Run it before a change to `swarmeval/db/`, `swarmeval/events/`, `swarmeval/sandbox/`, `swarmeval/control/`, or edge is done |
 | `mise run go:lint` | `golangci-lint run` over `go/`, integration tests included |
 | `mise run go:test` | `go test ./...` in `go/` |
 | `mise run go:test-integration` | sandboxd against the local docker daemon (needs `busybox:latest` and `python:3.12-slim`), and edge against a throwaway `postgres:18-alpine` from testcontainers-go |
-| `mise run proto:gen` | Go stubs (grpc-go and connect-go) into `go/internal/gen/` with `buf generate`, and Python stubs with typed `.pyi` into `swarmeval/proto/` with grpcio-tools and mypy-protobuf. Commit both. The public API (`proto/swarmeval/api/`) gets no Python stubs: only edge and its clients use it |
+| `mise run console:install` | `pnpm install --frozen-lockfile` in `console/`. The other console tasks run it first |
+| `mise run console:check` | The console's `tsc -b`, `eslint`, and `vitest` unit tests |
+| `mise run console:build` | Builds the console into `go/internal/edge/webui/static/` (not committed), where edge embeds it from. Build edge after it; an edge built without it serves the API only |
+| `mise run console:e2e` | `pytest -m browser`: builds the console and edge, starts the stack `test:docker` uses plus a worker and the analysis service, and has Playwright walk the threshold flow in Chromium: sign in, create a case, edit, run, scores, replay, fork. Needs docker and a Chromium: Playwright's own (`pnpm exec playwright install chromium` in `console/`), or the binary `PLAYWRIGHT_CHROMIUM` names. Run it before a change to `console/` or to the API it calls is done |
+| `mise run proto:gen` | Go stubs (grpc-go and connect-go) into `go/internal/gen/` with `buf generate`, Python stubs with typed `.pyi` into `swarmeval/proto/` with grpcio-tools and mypy-protobuf, and the console's Connect-ES client of the public API into `console/src/gen/` with protoc-gen-es. Commit all three. The public API (`proto/swarmeval/api/`) gets no Python stubs: only edge and its clients use it |
 | `mise run proto:lint` | `buf lint`, `buf format --diff`, and a check that the committed stubs match `proto/` |
+| `mise run proto:lint:console` | The same check for the console's generated client |
 | `mise run proto:breaking` | `buf breaking` against the local `main` branch. Only the public API, `proto/swarmeval/api/`, is checked; `buf.yaml` lists the internal packages it ignores, and a new internal package goes on that list |
 
 ## Running a case
