@@ -7,14 +7,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
 // MaxBundleBytes caps a submitted case bundle, as the Control API does.
 const MaxBundleBytes = 64 << 20
 
-// maxRequestBytes caps a request body. A bundle travels base64 in JSON, a third larger.
+// maxRequestBytes caps a RunService request body. A bundle travels base64 in JSON, a third
+// larger.
 const maxRequestBytes = MaxBundleBytes*4/3 + 1<<20
+
+// maxAccountRequestBytes caps AuthService and UserService request bodies: usernames, passwords,
+// and token names.
+const maxAccountRequestBytes = 64 << 10
 
 type Config struct {
 	// PublicURL is the address browsers use to reach edge. Its origin is the only one whose
@@ -24,9 +30,22 @@ type Config struct {
 	// long after sign-in.
 	SessionIdle   time.Duration
 	SessionMaxAge time.Duration
+	// BodyTimeout bounds how long a request body may take to arrive, so a client cannot hold a
+	// connection by dripping one; UploadTimeout replaces it for the calls that carry case
+	// bundles. Neither limits how long the answer takes, so event streams outlive both.
+	BodyTimeout   time.Duration
+	UploadTimeout time.Duration
 }
 
-// ParsePublicURL accepts an http or https URL with a host and nothing past the path `/`.
+// Request body deadlines edge serves with.
+const (
+	DefaultBodyTimeout   = 30 * time.Second
+	DefaultUploadTimeout = 5 * time.Minute
+)
+
+// ParsePublicURL accepts an http or https URL with a host and nothing past the path `/`, and
+// returns it as browsers serialize an origin: host in lower case, no default port. Otherwise
+// `https://Swarm.example.com:443` would never equal the Origin browsers send.
 func ParsePublicURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -35,7 +54,17 @@ func ParsePublicURL(raw string) (*url.URL, error) {
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
 		return nil, fmt.Errorf("public URL %q: want http(s)://host[:port], the address browsers use to reach edge, with no path, query, or credentials", raw)
 	}
-	return u, nil
+	host, port := strings.ToLower(u.Hostname()), u.Port()
+	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	return &url.URL{Scheme: u.Scheme, Host: host}, nil
 }
 
 // origin is the value browsers send in the Origin header for pages served from PublicURL.

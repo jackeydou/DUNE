@@ -39,3 +39,24 @@ func TestCookieFollowsThePublicScheme(t *testing.T) {
 		t.Fatalf("cleared cookie %q does not expire at once", cleared)
 	}
 }
+
+func TestThePublicURLIsCanonicalLikeABrowserOrigin(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://Swarm.Example.COM":      "https://swarm.example.com",
+		"https://swarm.example.com:443":  "https://swarm.example.com",
+		"HTTPS://swarm.example.com:443/": "https://swarm.example.com",
+		"http://127.0.0.1:80":            "http://127.0.0.1",
+		"https://swarm.example.com:8443": "https://swarm.example.com:8443",
+		"http://[::1]:7443":              "http://[::1]:7443",
+		"http://[::1]:80":                "http://[::1]",
+	} {
+		u, err := ParsePublicURL(raw)
+		if err != nil {
+			t.Errorf("%q: %v", raw, err)
+			continue
+		}
+		if got := (Config{PublicURL: u}).origin(); got != want {
+			t.Errorf("%q: origin %q, want %q", raw, got, want)
+		}
+	}
+}

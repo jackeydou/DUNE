@@ -1,5 +1,47 @@
 # Bug fixes
 
+## 2026-10-04 — A sign-in with a huge username is kept in edge's memory
+
+**Symptom.** Found in review on #19: an unauthenticated `Login` with a username of tens of MiB
+(the body limit was ~86 MiB for every service) had its failure counted under a throttle key
+holding the whole username, kept until 10,000 keys built up. A few such calls could take hundreds
+of MiB.
+**Root cause.** `signIn` made the key `user:<username>` from the raw request, and every service
+shared the bundle-sized body limit.
+**Fix.** A username that fails `tenant.CheckUsername` (64 characters at most) is refused at once,
+with no hash, and counts only against the client address. `AuthService` and `UserService` take
+bodies of 64 KiB at most. `internal/edge/authsvc.go`, `server.go`.
+**Guard.** `TestOverlongUsernamesAreNotKept`.
+**Touches.** The address key still grows one entry per client address; that is bounded by the
+pruning in `limiter.go`. An invalid username gets the same `UNAUTHENTICATED` message as a wrong
+password, so the refusal still says nothing about which usernames exist.
+
+## 2026-10-04 — A body dripped after its headers holds an edge connection forever
+
+**Symptom.** Found in review on #19: a client could send headers within `ReadHeaderTimeout`, then
+send a `Login` or `SubmitRuns` body a byte at a time, holding a connection and its goroutine
+indefinitely.
+**Root cause.** `ReadHeaderTimeout` covers only the headers, and the byte limit ends a body only
+once enough bytes arrive.
+**Fix.** `withBodyDeadline` sets a read deadline before the body is read: 30 s, or 5 minutes for
+`SubmitRuns`, which carries a bundle. edge also closes idle keep-alive connections after 2
+minutes. `internal/edge/deadline.go`, `cmd/edge/main.go`.
+**Guard.** `TestADrippedBodyIsCutOff`; `TestAStreamOutlivesTheBodyDeadline`, over HTTP/1.1 and
+HTTP/2, checks the deadline does not cut a response that takes longer, such as an event stream.
+**Touches.** Not `http.Server.ReadTimeout`, which would apply the same limit to bundle uploads
+and to everything else. A new procedure that carries a bundle goes into `uploadProcedures`.
+
+## 2026-10-04 — A public URL with a default port or capitals refuses every browser request
+
+**Symptom.** Found in review on #19: with `--public-url https://swarm.example.com:443` or
+`https://Swarm.Example.com`, every cookie-authenticated request was `PERMISSION_DENIED`.
+**Root cause.** The origin was built from the URL as written, while browsers send Origin in
+canonical form: host in lower case, no default port.
+**Fix.** `ParsePublicURL` returns the URL in that form. `internal/edge/config.go`.
+**Guard.** `TestThePublicURLIsCanonicalLikeABrowserOrigin`.
+**Touches.** The cookie's `Secure` flag and name follow the same parsed URL. An internationalized
+host must be given in its ASCII (punycode) form, as browsers send it.
+
 ## 2026-10-01 — Under runsc, no process a call leaves running is reported
 
 **Symptom.** With `--runtime runsc`, a call that started a background process (`server &`) got no
