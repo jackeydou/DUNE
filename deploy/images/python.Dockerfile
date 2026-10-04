@@ -11,7 +11,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-install-project
 COPY swarmeval ./swarmeval
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
+# No cache here: uv keys a cached build of the project on pyproject.toml, not on its sources,
+# and would install the wheel of an earlier build.
+RUN uv sync --locked --no-dev --no-editable --no-cache
 
 FROM python:3.12-slim-bookworm
 # The same uid as the Go image, so both read the certificates swarm-certs writes.
