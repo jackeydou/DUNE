@@ -108,7 +108,10 @@ func serveCommand(log *slog.Logger) *cobra.Command {
 			}
 			defer pool.Close()
 
-			cfg := edge.Config{PublicURL: public, SessionIdle: idle, SessionMaxAge: maxAge}
+			cfg := edge.Config{
+				PublicURL: public, SessionIdle: idle, SessionMaxAge: maxAge,
+				BodyTimeout: edge.DefaultBodyTimeout, UploadTimeout: edge.DefaultUploadTimeout,
+			}
 			handler := edge.NewHandler(cfg, tenant.NewStore(pool), edge.NewControlClient("http://"+control), log)
 			var protocols http.Protocols
 			protocols.SetHTTP1(true)
@@ -123,6 +126,7 @@ func serveCommand(log *slog.Logger) *cobra.Command {
 				Handler:           handler,
 				Protocols:         &protocols,
 				ReadHeaderTimeout: 10 * time.Second,
+				IdleTimeout:       2 * time.Minute,
 				TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
 				ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 			}

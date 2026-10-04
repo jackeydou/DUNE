@@ -8,7 +8,8 @@
   `swm_…` for the CLI; change password), `UserService` (admins create, disable, and reset users),
   and `RunService`, forwarded to the Control API with the caller as `actor`. Every RPC but
   sign-in needs credentials; cookie requests must come from the public URL's origin; sign-ins
-  are throttled per username and address. TLS with `--tls-cert`, or loopback only.
+  are throttled per username and address. Request bodies are bounded in size and in time.
+  TLS with `--tls-cert`, or loopback only.
   `edge user create` makes the first admin. The `tenant` schema (users, sessions, tokens) is
   migrated by edge with goose. Passwords are argon2id.
 - `swarmeval.api.v1` stubs, the public API: `AuthService`, `UserService`, and `RunService`.

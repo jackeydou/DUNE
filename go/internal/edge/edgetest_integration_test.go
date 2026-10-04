@@ -25,6 +25,8 @@ import (
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1/controlv1connect"
 )
 
+const testBodyTimeout = 500 * time.Millisecond
+
 // postgresImage matches tests/containers.py, so one pulled image serves both test suites.
 const postgresImage = "postgres:18-alpine"
 
@@ -96,6 +98,7 @@ func h2cServer(t *testing.T, handler http.Handler) *httptest.Server {
 // stack is edge in front of a fake Control API, on a database of its own.
 type stack struct {
 	url     string
+	cfg     Config
 	store   *tenant.Store
 	pool    *pgxpool.Pool
 	control *fakeControl
@@ -120,7 +123,11 @@ func newStack(t *testing.T) *stack {
 		t.Fatal(err)
 	}
 	store := tenant.NewStore(pool)
-	cfg := Config{PublicURL: public, SessionIdle: time.Hour, SessionMaxAge: 24 * time.Hour}
+	cfg := Config{
+		PublicURL: public, SessionIdle: time.Hour, SessionMaxAge: 24 * time.Hour,
+		// Short, so a test can outlast them; local requests arrive in well under that.
+		BodyTimeout: testBodyTimeout, UploadTimeout: 5 * time.Second,
+	}
 	edgeSrv.Config.Handler = NewHandler(cfg, store, NewControlClient(controlSrv.URL), quietLog())
 	edgeSrv.Start()
 	t.Cleanup(edgeSrv.Close)
@@ -128,6 +135,7 @@ func newStack(t *testing.T) *stack {
 	client := edgeSrv.Client()
 	return &stack{
 		url:     edgeSrv.URL,
+		cfg:     cfg,
 		store:   store,
 		pool:    pool,
 		control: control,

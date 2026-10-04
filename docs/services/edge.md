@@ -23,7 +23,7 @@ edge serve --public-url https://swarm.example.com --tls-cert cert.pem --tls-key 
 
 | `serve` flag | Default | Meaning |
 |---|---|---|
-| `--public-url` | required | The address browsers use to reach edge. Its origin is the only one whose requests are accepted, and an https URL makes the session cookie `Secure` |
+| `--public-url` | required | The address browsers use to reach edge. Its origin is the only one whose requests are accepted, and an https URL makes the session cookie `Secure`. It is read in canonical form, as browsers send Origin: host in lower case, no default port |
 | `--listen` | `127.0.0.1:7443` | Without a certificate it must be a loopback address: edge refuses to serve plain HTTP to the network, so a deployment without `--tls-cert` puts a TLS-terminating proxy in front |
 | `--tls-cert`, `--tls-key` | none | PEM certificate chain and key. Together or not at all |
 | `--control` | required | The orchestrator's Control API, `host:port`, reached with gRPC over HTTP/2 without TLS until services use mTLS |
@@ -37,7 +37,12 @@ edge migrates its `tenant` schema when `serve` or `user create` starts.
   (M4 spec decision 1); `mise run proto:breaking` guards it. Defined so far: `AuthService`,
   `UserService`, `RunService`. Connect (connect-go) serves one definition as JSON to the
   browser and as gRPC to the CLI, over HTTP/1.1 or HTTP/2 (unencrypted HTTP/2 on a loopback
-  listener). A request body may be up to 64 MiB of bundle plus encoding.
+  listener).
+- **Request limits.** A `RunService` body may be up to 64 MiB of bundle plus encoding;
+  `AuthService` and `UserService` bodies 64 KiB. A body must arrive within 30 seconds of the
+  headers, 5 minutes for `SubmitRuns`; the headers within 10 seconds. The deadline does not limit
+  the answer, so an event stream lasts as long as the run. Idle keep-alive connections close after
+  2 minutes.
 - **Run forwarding.** `RunService` calls the Control API's RPC of the same name and maps the run
   to the public `Run`, which leaves out the owner and lease fields. Each changing call carries the
   caller's username as `actor`, which the control plane records as `submitted_by`,
@@ -74,7 +79,9 @@ access, the CLI included (M4 spec decision 3).
   a row a key is locked for a minute, and each failure after that doubles the lock, up to 15
   minutes; a key with no failure for 15 minutes past its lock starts over, and a successful
   sign-in clears its username. A locked sign-in is `RESOURCE_EXHAUSTED` with the time left,
-  even with the right password. Counts live in edge's memory: they start over when edge restarts
+  even with the right password. A username that cannot exist (not 1 to 64 of the allowed
+  characters) is refused without a lookup and counts only against the address. Counts live in
+  edge's memory: they start over when edge restarts
   and are not shared between replicas. Behind a proxy, every client has the proxy's address.
   `ChangePassword` checks the current password the same way.
 - **What a refusal says.** A wrong password, an unknown user, and a disabled user get the same

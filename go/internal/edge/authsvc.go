@@ -76,16 +76,30 @@ func errSignIn() error {
 		"sign-in refused: the username or password is wrong, or the user is disabled"))
 }
 
+func locked(wait time.Duration) error {
+	return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf(
+		"too many failed sign-ins for this username or from this address; try again in %s", wait.Round(time.Second)))
+}
+
 // signIn checks a username and password, throttled per username and per client address.
 func (s *AuthService) signIn(ctx context.Context, username, password, peerAddr string) (tenant.User, error) {
 	host, _, err := net.SplitHostPort(peerAddr)
 	if err != nil {
 		host = peerAddr
 	}
-	userKey, addrKey := "user:"+username, "addr:"+host
+	addrKey := "addr:" + host
+	if tenant.CheckUsername(username) != nil {
+		// No user has such a name. It is not kept as a throttle key, which could be megabytes
+		// long, and costs no hash; the failure still counts against the address.
+		if wait := s.limiter.wait(addrKey); wait > 0 {
+			return tenant.User{}, locked(wait)
+		}
+		s.limiter.fail(addrKey)
+		return tenant.User{}, errSignIn()
+	}
+	userKey := "user:" + username
 	if wait := s.limiter.wait(userKey, addrKey); wait > 0 {
-		return tenant.User{}, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf(
-			"too many failed sign-ins for this username or from this address; try again in %s", wait.Round(time.Second)))
+		return tenant.User{}, locked(wait)
 	}
 	user, err := s.store.UserByName(ctx, username)
 	known := err == nil

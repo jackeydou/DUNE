@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -25,8 +26,9 @@ type fakeControl struct {
 	requests []any
 	// failWith, when set, is returned by every call.
 	failWith error
-	// events are what StreamEvents sends for any run.
+	// events are what StreamEvents sends for any run, after holding the stream open for delay.
 	events []*controlv1.StreamEventsResponse
+	delay  time.Duration
 }
 
 func newFakeControl() *fakeControl {
@@ -157,6 +159,7 @@ func (f *fakeControl) StreamEvents(_ context.Context, req *connect.Request[contr
 	if _, err := f.run(req.Msg.GetRunId()); err != nil {
 		return err
 	}
+	time.Sleep(f.delay)
 	for _, e := range f.events {
 		if e.GetSeq() <= req.Msg.GetAfterSeq() {
 			continue

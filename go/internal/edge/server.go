@@ -13,16 +13,15 @@ import (
 
 // NewHandler serves the public API. Every procedure but sign-in runs behind the authenticator.
 func NewHandler(cfg Config, store *tenant.Store, control controlv1connect.ControlServiceClient, log *slog.Logger) http.Handler {
-	opts := []connect.HandlerOption{
-		connect.WithInterceptors(&authenticator{store: store, cfg: cfg, log: log}),
-		connect.WithReadMaxBytes(maxRequestBytes),
-	}
+	interceptors := connect.WithInterceptors(&authenticator{store: store, cfg: cfg, log: log})
+	// Account calls carry a few short strings; only run submissions carry bundles.
+	small := connect.WithReadMaxBytes(maxAccountRequestBytes)
 	auth := newAuthService(store, cfg, log)
 	mux := http.NewServeMux()
-	mux.Handle(apiv1connect.NewAuthServiceHandler(auth, opts...))
-	mux.Handle(apiv1connect.NewUserServiceHandler(&UserService{store: store, auth: auth, log: log}, opts...))
-	mux.Handle(apiv1connect.NewRunServiceHandler(&RunService{control: control, log: log}, opts...))
-	return mux
+	mux.Handle(apiv1connect.NewAuthServiceHandler(auth, interceptors, small))
+	mux.Handle(apiv1connect.NewUserServiceHandler(&UserService{store: store, auth: auth, log: log}, interceptors, small))
+	mux.Handle(apiv1connect.NewRunServiceHandler(&RunService{control: control, log: log}, interceptors, connect.WithReadMaxBytes(maxRequestBytes)))
+	return withBodyDeadline(mux, cfg, log)
 }
 
 // NewControlClient dials the Control API at baseURL (`http://host:port`) with the gRPC protocol
