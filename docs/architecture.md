@@ -24,11 +24,11 @@ models, the `inspect_ai` mapping, and case hooks exist only in Python.
 | [`sandboxd`](services/sandboxd.md) | Go | Sandbox lifecycle through the docker or k8s API; runs tool calls inside sandboxes and reports the file diff and surviving processes after each one | M0 |
 | [`net-gateway`](services/net-gateway.md) | Go | One instance per run: TLS interception, DNS, network policy, pcap | Later: the network capability, outside M0–M5 |
 | [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, timelines, per-variant `.eval`, offline scorers over exported runs | Built as batch jobs and as a gRPC service behind `edge` (all but offline scorers) |
-| [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication, run, case, and analysis forwarding, and mTLS to the Control API and analysis built; console next |
-| [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4: sign-in, runs, suites, events, forks, the case library, queries, reports, and exports built |
-| [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | M4 |
+| [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication, run, case, and analysis forwarding, the embedded console, and mTLS to the Control API and analysis built |
+| [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4: sign-in, runs, suites, events, forks, the case library, queries, reports, exports, and `view` built |
+| [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | Built |
 
-Users trigger runs with the `swarm` CLI, a client of `edge`; the console follows in M4. Tests
+Users trigger runs with the `swarm` CLI or the web console, both clients of `edge`. Tests
 and operators on the internal network can also call the orchestrator's gRPC Control API
 directly (grpcurl), with the `operator` certificate where services use
 [mutual TLS](#service-identity).

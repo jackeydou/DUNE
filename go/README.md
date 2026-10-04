@@ -59,6 +59,8 @@ Requirements and limits:
 - With `--mtls-cert`, `--mtls-key`, and `--mtls-ca` it calls the Control API over mutual TLS,
   as `edge`; without them in plain text, which the Control API serves on loopback only.
 - Sign-in throttling is kept in memory, per process.
+- The console is embedded from `internal/edge/webui/static/`, which `mise run console:build`
+  fills and git ignores. Build it first, or edge serves the API without the pages.
 
 ## swarm
 

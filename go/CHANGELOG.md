@@ -36,6 +36,11 @@
   otherwise. Breaking for a deployment that served sandboxd on a network address in plain text.
 
 ### Added
+- edge serves the web console, embedded from `go/internal/edge/webui/static/` (built by
+  `mise run console:build`): built files as they are, `index.html` for any other page path,
+  never a page for an API path, with a Content-Security-Policy that allows only edge's own
+  origin and forbids framing. An edge built without the console serves the API and says how to
+  build the pages. `swarm view RUN` prints the run's page in the console and opens it.
 - Analysis. edge serves `swarmeval.api.v1.AnalysisService` (`Query`, `SearchToolCalls`,
   `StartRuleScan`, `GetJob`, `Judge`, `Report`, `GetTrace`, `DownloadExport`), forwarded to the
   analysis service named by `edge serve --analysis host:port`; without the flag the calls are

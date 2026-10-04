@@ -351,6 +351,25 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
    [docs/services/edge.md](../../docs/services/edge.md)。
 6. **控制台**：`console/` 和决定 9 的页面，嵌进 edge。
    退出条件：Playwright 对着本地栈跑一遍门槛流程：登录、新建 case、编辑、提交、看分数、回放、fork。
+   （2026-10-04）已实现：`console/` 和决定 9 的全部页面，嵌进 edge（`go/internal/edge/webui`）；`swarm view`；
+   `mise run console:e2e` 用 Playwright 对着真实的 edge、Control API、worker、analysis（模拟模型后端）走完门槛
+   流程。与决定 9 不同或决定里没写的地方：
+   - 构建产物写到 `go/internal/edge/webui/static/`，不提交：Go 的 embed 只能嵌模块目录里的文件。没构建控制台
+     的 edge 照常提供 API，页面请求返回 404 并说明怎么构建。
+   - 因果链用 `AnalysisService.GetTrace` 取，不在浏览器里沿 `parent_id` 走：`StreamEvents` 不返回 `parent_id`，
+     而 `GetTrace` 已经处理了跨 fork 进入原 run。代价是运行中的 run 还没有导出，看不到因果链。
+   - 回放只按事件类型过滤，没有 tag：事件里没有 tag 字段（同第 5 步）。
+   - fork 的编辑以 JSON 列表填写（和 `swarm replay --edit` 同一种格式），没有做逐条消息的编辑界面。
+   - 没有任何字段按 Markdown 渲染：现在没有"明确标记"为 Markdown 的字段，全部当文本。
+   - 新建 case 从一个能加载、带一个 `command` scorer 的模板开始，走 `UpdateCaseFiles` 的 `base_revision = 0`。
+   - 修订之间的 diff 用 `diff` 包在浏览器里算。
+   - 页面带 CSP：脚本、字体、连接只允许 edge 自己的源，禁止被嵌入 frame；样式允许 inline，因为 CodeMirror
+     把主题写进 style 元素。
+   - 登出后整页重新加载，内存里不留上一个用户读过的数据。
+   - 浏览器测试单独用 `browser` 标记，不进 `mise run check` 和 `test:docker`：它需要 node、pnpm 和 Chromium。
+     `check` 里加了控制台的类型检查、lint、单元测试，以及生成的客户端与 proto 一致的检查。
+   - 回放一次渲染一个 run 的全部事件，没有做虚拟滚动；几千个事件以上会慢。
+   都写在 [docs/services/edge.md](../../docs/services/edge.md#console) 和 `console/README.md`。
 7. **mTLS**：`swarm-certs`；各服务的 TLS 参数和身份检查。
    退出条件：每个服务拒绝不在白名单里的证书、拒绝没有证书的连接；没配证书时拒绝监听非回环地址。
    （2026-10-04）已实现，基于第 4 步的分支；第 5 步（analysis 服务）当时还没合并，所以 analysis 的服务端白名单

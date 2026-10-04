@@ -7,6 +7,7 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/jackeydou/DUNE/go/internal/edge/tenant"
+	"github.com/jackeydou/DUNE/go/internal/edge/webui"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/analysis/v1/analysisv1connect"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1/apiv1connect"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1/controlv1connect"
@@ -31,6 +32,9 @@ func NewHandler(cfg Config, store *tenant.Store, control controlv1connect.Contro
 	// A rule set or a SQL statement, never a bundle.
 	medium := connect.WithReadMaxBytes(maxAnalysisRequestBytes)
 	mux.Handle(apiv1connect.NewAnalysisServiceHandler(&AnalysisService{analysis: analysis, log: log}, interceptors, medium))
+	// Everything that is not an API procedure is the console. Its pages need no credentials;
+	// the data they ask for does.
+	mux.Handle("/", webui.Handler())
 	return withBodyDeadline(mux, cfg, log)
 }
 

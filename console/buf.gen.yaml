@@ -1,0 +1,8 @@
+# The console's Connect-ES client, from the public API only:
+#   buf generate --template console/buf.gen.yaml --path proto/swarmeval/api
+version: v2
+clean: true
+plugins:
+  - local: console/node_modules/.bin/protoc-gen-es
+    out: console/src/gen
+    opt: target=ts
