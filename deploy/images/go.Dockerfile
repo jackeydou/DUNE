@@ -1,12 +1,23 @@
 # syntax=docker/dockerfile:1
-# The Go binaries: edge, sandboxd, swarm-certs, and the swarm CLI. Build from the repo root:
+# The Go binaries: edge (with the web console embedded), sandboxd, swarm-certs, and the swarm
+# CLI. Build from the repo root:
 #   docker build -f deploy/images/go.Dockerfile -t swarmeval/go .
+
+# The console builds into go/internal/edge/webui/static, where edge embeds it from.
+FROM node:24-alpine AS console
+RUN npm install --global pnpm@11.24.0
+WORKDIR /src/console
+COPY console/package.json console/pnpm-lock.yaml console/pnpm-workspace.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
+COPY console/ ./
+RUN mkdir -p /src/go/internal/edge/webui/static && pnpm build
 
 FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go/go.mod go/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY go/ ./
+COPY --from=console /src/go/internal/edge/webui/static/ ./internal/edge/webui/static/
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -o /out/ ./cmd/edge ./cmd/sandboxd ./cmd/swarm ./cmd/swarm-certs
 

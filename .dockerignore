@@ -12,3 +12,10 @@ docs
 spec
 deploy/compose/.env
 deploy/compose/gateway.env
+**/node_modules
+# A console built on the host; the image builds its own.
+go/internal/edge/webui/static/assets
+go/internal/edge/webui/static/index.html
+console/e2e
+console/test-results
+console/playwright-report

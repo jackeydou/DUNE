@@ -12,6 +12,7 @@
   certificate for edge's `--tls-cert`, kept while it names the same hosts and has more than
   30 days left. `swarm-certs --renew` replaces every service certificate.
 - `deploy/images/go.Dockerfile`: one image with `edge`, `sandboxd`, `swarm-certs`, and `swarm`.
+  It builds the console first, so its `edge` serves the pages.
 
 ### Changed
 - `swarm-certs` keeps a service certificate that its CA signed, that names the same hosts, and

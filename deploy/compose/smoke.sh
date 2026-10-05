@@ -114,6 +114,14 @@ if curl --silent --fail --cacert "$cacert" -H 'Content-Type: application/json' \
   --data '{}' "$URL/swarmeval.api.v1.RunService/ListRuns" >/dev/null; then
   fail "a call without credentials was answered"
 fi
+
+step "the console: edge serves its pages and their scripts"
+page=$(curl --silent --show-error --fail --cacert "$cacert" "$URL/runs")
+grep -q '<div id="root">' <<<"$page" || fail "GET /runs is not the console's page: ${page:0:200}"
+script=$(grep -o '/assets/[^"]*\.js' <<<"$page" | sort -u | sed -n 1p)
+[ -n "$script" ] || fail "the console's page names no script"
+curl --silent --show-error --fail --cacert "$cacert" --output /dev/null "$URL$script" ||
+  fail "the console's script $script is not served"
 rm -f "$cacert" "$jar"
 
 step "a worker restarted in the middle of a run removes its sandboxes, and the run is rerun"

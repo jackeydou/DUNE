@@ -3,10 +3,8 @@
 SwarmEval on one machine with docker compose: `deploy/compose/`. The services and how they are
 isolated are in [architecture.md](architecture.md); k8s arrives in M5.
 
-**Status:** the stack runs every service on this branch: `edge`, the orchestrator's control
-plane and one worker, `analysis`, `model-gateway`, `sandboxd`, Postgres, and RustFS. The web
-console is not in it yet (M4 Plan step 6); until then the public API is used through the
-`swarm` CLI.
+**Status:** the stack runs every service: `edge` with the web console, the orchestrator's
+control plane and one worker, `analysis`, `model-gateway`, `sandboxd`, Postgres, and RustFS.
 
 ## What you need
 
@@ -29,7 +27,9 @@ docker compose up -d --build --wait
 docker compose exec -T edge edge user create root --admin <<<'a long passphrase'
 ```
 
-edge then serves `https://<SWARM_HOST>:<SWARM_PORT>` (default `https://localhost:7443`).
+edge then serves the console and the API at `https://<SWARM_HOST>:<SWARM_PORT>` (default
+`https://localhost:7443`). The certificate is self-signed unless you give your own
+([Certificates](#certificates)), so the browser asks before it opens the page.
 
 | `.env` | Default | Meaning |
 |---|---|---|
@@ -183,6 +183,7 @@ brings the stack up under its own project name and port (17443) with a recorded 
    the run with `swarm query` and for the submission's `swarm report`;
 4. with the API as the console calls it (Connect JSON, session cookie, `Origin`): signs in,
    reads the run and the run list, and checks that a call without credentials is refused;
+   then fetches a console page and the script it names;
 5. stops the worker in the middle of a run, and checks that it exited 0 with the run's
    sandboxes removed, and that once it is started again the run is `interrupted` and its rerun
    ends `done`.
@@ -193,5 +194,8 @@ missing. Building the two images fetches their base images and dependencies when
 cached. sandboxd's state goes in a directory the test makes under `/tmp` (`SMOKE_STATE_PARENT`
 names another parent, for a docker daemon that does not share `/tmp`) and removes; it never
 uses `SWARM_STATE_DIR` from the environment. It removes everything it made. `KEEP=1` leaves
-the stack up. The console's half of the gate (create a case in the
-browser, watch the replay) waits for the console.
+the stack up.
+
+It does not drive a browser. The console's own flow (sign in, create a case, edit, run,
+scores, replay, fork) is walked by Playwright in `mise run console:e2e`, against a stack
+started from the source tree, not this one.
