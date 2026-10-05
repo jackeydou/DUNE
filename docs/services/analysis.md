@@ -171,7 +171,7 @@ It does not migrate the database: the control plane does, when it starts.
 | `Judge` | `judge` | One question about one run, optionally a `seq` range; returns the verdict, accepted or rejected, and stores the call either way. A run with no export is `NOT_FOUND`; an empty or too long transcript, a gateway that refuses, or a service started without `SWARMEVAL_ANALYSIS_KEY` is `FAILED_PRECONDITION` |
 | `Report` | `report` | Rates, unscored runs, coverage, and forks as messages, the differences with `compare` (`AXIS=A,B`), and the same report as Markdown, which `swarm report` prints |
 | `GetTrace` | `trace` | An event's causal chain, root first, each link with its run, `seq`, agent, type, and one-line text. An event or run that is not there is `NOT_FOUND`; a broken chain `FAILED_PRECONDITION` |
-| `DownloadExport` | — | A run's `sample.eval` or `events.parquet`, streamed in 1 MiB chunks. It is here and not in edge because analysis already reads the bucket, so edge needs no object store credentials |
+| `DownloadExport` | — | A run's `sample.eval` or `events.parquet`, read from the bucket and sent 1 MiB at a time, so the service never holds a whole export in memory. It is here and not in edge because analysis already reads the bucket, so edge needs no object store credentials |
 
 Run ids arrive from outside and become object keys, so only run-id characters (letters,
 digits, `_`, `.`, `-`, no `..`) are accepted; anything else is `INVALID_ARGUMENT`.

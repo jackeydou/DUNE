@@ -441,7 +441,10 @@ async def test_a_trace_is_the_chain_from_the_root(
 
 
 async def test_exports_are_downloaded_in_chunks(
-    analysis: "AnalysisServiceAsyncStub", exported: Exported, object_store: ObjectStore
+    analysis: "AnalysisServiceAsyncStub",
+    exported: Exported,
+    object_store: ObjectStore,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def download(run_id: str, fmt: "pb.ExportFormat.ValueType") -> bytes:
         request = pb.DownloadExportRequest(run_id=run_id, format=fmt)
@@ -449,12 +452,20 @@ async def test_exports_are_downloaded_in_chunks(
 
     run_id = exported.runs[0]
     assert await download(run_id, pb.EXPORT_FORMAT_EVAL) == b"eval-bytes-" + run_id.encode()
-    assert await download(run_id, pb.EXPORT_FORMAT_PARQUET) == object_store.get(events_key(run_id))
     big = f"big.{exported.submission}.v0.e1"
     content = secrets.token_bytes((2 << 20) + 17)
     object_store.put(export_key(big), content)
+    expected = object_store.get(events_key(run_id))
+
+    # From here on a download that reads a whole object into memory fails: the service must
+    # stream it.
+    def whole_object(self: ObjectStore, key: str) -> bytes:
+        raise AssertionError(f"{key} was read whole")
+
+    monkeypatch.setattr(ObjectStore, "get", whole_object)
     request = pb.DownloadExportRequest(run_id=big, format=pb.EXPORT_FORMAT_EVAL)
     chunks = [part.chunk async for part in analysis.DownloadExport(request)]
+    assert await download(run_id, pb.EXPORT_FORMAT_PARQUET) == expected
     assert [len(c) for c in chunks] == [1 << 20, 1 << 20, 17] and b"".join(chunks) == content
 
     for request in (

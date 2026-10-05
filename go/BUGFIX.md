@@ -1,5 +1,31 @@
 # Bug fixes
 
+## 2026-10-04 — `swarm export` leaves half a file when the local write fails
+
+**Symptom.** When writing a downloaded chunk failed, for instance on a full disk, the command
+returned its error and left the partial file, though a failed download is documented to leave
+none.
+**Root cause.** The write-error return came before the block that closes and removes the file,
+which only the stream's own error reached.
+**Fix.** `download` owns the file: one deferred step closes it and removes it on any error.
+`internal/cli/cmd_analysis.go`.
+**Guard.** `internal/cli/analysis_test.go::TestADownloadIsWrittenWholeOrNotAtAll`.
+**Touches.** An existing file is still never overwritten, and so never removed: the removal
+only follows a file this call created. Reported by Codex review on #23.
+
+## 2026-10-04 — `swarm query --json` drops a column whose label repeats
+
+**Symptom.** For a statement with two columns of one name, such as `SELECT *` over a join,
+`--json` printed one of them; the table and `--csv` printed both.
+**Root cause.** Each row became a JSON object keyed by column label, so the later column
+overwrote the earlier.
+**Fix.** `uniqueNames` gives a repeated label `_2`, `_3`, …, skipping any name another column
+already has. `internal/cli/cmd_analysis.go`.
+**Guard.** `internal/cli/analysis_test.go::TestRepeatedColumnLabelsStayDistinctAsJSONKeys`.
+**Touches.** Only the JSON keys change; the table and CSV headers keep the statement's labels,
+and the analysis service already keeps repeated columns apart (`query.fetch` reads by column).
+Reported by Codex review on #23.
+
 ## 2026-10-04 — `swarm run` uploads the file a symlink points to, even outside the case
 
 **Symptom.** Found in review on #20: a case directory holding `prompt.md -> ~/.ssh/id_rsa` had

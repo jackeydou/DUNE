@@ -38,6 +38,7 @@ from inspect_ai.log import (
 )
 from inspect_ai.model import ModelUsage
 from inspect_ai.scorer import Score
+from pyarrow import NativeFile
 from pyarrow.fs import S3FileSystem
 from pydantic import JsonValue, TypeAdapter
 from sqlalchemy import select
@@ -115,6 +116,12 @@ class ObjectStore:
         """Blocking; call it through `asyncio.to_thread`."""
         with self.filesystem().open_input_stream(f"{self.bucket}/{key}") as src:
             return src.read()
+
+    def open(self, key: str) -> NativeFile:
+        """The object as a stream, for one too large to hold in memory: `read(n)` gives its
+        next bytes, empty at the end. The caller closes it. Opening, reading, and closing all
+        block. Raises `FileNotFoundError` when there is no such object."""
+        return self.filesystem().open_input_stream(f"{self.bucket}/{key}")
 
 
 def export_key(run_id: str) -> str:

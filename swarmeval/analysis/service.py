@@ -445,12 +445,16 @@ class AnalysisService(AnalysisServiceServicer):
                     "or `EXPORT_FORMAT_PARQUET` (the events).",
                 )
         try:
-            data = await asyncio.to_thread(self._store.get, key)
+            source = await asyncio.to_thread(self._store.open, key)
         except FileNotFoundError:
             await context.abort(
                 grpc.StatusCode.NOT_FOUND,
                 f"run {run_id} has no `{key}` in the bucket. Only runs that ended `done` or "
                 "`cancelled` are exported; check the run's status.",
             )
-        for offset in range(0, len(data), DOWNLOAD_CHUNK_BYTES):
-            yield pb.DownloadExportResponse(chunk=data[offset : offset + DOWNLOAD_CHUNK_BYTES])
+        # Read as it is sent: an export can be far larger than this process's memory.
+        try:
+            while chunk := await asyncio.to_thread(source.read, DOWNLOAD_CHUNK_BYTES):
+                yield pb.DownloadExportResponse(chunk=chunk)
+        finally:
+            await asyncio.to_thread(source.close)

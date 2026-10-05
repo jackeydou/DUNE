@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -46,6 +47,28 @@ func oneLine(s string) string {
 	return strings.NewReplacer("\n", `\n`, "\r", `\r`, "\t", `\t`).Replace(s)
 }
 
+// uniqueNames makes column labels usable as JSON keys: a label that repeats, as two columns of
+// a join do, gets `_2`, `_3`, … so no column overwrites another.
+func uniqueNames(columns []string) []string {
+	taken := make(map[string]bool, len(columns))
+	for _, c := range columns {
+		taken[c] = true
+	}
+	seen := make(map[string]bool, len(columns))
+	out := make([]string, len(columns))
+	for i, c := range columns {
+		name := c
+		for n := 2; seen[name]; n++ {
+			if candidate := fmt.Sprintf("%s_%d", c, n); !taken[candidate] {
+				name = candidate
+			}
+		}
+		seen[name], taken[name] = true, true
+		out[i] = name
+	}
+	return out
+}
+
 func (a *app) queryCommand() *cobra.Command {
 	var asCSV bool
 	var maxRows int32
@@ -57,7 +80,8 @@ func (a *app) queryCommand() *cobra.Command {
 			"run (run_id, seq, event_id, ts, type, agent_id, parent_id, payload as JSON text).\n" +
 			"The statement can read nothing else. At most 10,000 rows and 30 seconds.\n\n" +
 			"  swarm query \"SELECT status, count(*) FROM runs GROUP BY ALL\"\n\n" +
-			"Prints a table; --csv prints CSV, and --json one JSON object per row.",
+			"Prints a table; --csv prints CSV, and --json one JSON object per row, where a column\n" +
+			"label that repeats gets _2, _3, … so every column is kept.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if asCSV && a.asJSON {
@@ -74,6 +98,7 @@ func (a *app) queryCommand() *cobra.Command {
 			defer func() { _ = stream.Close() }() // the outcome is stream.Err()
 			var (
 				columns   []string
+				keys      []string // columns, made distinct, for JSON objects
 				rows      int
 				truncated bool
 				tw        = tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
@@ -85,6 +110,7 @@ func (a *app) queryCommand() *cobra.Command {
 					for _, col := range chunk.GetColumns() {
 						columns = append(columns, col.GetName())
 					}
+					keys = uniqueNames(columns)
 					switch {
 					case asCSV:
 						if err := cw.Write(columns); err != nil {
@@ -102,7 +128,7 @@ func (a *app) queryCommand() *cobra.Command {
 					case a.asJSON:
 						record := make(map[string]any, len(values))
 						for i, v := range values {
-							record[columns[i]] = v
+							record[keys[i]] = v
 						}
 						b, err := json.Marshal(record)
 						if err != nil {
@@ -190,6 +216,51 @@ var exportFormats = map[string]struct {
 	"parquet": {apiv1.ExportFormat_EXPORT_FORMAT_PARQUET, ".events.parquet"},
 }
 
+// chunks is a download as it arrives: connect's server stream, or a test's stand-in.
+type chunks interface {
+	Receive() bool
+	Msg() *apiv1.DownloadExportResponse
+	Err() error
+}
+
+// download writes the stream to output, or to stdout for "-", and returns the bytes written.
+// The file is made on the first chunk and must not exist, so a refused download leaves none
+// behind; a download or a write that fails later removes what it wrote, since half a file is
+// worse than none.
+func download(stream chunks, stdout io.Writer, output string) (total int, err error) {
+	out := stdout
+	var file *os.File
+	defer func() {
+		if file == nil {
+			return
+		}
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("write %s: %w", output, closeErr)
+		}
+		if err != nil {
+			_ = os.Remove(output) // the error returned is the one that matters
+		}
+	}()
+	for stream.Receive() {
+		if file == nil && output != "-" {
+			file, err = os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+			if errors.Is(err, fs.ErrExist) {
+				return 0, fmt.Errorf("%s exists and is not overwritten. Remove it, or give another -o FILE", output)
+			}
+			if err != nil {
+				return 0, err
+			}
+			out = file
+		}
+		n, err := out.Write(stream.Msg().GetChunk())
+		total += n
+		if err != nil {
+			return total, fmt.Errorf("write %s: %w", output, err)
+		}
+	}
+	return total, stream.Err()
+}
+
 func (a *app) exportCommand() *cobra.Command {
 	var format, output string
 	cmd := &cobra.Command{
@@ -217,41 +288,13 @@ func (a *app) exportCommand() *cobra.Command {
 				return explain("export "+args[0], err)
 			}
 			defer func() { _ = stream.Close() }() // the outcome is stream.Err()
-			// The file is made on the first chunk, so a refused download leaves none behind.
-			var (
-				out   = a.out
-				file  *os.File
-				total int
-			)
-			for stream.Receive() {
-				if file == nil && output != "-" {
-					file, err = os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-					if errors.Is(err, fs.ErrExist) {
-						return fmt.Errorf("export %s: %s exists and is not overwritten. Remove it, or give another -o FILE", args[0], output)
-					}
-					if err != nil {
-						return fmt.Errorf("export %s: %w", args[0], err)
-					}
-					out = file
-				}
-				n, err := out.Write(stream.Msg().GetChunk())
-				total += n
-				if err != nil {
-					return fmt.Errorf("export %s: write %s: %w", args[0], output, err)
-				}
-			}
-			err = stream.Err()
-			if file != nil {
-				if closeErr := file.Close(); err == nil && closeErr != nil {
-					return fmt.Errorf("export %s: write %s: %w", args[0], output, closeErr)
-				}
-				if err != nil {
-					// Half a file is worse than none.
-					_ = os.Remove(output)
-				}
-			}
+			total, err := download(stream, a.out, output)
 			if err != nil {
-				return explain("export "+args[0], err)
+				var cerr *connect.Error
+				if errors.As(err, &cerr) {
+					return explain("export "+args[0], err)
+				}
+				return fmt.Errorf("export %s: %w", args[0], err)
 			}
 			if output != "-" {
 				_, err = fmt.Fprintf(a.out, "%s: %d bytes\n", output, total)
