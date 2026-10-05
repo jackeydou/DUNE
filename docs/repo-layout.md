@@ -34,7 +34,7 @@ There are three projects, each with its own ledgers at its root:
 |---|---|---|
 | Python package `swarmeval` | Repo root | `CHANGELOG.md`, `BUGFIX.md` at the repo root |
 | Go module `github.com/jackeydou/DUNE/go` | `go/` | `go/CHANGELOG.md`, `go/BUGFIX.md` |
-| Web console | `console/` | `console/CHANGELOG.md` |
+| Web console | `console/` | `console/CHANGELOG.md`, `console/BUGFIX.md` |
 
 A change to `proto/` goes in the ledger of each project whose generated code it changes.
 

@@ -226,6 +226,7 @@ class Queue:
         case_id: str | None = None,
         status: str | None = None,
         suite: str | None = None,
+        workspace: str | None = None,
         limit: int = 100,
     ) -> list[RunRow]:
         query = _joined().order_by(control_runs.c.created_at.desc(), control_runs.c.run_id)
@@ -237,6 +238,8 @@ class Queue:
             query = query.where(control_runs.c.status == status)
         if suite:
             query = query.where(run_specs.c.suite == suite)
+        if workspace:
+            query = query.where(control_runs.c.workspace == workspace)
         async with self._engine.connect() as conn:
             rows = await conn.execute(query.limit(limit))
             return [_row(r) for r in rows]

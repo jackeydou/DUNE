@@ -177,6 +177,7 @@ message ListRunsRequest {
   string case_id = 2;
   string status = 3;
   string suite = 5;
+  string workspace = 6;
   // Zero means 100.
   int32 limit = 4;
 }

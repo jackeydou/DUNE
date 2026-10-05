@@ -1,7 +1,9 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
 import { errorText, runs } from "@/api"
 import type { RunEvent } from "@/lib/events"
+import { endSessionOn } from "@/session"
 
 export interface RunEvents {
   events: RunEvent[]
@@ -12,6 +14,7 @@ export interface RunEvents {
 
 /** A run's events from the first, appended as they happen until the run finishes. */
 export function useRunEvents(runId: string): RunEvents {
+  const client = useQueryClient()
   const [state, setState] = useState<RunEvents>({ events: [], live: true, error: undefined })
   useEffect(() => {
     const abort = new AbortController()
@@ -37,10 +40,13 @@ export function useRunEvents(runId: string): RunEvents {
         if (pending.length) flush()
         setState((s) => ({ ...s, live: false }))
       } catch (err) {
-        if (!abort.signal.aborted) setState((s) => ({ ...s, live: false, error: errorText(err) }))
+        if (abort.signal.aborted) return
+        // The stream is not a query, so it reports an ended session itself.
+        endSessionOn(client, err)
+        setState((s) => ({ ...s, live: false, error: errorText(err) }))
       }
     })()
     return () => abort.abort()
-  }, [runId])
+  }, [runId, client])
   return state
 }

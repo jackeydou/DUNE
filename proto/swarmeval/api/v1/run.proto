@@ -148,6 +148,7 @@ message ListRunsRequest {
   string suite = 4;
   // Zero means 100.
   int32 limit = 5;
+  string workspace = 6;
 }
 
 message ListRunsResponse {

@@ -1,7 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createRootRoute, createRoute, createRouter, Link, Navigate, Outlet } from "@tanstack/react-router"
 
-import { auth } from "@/api"
+import { auth, Code, isCode } from "@/api"
 import { Loading } from "@/components/common"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
@@ -14,10 +14,15 @@ import { NewCase } from "@/pages/NewCase"
 import { Compare, RunDetail } from "@/pages/RunDetail"
 import { Runs, type RunsSearch } from "@/pages/Runs"
 import { Users } from "@/pages/Users"
-import { isAdmin, useSession } from "@/session"
+import { endSessionOn, isAdmin, useSession } from "@/session"
 
-const queries = new QueryClient({
-  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
+// Any call that finds the session gone ends it in the app too, whichever page made the call.
+const queries: QueryClient = new QueryClient({
+  queryCache: new QueryCache({ onError: (err) => endSessionOn(queries, err) }),
+  mutationCache: new MutationCache({ onError: (err) => endSessionOn(queries, err) }),
+  defaultOptions: {
+    queries: { refetchOnWindowFocus: false, retry: (failures, err) => failures < 1 && !isCode(err, Code.Unauthenticated) },
+  },
 })
 
 function Root() {
@@ -51,9 +56,13 @@ function Shell() {
             variant="ghost"
             size="sm"
             onClick={async () => {
-              await auth.logout({})
-              // A full load: nothing the signed-out user read stays in memory.
-              window.location.assign("/")
+              try {
+                await auth.logout({})
+              } finally {
+                // A full load, also when the session had already ended: nothing the
+                // signed-out user read stays in memory.
+                window.location.assign("/")
+              }
             }}
           >
             Sign out

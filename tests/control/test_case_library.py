@@ -435,11 +435,13 @@ async def test_runs_are_submitted_by_revision_and_name_it(
 
     assert (newest.case_revision, pinned.case_revision, by_bundle.case_revision) == (2, 1, 3)
     assert len(pinned.run_ids) == 2
-    runs = {
-        r.run_id: r
-        for r in (await control.ListRuns(pb.ListRunsRequest(case_id="demo", limit=1000))).runs
-        if r.workspace == workspace
-    }
+    # The workspace filter is the server's: other tests' `demo` runs in other workspaces are
+    # not among the newest few it would otherwise return.
+    listed = await control.ListRuns(pb.ListRunsRequest(workspace=workspace, limit=4))
+    assert {r.workspace for r in listed.runs} == {workspace} and len(listed.runs) == 4
+    elsewhere = await control.ListRuns(pb.ListRunsRequest(workspace=f"{workspace}-x"))
+    assert list(elsewhere.runs) == []
+    runs = {r.run_id: r for r in listed.runs}
     assert runs[newest.run_ids[0]].case_revision == 2
     assert runs[newest.run_ids[0]].case_sha256 == bundle_hash(second)
     assert runs[newest.run_ids[0]].submitted_by == "ada"

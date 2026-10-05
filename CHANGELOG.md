@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Control API `ListRuns` filters by `workspace`.
 - Analysis service: `swarmeval-analysis` serves `swarmeval.analysis.v1.AnalysisService` for
   edge. `Query` runs one read-only SELECT over the views `runs` and `events` on a DuckDB
   connection with external access off and its configuration locked, at most 10,000 rows and

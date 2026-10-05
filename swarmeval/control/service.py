@@ -371,6 +371,7 @@ class ControlService(CaseRpcs, ControlServiceServicer):
             case_id=request.case_id or None,
             status=request.status or None,
             suite=request.suite or None,
+            workspace=request.workspace or None,
             limit=request.limit or 100,
         )
         return pb.ListRunsResponse(runs=[to_proto(r) for r in runs])

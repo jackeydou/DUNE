@@ -743,7 +743,8 @@ type ListRunsRequest struct {
 	Status       string `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
 	Suite        string `protobuf:"bytes,4,opt,name=suite,proto3" json:"suite,omitempty"`
 	// Zero means 100.
-	Limit         int32 `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	Limit         int32  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	Workspace     string `protobuf:"bytes,6,opt,name=workspace,proto3" json:"workspace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -811,6 +812,13 @@ func (x *ListRunsRequest) GetLimit() int32 {
 		return x.Limit
 	}
 	return 0
+}
+
+func (x *ListRunsRequest) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
 }
 
 type ListRunsResponse struct {
@@ -1620,13 +1628,14 @@ const file_swarmeval_api_v1_run_proto_rawDesc = "" +
 	"\rGetRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"9\n" +
 	"\x0eGetRunResponse\x12'\n" +
-	"\x03run\x18\x01 \x01(\v2\x15.swarmeval.api.v1.RunR\x03run\"\x93\x01\n" +
+	"\x03run\x18\x01 \x01(\v2\x15.swarmeval.api.v1.RunR\x03run\"\xb1\x01\n" +
 	"\x0fListRunsRequest\x12#\n" +
 	"\rsubmission_id\x18\x01 \x01(\tR\fsubmissionId\x12\x17\n" +
 	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x14\n" +
 	"\x05suite\x18\x04 \x01(\tR\x05suite\x12\x14\n" +
-	"\x05limit\x18\x05 \x01(\x05R\x05limit\"=\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x1c\n" +
+	"\tworkspace\x18\x06 \x01(\tR\tworkspace\"=\n" +
 	"\x10ListRunsResponse\x12)\n" +
 	"\x04runs\x18\x01 \x03(\v2\x15.swarmeval.api.v1.RunR\x04runs\")\n" +
 	"\x10CancelRunRequest\x12\x15\n" +

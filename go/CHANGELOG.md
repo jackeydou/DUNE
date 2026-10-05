@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- `RunService.ListRuns` takes `workspace`, forwarded to the Control API; `swarm runs list
+  --workspace`.
 - edge serves the web console, embedded from `go/internal/edge/webui/static/` (built by
   `mise run console:build`): built files as they are, `index.html` for any other page path,
   never a page for an API path, with a Content-Security-Policy that allows only edge's own

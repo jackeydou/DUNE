@@ -173,7 +173,7 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 | `run CASE_DIR` | Packs the directory and submits it, with `-V axis=values` (repeatable), `--epochs`, and `--suite`. The directory is stored in the case library as `case push` stores it. Prints the submission, the revision its runs use, and the run ids |
 | `run --case WORKSPACE/CASE[@REVISION]` | Submits a revision already in the library, the newest without `@REVISION`, with the same flags |
 | `run SUITE_FILE` | Packs every case directory the suite's `cases[].path` names, relative to the file, and submits the suite whole (`SubmitSuite`). Prints each submission and the suite label |
-| `runs list`, `get`, `cancel`, `resume` | `list` filters by `--submission`, `--case`, `--status`, `--suite`, `--limit` |
+| `runs list`, `get`, `cancel`, `resume` | `list` filters by `--submission`, `--case`, `--workspace`, `--status`, `--suite`, `--limit` |
 | `events RUN` | Prints `[event_id] #seq agent line` per event, as the judge reads them, until the run finishes; `--after SEQ` skips earlier ones |
 | `replay RUN --fork-at EVENT` | `ForkRun`, with `--edit FILE`: a YAML or JSON list of edits in protobuf's JSON form (`replace_message`, `delete_message`, `replace_delivery`) |
 | `case list` | The library's cases as `WORKSPACE/CASE`, each with its newest revision; `--workspace`, and `--archived` to include archived ones |
@@ -232,7 +232,9 @@ stubs), with Connect's JSON protocol and the session cookie.
 - **No credentials for pages, credentials for data.** The pages are static and public; every
   call they make is an API call behind the authenticator. With no session the app shows the
   sign-in form and nothing else. Signing out reloads the app, so nothing the user read stays
-  in memory.
+  in memory. When any call comes back `UNAUTHENTICATED`, because the session ran out or was
+  ended elsewhere, the app drops the session and shows the sign-in form at once, without a
+  reload.
 - **Headers.** Pages carry a Content-Security-Policy that allows scripts, fonts, and
   connections from edge's own origin only and forbids framing; styles may be inline, because
   the code editor writes its theme into a style element. Also `X-Content-Type-Options:
@@ -244,7 +246,7 @@ stubs), with Connect's JSON protocol and the session cookie.
 | Page | Shows |
 |---|---|
 | Sign-in | Username and password |
-| Runs | Runs grouped by submission, filtered by workspace, case, suite, submission, and status, refreshed every 5 seconds; each submission's trigger rates on demand (`Report`) |
+| Runs | The newest 500 runs that match, grouped by submission; filtered by workspace, case, suite, submission, and status, all on the server, so a filter reaches runs that are not among the newest overall; the workspace list comes from the case library; refreshed every 5 seconds; each submission's trigger rates on demand (`Report`) |
 | Run | Status, case revision, variant values, isolation, times, who submitted, cancelled, and resumed; cancel and resume; each scorer's last score, from the run's `score` events; the replay |
 | Replay | The run's events from `StreamEvents`, in order, one lane per agent and one for events no agent caused, appended live while the run goes on. Types can be hidden. Clicking an event shows its stored payload and its causal chain (`GetTrace`, so only once the run is exported; a fork's chain goes on into its source), and, for a run that ended `done` or `cancelled`, forks from it with edits given as JSON |
 | Compare | Two runs' replays side by side |
