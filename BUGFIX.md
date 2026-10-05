@@ -1,5 +1,20 @@
 # Bug fixes
 
+## 2026-10-04 — `DownloadExport` reads the whole export into memory
+
+**Symptom.** Downloading a large `sample.eval` or `events.parquet` allocated the whole object in
+the analysis service before the first chunk was sent; a multi-gigabyte run could exhaust its
+memory and take every other request with it.
+**Root cause.** The RPC called `ObjectStore.get` and then sliced the bytes into chunks.
+**Fix.** `ObjectStore.open` returns the object as a stream, and the RPC reads and sends 1 MiB
+at a time, closing the stream when the call ends. `swarmeval/events/export.py`,
+`swarmeval/analysis/service.py`.
+**Guard.** `tests/analysis/test_service.py::test_exports_are_downloaded_in_chunks`, which fails
+any download that calls `ObjectStore.get`.
+**Touches.** `Judge`, `GetTrace`, and rule scans still read a run's `events.parquet` whole
+(`exports.read_events_table`); they parse it, so streaming does not apply, and the judge refuses
+a long transcript on its own. Reported by Codex review on #23.
+
 ## 2026-10-04 — The same case pushed from two tools makes two revisions
 
 **Symptom.** After the console saved a revision, `swarm case pull` followed by `swarm case push`

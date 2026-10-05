@@ -182,9 +182,9 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 | `case pull WORKSPACE/CASE[@REVISION] [DIR]` | Writes the revision's files, with their modes and links, to `DIR` (default `./CASE`), which must be empty or new |
 | `case revisions WORKSPACE/CASE` | Revision, bundle hash, time, author, and note, newest first |
 | `case archive`, `case unarchive` | An archived case leaves the list and takes no pushes, edits, or runs; nothing is deleted |
-| `query SQL` | One read-only SELECT over the views `runs` and `events` ([analysis.md](analysis.md#queries)), as a table; `--csv`, or `--json` for one JSON object per row; `--max-rows N` (default and most 10,000). A result cut at the limit says so on stderr |
+| `query SQL` | One read-only SELECT over the views `runs` and `events` ([analysis.md](analysis.md#queries)), as a table; `--csv`, or `--json` for one JSON object per row, where a column label that repeats (two columns of a join) gets `_2`, `_3`, … so every column is kept; `--max-rows N` (default and most 10,000). A result cut at the limit says so on stderr |
 | `report` | The trigger rate report as Markdown, for `--submission ID` and `--suite LABEL` (both repeatable; neither means every run), with `--compare AXIS=A,B` for the difference between two values of an axis. `--json` prints the numbers |
-| `export RUN` | Downloads the run's `.eval` (`--format eval`, the default) or events (`--format parquet`) to `RUN.eval` or `RUN.events.parquet`, or to `-o FILE` (`-` for stdout). It does not overwrite a file, and a failed download leaves none |
+| `export RUN` | Downloads the run's `.eval` (`--format eval`, the default) or events (`--format parquet`) to `RUN.eval` or `RUN.events.parquet`, or to `-o FILE` (`-` for stdout). It does not overwrite a file, and a download that fails, on the network or on the local disk, leaves none |
 | `token create`, `list`, `revoke` | Your API tokens; `create --expires 720h` |
 | `user create`, `list`, `disable`, `enable`, `reset-password` | Admins only. Passwords are asked twice on a terminal, read once from a pipe |
 
