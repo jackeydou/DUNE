@@ -2,7 +2,6 @@
 migrated; the control plane migrates it when it starts."""
 
 import argparse
-import asyncio
 import logging
 import os
 
@@ -11,7 +10,13 @@ import httpx2
 
 from swarmeval.analysis.judge import Gateway
 from swarmeval.analysis.service import AnalysisService
-from swarmeval.config import add_database, add_object_store, database_url, object_store
+from swarmeval.config import (
+    add_database,
+    add_object_store,
+    database_url,
+    object_store,
+    run_service,
+)
 from swarmeval.db import async_engine
 from swarmeval.events import ObjectStore
 from swarmeval.mtls import (
@@ -89,7 +94,7 @@ def main() -> None:
             "%s is not set: Judge requests will be refused", ANALYSIS_KEY_ENV
         )
     gateway = Gateway(url=args.gateway_url, key=key) if key else None
-    asyncio.run(
+    run_service(
         serve(
             database_url(args),
             object_store(args),

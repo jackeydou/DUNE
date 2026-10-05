@@ -10,7 +10,8 @@
   the broken host. The compose stack sets it.
 
 ### Changed
-- `swarmeval-worker` and `swarmeval-control` stop on SIGTERM as on Ctrl-C and exit 0: the
+- `swarmeval-worker`, `swarmeval-control`, and `swarmeval-analysis` stop on SIGTERM as on
+  Ctrl-C and exit 0: the
   worker cancels its runs, which removes their sandboxes. Before, a worker that was a
   container's first process ignored SIGTERM, was killed when the grace period ended, and left
   its sandboxes until a worker with its id started again.

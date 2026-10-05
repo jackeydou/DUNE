@@ -400,8 +400,7 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
    （2026-10-04）已实现现在能实现的部分，基于第 8 步的分支。决定 12 的四项里：
    - **接管次数**：已实现。`control.runs.takeovers`（迁移 0012）在 `claim_expired` 里加一，Control API 和对外
      `Run` 都返回，`swarm runs get` 显示。排队后的第一次认领、同一个 worker id 重启后收尾，都不算接管。
-     迁移编号是 0012：0011 被同时在做的第 5 步（`analysis.jobs`）占用，两者谁后合并，谁把 `down_revision` 指向
-     另一个。
+     迁移编号是 0012，接在第 5 步的 0011（`analysis.jobs`）之后。
    - **恢复保真度**：对外 `Run.fidelity` 和 `swarm runs get` 已经能显示任何取值，但现在只有 fork 会写它。M3 合并
      的是租约和接管（#14），恢复执行（`exact`、`fs_preserved`、`lost`）还没做，所以没有值可显示。
    - **回放渲染 `CheckpointEvent` 和基础设施暂停**：没做。这两种事件现在都不产生（M3 的恢复和"基础设施故障时

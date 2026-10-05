@@ -1,10 +1,7 @@
 """Takeovers: control.runs `takeovers`
 
-Numbered 0012 because 0011 is taken by a change developed alongside this one (the analysis
-service's `analysis.jobs`); whichever of the two lands second revises the other.
-
 Revision ID: 0012
-Revises: 0010
+Revises: 0011
 Create Date: 2026-10-04
 """
 
@@ -14,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0012"
-down_revision: str | Sequence[str] | None = "0010"
+down_revision: str | Sequence[str] | None = "0011"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

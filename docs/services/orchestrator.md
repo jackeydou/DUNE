@@ -295,7 +295,8 @@ should stay the same across restarts, because on start the worker marks the runs
 and summary, and asks its sandboxd to remove both kinds' sandboxes. Under a new id, the old id's
 runs wait for their leases to run out and are [taken over](#leases-fencing-and-takeover).
 On SIGTERM, as on Ctrl-C, the worker cancels its runs, which removes their sandboxes, and
-exits 0; the control plane stops the same way (`swarmeval.config.run_service`). With
+exits 0; the control plane and the analysis service stop the same way
+(`swarmeval.config.run_service`). With
 `--stay-halted`, a worker that a failed self-check halted stays up idle instead of exiting,
 for deployments that restart whatever exits ([deployment.md](../deployment.md#when-a-worker-stops)).
 
