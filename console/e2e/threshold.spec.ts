@@ -100,6 +100,10 @@ test("create a case, run it, read the result and the replay, and fork it", async
 
   // The submission's rates, from the analysis service.
   await page.getByRole("link", { name: "Runs", exact: true }).click()
+  // The workspace filter lists the library's workspaces and is applied by the server.
+  await page.getByLabel("Workspace").selectOption(WORKSPACE)
+  await expect(page).toHaveURL(new RegExp(`workspace=${WORKSPACE}`))
+  await expect(page.getByTestId("submission").first()).toContainText(`${WORKSPACE}/${CASE}`)
   await page.getByLabel("Case").fill(CASE)
   await page.getByLabel("Case").blur()
   await page.getByTestId("submission").first().getByRole("button", { name: "Show rates" }).click()
@@ -119,4 +123,15 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await expect(page.getByLabel("Username")).toBeVisible()
   await page.goto("/runs")
   await expect(page.getByLabel("Username")).toBeVisible()
+
+  // A session that ends while a page is open (here: its cookie is gone) puts the sign-in form
+  // back at the next call, with no reload.
+  await page.getByLabel("Username").fill(USER)
+  await page.getByLabel("Password").fill(PASSWORD)
+  await page.getByRole("button", { name: "Sign in" }).click()
+  await expect(page.getByTestId("whoami")).toHaveText(USER)
+  await page.context().clearCookies()
+  await page.getByRole("link", { name: "Cases", exact: true }).click()
+  await expect(page.getByLabel("Username")).toBeVisible()
+  await expect(page.getByTestId("whoami")).toHaveCount(0)
 })

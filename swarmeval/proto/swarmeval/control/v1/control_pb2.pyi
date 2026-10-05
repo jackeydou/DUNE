@@ -394,12 +394,14 @@ class ListRunsRequest(_message.Message):
     CASE_ID_FIELD_NUMBER: _builtins.int
     STATUS_FIELD_NUMBER: _builtins.int
     SUITE_FIELD_NUMBER: _builtins.int
+    WORKSPACE_FIELD_NUMBER: _builtins.int
     LIMIT_FIELD_NUMBER: _builtins.int
     submission_id: _builtins.str
     """Filters; empty matches everything."""
     case_id: _builtins.str
     status: _builtins.str
     suite: _builtins.str
+    workspace: _builtins.str
     limit: _builtins.int
     """Zero means 100."""
     def __init__(
@@ -409,11 +411,12 @@ class ListRunsRequest(_message.Message):
         case_id: _builtins.str = ...,
         status: _builtins.str = ...,
         suite: _builtins.str = ...,
+        workspace: _builtins.str = ...,
         limit: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "limit", b"limit", "status", b"status", "submission_id", b"submission_id", "suite", b"suite"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "limit", b"limit", "status", b"status", "submission_id", b"submission_id", "suite", b"suite", "workspace", b"workspace"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

@@ -51,6 +51,22 @@ function describe(file: CaseFile): string {
   return textOf(file.content) ?? `binary, ${file.content.length} bytes\n`
 }
 
+/** Equal by what is stored: the bytes, the link, and the mode. Never by `describe`, which says
+ * the same of any two binary files of one length. */
+function sameFile(a: CaseFile, b: CaseFile): boolean {
+  return (
+    a.mode === b.mode &&
+    a.linkTarget === b.linkTarget &&
+    a.content.length === b.content.length &&
+    a.content.every((byte, i) => byte === b.content[i])
+  )
+}
+
+/** A line for a file whose description is the same on both sides though its content is not. */
+function note(a: CaseFile | undefined, b: CaseFile | undefined, left: string, right: string): string {
+  return a && b && left === right && a.mode === b.mode ? "binary content differs\n" : ""
+}
+
 /** Files that differ between two revisions, by path. */
 export function diffRevisions(from: readonly CaseFile[], to: readonly CaseFile[]): FileDiff[] {
   const before = new Map(from.map((f) => [f.path, f]))
@@ -59,12 +75,16 @@ export function diffRevisions(from: readonly CaseFile[], to: readonly CaseFile[]
   for (const path of [...new Set([...before.keys(), ...after.keys()])].sort()) {
     const a = before.get(path)
     const b = after.get(path)
+    if (a && b && sameFile(a, b)) continue
     const left = a ? describe(a) : ""
     const right = b ? describe(b) : ""
-    if (a && b && left === right && a.mode === b.mode) continue
     const kind = !a ? "added" : !b ? "removed" : "changed"
     const mode = a && b && a.mode !== b.mode ? `mode ${a.mode.toString(8)} → ${b.mode.toString(8)}\n` : ""
-    out.push({ path, kind, patch: mode + createTwoFilesPatch(path, path, left, right, "", "", { context: 3 }) })
+    out.push({
+      path,
+      kind,
+      patch: mode + note(a, b, left, right) + createTwoFilesPatch(path, path, left, right, "", "", { context: 3 }),
+    })
   }
   return out
 }

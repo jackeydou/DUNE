@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 
-import { analysis, runs, when } from "@/api"
+import { analysis, cases, runs, when } from "@/api"
 import { ErrorAlert, Loading, Page, StatusBadge } from "@/components/common"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
@@ -126,27 +126,32 @@ export function Runs() {
   const set = (patch: RunsSearch) =>
     void navigate({ to: "/runs", search: { ...search, ...patch }, replace: true })
   const list = useQuery({
-    queryKey: ["runs", search.case, search.suite, search.status, search.submission],
+    queryKey: ["runs", search.workspace, search.case, search.suite, search.status, search.submission],
     queryFn: () =>
       runs.listRuns({
         caseId: search.case ?? "",
         suite: search.suite ?? "",
         status: search.status ?? "",
         submissionId: search.submission ?? "",
+        // The server filters before it limits, so an older workspace's runs are not crowded
+        // out by a busier one's.
+        workspace: search.workspace ?? "",
         limit: 500,
       }),
     refetchInterval: 5_000,
   })
   const all = useMemo(() => list.data?.runs ?? [], [list.data])
-  const workspaces = useMemo(() => [...new Set(all.map((r) => r.workspace))].sort(), [all])
+  // Every workspace the case library knows, not only those among the runs listed.
+  const library = useQuery({ queryKey: ["cases", true], queryFn: () => cases.listCases({ includeArchived: true }) })
+  const workspaces = useMemo(
+    () => [...new Set([...(library.data?.cases ?? []).map((c) => c.workspace), ...all.map((r) => r.workspace)])].sort(),
+    [library.data, all]
+  )
   const groups = useMemo(() => {
     const out = new Map<string, Run[]>()
-    for (const r of all) {
-      if (search.workspace && r.workspace !== search.workspace) continue
-      out.set(r.submissionId, [...(out.get(r.submissionId) ?? []), r])
-    }
+    for (const r of all) out.set(r.submissionId, [...(out.get(r.submissionId) ?? []), r])
     return [...out]
-  }, [all, search.workspace])
+  }, [all])
 
   return (
     <Page title="Runs">

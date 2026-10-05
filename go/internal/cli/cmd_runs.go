@@ -132,6 +132,7 @@ func (a *app) runsCommand() *cobra.Command {
 	list.Flags().StringVar(&filter.CaseId, "case", "", "only this case's runs")
 	list.Flags().StringVar(&filter.Status, "status", "", "only runs with this status")
 	list.Flags().StringVar(&filter.Suite, "suite", "", "only this suite run's runs")
+	list.Flags().StringVar(&filter.Workspace, "workspace", "", "only this workspace's runs")
 	list.Flags().Int32Var(&filter.Limit, "limit", 100, "at most this many")
 
 	get := &cobra.Command{

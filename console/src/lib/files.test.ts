@@ -43,6 +43,17 @@ test("a diff lists added, removed, and changed files, and skips equal ones", () 
   expect(diffRevisions(from, from)).toEqual([])
 })
 
+test("binary files of one length and different bytes are a change", () => {
+  const binary = (bytes: number[]) => create(CaseFileSchema, { path: "data.bin", content: new Uint8Array(bytes), mode: 0o644 })
+  const diffs = diffRevisions([binary([0xff, 0x00, 0x01])], [binary([0xff, 0x00, 0x02])])
+  expect(diffs.map((d) => [d.path, d.kind])).toEqual([["data.bin", "changed"]])
+  expect(diffs[0].patch).toContain("binary content differs")
+  expect(diffRevisions([binary([0xff, 0x00, 0x01])], [binary([0xff, 0x00, 0x01])])).toEqual([])
+  const link = create(CaseFileSchema, { path: "data.bin", linkTarget: "other.bin", mode: 0o644 })
+  const empty = create(CaseFileSchema, { path: "data.bin", mode: 0o644 })
+  expect(diffRevisions([link], [empty]).map((d) => d.kind)).toEqual(["changed"])
+})
+
 test("overrides are one axis per line, values as JSON when they parse", () => {
   expect(parseOverrides('model=a,b\n\nn=1,2\nparaphrased=[],["dm_ab"]\n')).toEqual({
     model: ["a", "b"],
