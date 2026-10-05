@@ -15,6 +15,13 @@
   to the library in the transaction that queues its runs; `SubmitSuite` likewise. The
   migration gives runs queued before it cases and revisions, one revision per bundle hash in
   order of first use.
+
+### Changed
+- A case bundle is stored, and hashed, in canonical form: the control plane packs what it
+  unpacked again, so `case_sha256` no longer depends on the tool that archived the directory.
+  Runs already queued keep the hash they have; a directory submitted before this change gets
+  a new hash, and so a new revision, the next time it is pushed.
+- The Control API takes messages of 65 MiB, so a bundle of exactly the 64 MiB limit arrives.
 - Control API `SubmitSuite`: a suite file and one bundle per `cases[].path`, loaded by the
   control plane and queued in one transaction under one suite label, so a suite with a broken
   case queues nothing. `swarmeval.core.load_suite_text` loads a suite from its text with any

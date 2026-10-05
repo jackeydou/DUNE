@@ -13,6 +13,7 @@ from swarmeval.config import (
     database_url,
     object_store,
 )
+from swarmeval.control.bundles import MAX_BUNDLE_BYTES
 from swarmeval.control.live import EventListener
 from swarmeval.control.queue import Queue
 from swarmeval.control.service import ControlService
@@ -22,8 +23,10 @@ from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import (
     add_ControlServiceServicer_to_server,
 )
 
-MAX_MESSAGE_BYTES = 64 << 20
-"""Case bundles arrive in one message; gRPC's default 4 MiB is too small for real cases."""
+MAX_MESSAGE_BYTES = MAX_BUNDLE_BYTES + (1 << 20)
+"""Case bundles arrive in one message; gRPC's default 4 MiB is too small for real cases. The
+megabyte over the bundle limit is for the rest of the message (field framing, the actor, a
+note, a suite file), so a bundle of exactly the limit still arrives."""
 
 
 async def serve(url: str, store: ObjectStore, listen: str, *, allow_case_code: bool) -> None:
