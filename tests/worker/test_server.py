@@ -72,9 +72,12 @@ async def test_a_halted_worker_told_to_stay_idles_and_says_why(
         await serving
 
 
-def test_sigterm_stops_a_service_through_its_cleanup_and_exits_zero() -> None:
-    """`docker stop` sends SIGTERM. Left to Python's default, a container's first process
-    ignores it and is killed without cleanup."""
+@pytest.mark.parametrize("stop", [signal.SIGTERM, signal.SIGINT])
+def test_a_stop_signal_ends_a_service_through_its_cleanup_and_exits_zero(
+    stop: signal.Signals,
+) -> None:
+    """`docker stop` sends SIGTERM; left to Python's default, a container's first process
+    ignores it and is killed without cleanup. Ctrl-C ends the same way, with no traceback."""
     program = textwrap.dedent(
         """
         import asyncio
@@ -90,9 +93,13 @@ def test_sigterm_stops_a_service_through_its_cleanup_and_exits_zero() -> None:
         run_service(main())
         """
     )
-    proc = subprocess.Popen([sys.executable, "-c", program], stdout=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(
+        [sys.executable, "-c", program], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
     assert proc.stdout is not None
+    assert proc.stderr is not None
     assert proc.stdout.readline() == "serving\n"
-    proc.send_signal(signal.SIGTERM)
+    proc.send_signal(stop)
     assert proc.stdout.read() == "cleaned up\n"
     assert proc.wait(timeout=10) == 0
+    assert proc.stderr.read() == ""

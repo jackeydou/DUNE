@@ -76,15 +76,17 @@ def add_case_code(parser: argparse.ArgumentParser) -> None:
 
 def run_service(main: Coroutine[Any, Any, None]) -> None:
     """Runs a service until it ends or is told to stop. SIGTERM, which `docker stop`, compose,
-    and k8s send, cancels `main` as Ctrl-C does, so its cleanup runs (a worker removes its
-    runs' sandboxes), and the process then exits 0. Without this a Python process that is a
-    container's first process ignores SIGTERM and is killed, with no cleanup, once the grace
-    period is over."""
+    and k8s send, and SIGINT (Ctrl-C) both cancel `main`, so its cleanup runs (a worker removes
+    its runs' sandboxes), and the process then exits 0. Without the SIGTERM handler a Python
+    process that is a container's first process ignores the signal and is killed, with no
+    cleanup, once the grace period is over."""
 
     async def until_stopped() -> None:
         task = asyncio.current_task()
         assert task is not None, "run inside asyncio.run"
-        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
+        loop = asyncio.get_running_loop()
+        for stop in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(stop, task.cancel)
         await main
 
     try:
