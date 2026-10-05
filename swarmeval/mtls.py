@@ -71,6 +71,7 @@ class Identity:
         """The same for an HTTP client."""
         try:
             context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=self.ca)
+            context.minimum_version = ssl.TLSVersion.TLSv1_3
             context.load_cert_chain(self.cert, self.key)
         except (OSError, ssl.SSLError) as err:
             raise SystemExit(

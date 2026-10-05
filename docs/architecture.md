@@ -86,7 +86,7 @@ flowchart TB
 Every service holds one certificate, signed by a CA that belongs to the deployment. The
 certificate names the service in a URI SAN, `spiffe://swarmeval/<service>`, and is both its
 server and its client certificate. A service started with one (`--mtls-cert`, `--mtls-key`,
-`--mtls-ca`, on every service) serves only mutual TLS 1.3 and accepts only the callers below.
+`--mtls-ca`, on every service) serves only mutual TLS and accepts only the callers below.
 Started without one, it serves plain text and refuses to listen on anything but a loopback
 address, which is how development and the tests run.
 
@@ -101,6 +101,10 @@ address, which is how development and the tests run.
 swarmeval.control.suite` and grpcurl. `worker`, `edge`, and `operator` certificates are client
 certificates only.
 
+- **Protocol version.** sandboxd, edge's client, model-gateway's HTTP API, and the Python HTTP
+  clients speak TLS 1.3 only. The Python gRPC servers and clients (the Control API,
+  `RecorderService`, the worker's channels) use grpcio's range, which also allows TLS 1.2:
+  grpcio has no setting for it. Between this deployment's services they negotiate 1.3.
 - **Refusals.** A connection with no certificate, or one another CA signed, fails in the TLS
   handshake. A certificate of the CA that names a service not on the list is refused by
   `sandboxd` in the handshake too, by the Python gRPC servers with `PERMISSION_DENIED`, and by
@@ -116,11 +120,13 @@ certificates only.
   be mounted alone. Server certificates name the service (`control`, `model-gateway`, …),
   `localhost`, `127.0.0.1`, and `::1`; `--host SERVICE=NAME` adds a DNS name or address.
 - **Rotation.** Certificates last one year, the CA ten. Running `swarm-certs` again keeps the
-  CA, and keeps each certificate that the CA signed, names the same hosts, and has more than
-  30 days left, so a deployment can run it at every start; the rest it replaces. `--renew`
-  replaces them all. A service reads its files once, at start, and services can be restarted
-  one at a time. `--new-ca` replaces the CA and every certificate, after which every service
-  must restart before any two can talk.
+  CA, and keeps each certificate that the CA signed, whose key is beside it, that names the
+  same hosts, and that has more than 30 days left, so a deployment can run it at every start;
+  the rest it replaces. `--renew` replaces them all. A service reads its files once, at start,
+  and services can be restarted one at a time. Each service's directory is replaced whole, so
+  a service starting meanwhile reads one run's files or, for an instant, finds none and fails
+  to start; it never reads files of two runs. `--new-ca` replaces the CA and every
+  certificate, after which every service must restart before any two can talk.
 - **edge's public certificate** is a different thing: `--public-host NAME` also writes
   `public/{tls.crt,tls.key}`, self-signed and not from the service CA, for a deployment without
   a certificate from a public CA ([deployment.md](deployment.md#certificates)).
