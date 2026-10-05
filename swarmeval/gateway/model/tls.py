@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import ssl
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import uvicorn
@@ -59,6 +59,12 @@ def uvicorn_config(
 ) -> uvicorn.Config:
     if mtls is None:
         return uvicorn.Config(app, host=host, port=port)
+
+    def tls13(config: uvicorn.Config, default: Callable[[], ssl.SSLContext]) -> ssl.SSLContext:
+        context = default()
+        context.minimum_version = ssl.TLSVersion.TLSv1_3
+        return context
+
     return uvicorn.Config(
         app,
         host=host,
@@ -68,4 +74,5 @@ def uvicorn_config(
         ssl_keyfile=mtls.key,
         ssl_ca_certs=str(mtls.ca),
         ssl_cert_reqs=ssl.CERT_REQUIRED,
+        ssl_context_factory=tls13,
     )

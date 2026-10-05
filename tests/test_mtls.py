@@ -3,6 +3,7 @@ certificate stays on loopback (M4 spec decision 10)."""
 
 import argparse
 import asyncio
+import ssl
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -361,3 +362,22 @@ async def test_the_suite_tool_submits_as_the_operator(
         assert refused.value.code() == grpc.StatusCode.PERMISSION_DENIED
     finally:
         await server.stop(None)
+
+
+def _tls12(identity: Identity) -> ssl.SSLContext:
+    context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=identity.ca)
+    context.load_cert_chain(identity.cert, identity.key)
+    context.maximum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+async def test_gateway_http_refuses_tls_1_2(
+    gateway_http: str, identities: dict[str, Identity]
+) -> None:
+    async with httpx2.AsyncClient(verify=_tls12(identities[mtls.WORKER]), timeout=10) as http:
+        with pytest.raises(httpx2.ConnectError):
+            await http.get(f"{gateway_http}/v1/models")
+
+
+def test_http_clients_offer_tls_1_3_only(identities: dict[str, Identity]) -> None:
+    assert identities[mtls.WORKER].client_context().minimum_version == ssl.TLSVersion.TLSv1_3

@@ -1,0 +1,9 @@
+# model-gateway for the smoke test: the case's model is served by the recorded backend.
+backends:
+  recorded:
+    base_url: http://recorded-model:8000/v1
+    max_retries: 0
+models:
+  qwen3-8b:
+    backend: recorded
+    upstream_model: recorded/scorer-misbelief

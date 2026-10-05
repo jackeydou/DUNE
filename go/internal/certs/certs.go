@@ -109,14 +109,14 @@ func Generate(dir string, opts Options) ([]string, error) {
 }
 
 // current reports whether service's files under dir can stay: a certificate the CA signed,
-// with the names template would give it, its key beside it, and more than RenewBefore left.
+// with the names template would give it, its own key beside it, and more than RenewBefore left.
 func current(dir, service string, template, ca *x509.Certificate, now time.Time) bool {
 	files := Paths(dir, service)
 	cert, err := readCertificate(files.Cert)
 	if err != nil {
 		return false
 	}
-	if _, err := os.Stat(files.Key); err != nil {
+	if !keyMatches(files.Key, cert) {
 		return false
 	}
 	if trusted, err := readCertificate(files.CA); err != nil || !trusted.Equal(ca) {
@@ -230,17 +230,60 @@ func issue(dir, service string, template, ca *x509.Certificate, caKey *ecdsa.Pri
 	if err != nil {
 		return fmt.Errorf("sign: %w", err)
 	}
-	out := filepath.Join(dir, service)
-	if err := os.MkdirAll(out, 0o755); err != nil {
+	return replaceDir(filepath.Join(dir, service), key, der, caPEM)
+}
+
+// replaceDir makes out hold a key, its certificate, and, when given, the CA, all of this run.
+// The directory is built beside out and swapped in whole, so a service starting during a
+// rotation reads the old directory or the new one, or for an instant finds none and fails to
+// start; it never reads files of different runs.
+func replaceDir(out string, key *ecdsa.PrivateKey, der, caPEM []byte) error {
+	next, old := out+".new", out+".old"
+	for _, leftover := range []string{next, old} {
+		if err := os.RemoveAll(leftover); err != nil {
+			return err
+		}
+	}
+	if err := os.Mkdir(next, 0o755); err != nil {
 		return err
 	}
-	if err := writeKey(filepath.Join(out, KeyFile), key); err != nil {
+	if err := writeKey(filepath.Join(next, KeyFile), key); err != nil {
 		return err
 	}
-	if err := write(filepath.Join(out, CertFile), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+	if err := write(filepath.Join(next, CertFile), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
 		return err
 	}
-	return write(filepath.Join(out, CAFile), caPEM, 0o644)
+	if caPEM != nil {
+		if err := write(filepath.Join(next, CAFile), caPEM, 0o644); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(out, old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(next, out); err != nil {
+		return err
+	}
+	return os.RemoveAll(old)
+}
+
+// keyMatches reports whether the PEM key at path is the private key of cert. A run cut short,
+// or a damaged file, can leave a key that is not: such a pair is replaced, not kept.
+func keyMatches(path string, cert *x509.Certificate) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return false
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return false
+	}
+	key, ok := parsed.(*ecdsa.PrivateKey)
+	return ok && key.PublicKey.Equal(cert.PublicKey)
 }
 
 func serial() *big.Int {
@@ -261,8 +304,7 @@ func writeKey(path string, key *ecdsa.PrivateKey) error {
 	return write(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600)
 }
 
-// write replaces path in one rename, so a service starting during a rotation reads the old
-// file or the new one, never part of either.
+// write replaces path in one rename, so no reader sees part of a file.
 func write(path string, data []byte, mode fs.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
@@ -315,8 +357,7 @@ func Public(dir string, hosts []string, now time.Time) (bool, error) {
 	}
 	if current, err := readCertificate(certPath); err == nil {
 		sameIPs := slices.EqualFunc(current.IPAddresses, template.IPAddresses, net.IP.Equal)
-		_, keyErr := os.Stat(keyPath)
-		if keyErr == nil && sameIPs && slices.Equal(current.DNSNames, template.DNSNames) && current.NotAfter.After(now.Add(RenewBefore)) {
+		if keyMatches(keyPath, current) && sameIPs && slices.Equal(current.DNSNames, template.DNSNames) && current.NotAfter.After(now.Add(RenewBefore)) {
 			return false, nil
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -330,13 +371,7 @@ func Public(dir string, hosts []string, now time.Time) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("sign the public certificate: %w", err)
 	}
-	if err := os.MkdirAll(out, 0o755); err != nil {
-		return false, err
-	}
-	if err := writeKey(keyPath, key); err != nil {
-		return false, err
-	}
-	return true, write(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+	return true, replaceDir(out, key, der, nil)
 }
 
 func readCertificate(path string) (*x509.Certificate, error) {

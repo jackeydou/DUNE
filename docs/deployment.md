@@ -184,6 +184,11 @@ brings the stack up under its own project name and port (17443) with a recorded 
    sandboxes removed, and that once it is started again the run is `interrupted` and its rerun
    ends `done`.
 
-It needs only docker, calls no model and nothing outside the machine, and removes everything it
-made. `KEEP=1` leaves the stack up. The console's half of the gate (create a case in the
+It calls no model, and pulls nothing at run time: `python:3.12-slim`, `busybox:latest`,
+`postgres:18-alpine`, and `rustfs/rustfs:latest` must be on the host, and it says which is
+missing. Building the two images fetches their base images and dependencies when they are not
+cached. sandboxd's state goes in a directory the test makes under `/tmp` (`SMOKE_STATE_PARENT`
+names another parent, for a docker daemon that does not share `/tmp`) and removes; it never
+uses `SWARM_STATE_DIR` from the environment. It removes everything it made. `KEEP=1` leaves
+the stack up. The console's half of the gate (create a case in the
 browser, watch the replay) waits for the console.

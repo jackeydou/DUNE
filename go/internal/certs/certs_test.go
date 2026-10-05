@@ -1,6 +1,7 @@
 package certs
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"os"
@@ -218,5 +219,78 @@ func TestPublicCertificateIsSelfSignedAndKeptWhileItFits(t *testing.T) {
 	}
 	if _, err := Public(dir, nil, now); err == nil {
 		t.Error("a public certificate for no host was accepted")
+	}
+}
+
+func TestABundleIsReplacedWholeAndLeftoversOfAnInterruptedRunAreCleared(t *testing.T) {
+	dir, now := t.TempDir(), time.Now()
+	if _, err := Generate(dir, Options{Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	// A run that died between its two renames leaves the old bundle aside and none in place;
+	// one that died earlier leaves a half-written new one.
+	worker := filepath.Join(dir, mtls.Worker)
+	if err := os.Rename(worker, worker+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(worker+".new", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Generate(dir, Options{Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".new") || strings.HasSuffix(e.Name(), ".old") {
+			t.Errorf("left %s behind", e.Name())
+		}
+	}
+	// Every file of a bundle comes from one run: the key is the certificate's, under this CA.
+	files := Paths(dir, mtls.Worker)
+	if _, err := tls.LoadX509KeyPair(files.Cert, files.Key); err != nil {
+		t.Fatalf("worker's key and certificate do not belong together: %v", err)
+	}
+	if err := verify(readCert(t, files.CA), readCert(t, files.Cert), x509.ExtKeyUsageClientAuth, now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestACertificateWhoseKeyIsNotItsOwnIsReplaced(t *testing.T) {
+	dir, now := t.TempDir(), time.Now()
+	if _, err := Generate(dir, Options{Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Public(dir, []string{"localhost"}, now); err != nil {
+		t.Fatal(err)
+	}
+	// Another service's key where the worker's and the public one should be: valid keys, of
+	// the wrong certificates.
+	stray, err := os.ReadFile(Paths(dir, mtls.Edge).Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := filepath.Join(dir, PublicDir)
+	for _, path := range []string{Paths(dir, mtls.Worker).Key, filepath.Join(public, KeyFile)} {
+		if err := os.WriteFile(path, stray, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	written, err := Generate(dir, Options{Now: now})
+	if err != nil || !slices.Equal(written, []string{mtls.Worker}) {
+		t.Fatalf("wrote %v, %v; want the worker's pair replaced", written, err)
+	}
+	files := Paths(dir, mtls.Worker)
+	if _, err := tls.LoadX509KeyPair(files.Cert, files.Key); err != nil {
+		t.Fatal(err)
+	}
+	if wrote, err := Public(dir, []string{"localhost"}, now); err != nil || !wrote {
+		t.Fatalf("public: wrote %v, %v", wrote, err)
+	}
+	if _, err := tls.LoadX509KeyPair(filepath.Join(public, CertFile), filepath.Join(public, KeyFile)); err != nil {
+		t.Fatal(err)
 	}
 }
