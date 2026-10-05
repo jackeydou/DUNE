@@ -127,9 +127,12 @@ services:
       - --mtls-cert=/certs/tls.crt
       - --mtls-key=/certs/tls.key
       - --mtls-ca=/certs/ca.crt
-    # API keys the gateway config names (`api_key_env`, `analysis_key_env`).
+    # Backend API keys the gateway config names (`api_key_env`).
     env_file:
       - { path: gateway.env, required: false }
+    environment:
+      # The key analysis calls with, for a config with `analysis_key_env: SWARMEVAL_ANALYSIS_KEY`.
+      SWARMEVAL_ANALYSIS_KEY: ${SWARM_ANALYSIS_KEY:-}
     volumes:
       - ${SWARM_GATEWAY_CONFIG:-./gateway.yaml}:/etc/swarmeval/gateway.yaml:ro
       - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: model-gateway } }
@@ -137,6 +140,28 @@ services:
       certs: { condition: service_completed_successfully }
     # egress: the model backend is outside compose.
     networks: [platform, egress]
+
+  analysis:
+    <<: *python
+    environment:
+      <<: *store
+      # The judge's key. Empty, Judge is refused and everything else works.
+      SWARMEVAL_ANALYSIS_KEY: ${SWARM_ANALYSIS_KEY:-}
+    command:
+      - swarmeval-analysis
+      - --listen=0.0.0.0:7091
+      - --s3-scheme=http
+      - --gateway-url=https://model-gateway:7080
+      - --mtls-cert=/certs/tls.crt
+      - --mtls-key=/certs/tls.key
+      - --mtls-ca=/certs/ca.crt
+    volumes:
+      - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: analysis } }
+    depends_on:
+      # The control plane migrates the database analysis reads and writes.
+      control: { condition: service_started }
+      model-gateway: { condition: service_started }
+    networks: [platform]
 
   # Controls the host's docker daemon, which is root on the host: only the worker's
   # certificate is accepted, and nothing but the platform network reaches it.
@@ -203,6 +228,7 @@ services:
       - --tls-cert=${SWARM_TLS_CERT:-/tls/tls.crt}
       - --tls-key=${SWARM_TLS_KEY:-/tls/tls.key}
       - --control=control:7090
+      - --analysis=analysis:7091
       - --mtls-cert=/certs/tls.crt
       - --mtls-key=/certs/tls.key
       - --mtls-ca=/certs/ca.crt
@@ -215,6 +241,7 @@ services:
       certs: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
       control: { condition: service_started }
+      analysis: { condition: service_started }
     # public: a published port needs a network that is not internal.
     networks: [platform, public]
 

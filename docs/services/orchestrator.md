@@ -69,7 +69,9 @@ on the internal network *(RPC names proposed)*. With `--mtls-cert`, `--mtls-key`
 it accepts only `edge` and `operator` certificates
 ([service identity](../architecture.md#service-identity)); without them `--listen` must be a
 loopback address. The worker takes the same three flags to call sandboxd and model-gateway,
-and then `--gateway-http` must be an `https` URL. Messages may be up to 64 MiB, for case bundles.
+and then `--gateway-http` must be an `https` URL. A case bundle may be up to 64 MiB, and a
+message 1 MiB more, so that a bundle of exactly the limit still fits with the rest of its
+request.
 
 | RPC | Does | From |
 |---|---|---|
@@ -95,7 +97,12 @@ a whole number becomes an int again.
 ### Case bundles
 
 `SubmitRuns` carries the case directory as a tar archive. The control plane validates it with
-the same loader the worker uses and stores it in object storage as `cases/sha256/<hex>.tar`.
+the same loader the worker uses, packs what it unpacked again in one canonical form
+(`swarmeval.control.bundles.pack`: files and links sorted, times and owners zeroed), and stores
+that in object storage as `cases/sha256/<hex>.tar`. The hash is of the canonical bytes, not of
+what was uploaded, so the same files, modes, and links are the same bundle whichever tool
+archived them: Python's `tarfile` and the CLI's Go packer write different bytes for one
+directory.
 Each run row references that hash, and the [library](#case-library) revision that names it. Control plane and workers share no disk, and the hash pins the
 exact prompts, hooks, and data a run used *(proposed)*. Bundles are extracted with tarfile's
 `data` filter: `..`, links that leave the directory, and device files are refused, and absolute
@@ -115,8 +122,9 @@ Built. Every case the platform stores or runs is in the library, with its histor
   part of the evidence. `Run` returns the number as `case_revision`. A rerun and a fork use
   their source's revision.
 - **Push** (`PushCase`, and a bundle given to `SubmitRuns` or `SubmitSuite`). The bundle is
-  loaded as a worker will load it. If its bytes are the case's newest revision, that revision
-  is used; otherwise it becomes the next one. The first push creates the case. A case that
+  loaded as a worker will load it. If its canonical bytes are the case's newest revision, that
+  revision is used; otherwise it becomes the next one. An archived case is refused before
+  anything is stored. The first push creates the case. A case that
   does not load is `INVALID_ARGUMENT` and nothing is stored; [case code](#case-code) on a
   deployment that runs none is `FAILED_PRECONDITION`, as before. A revision pushed by a
   submission is written in the transaction that queues its runs.

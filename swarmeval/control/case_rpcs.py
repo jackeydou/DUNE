@@ -19,6 +19,7 @@ from swarmeval.control.bundles import (
     bundle_hash,
     bundle_key,
     files_of,
+    pack,
     unpack,
 )
 from swarmeval.control.cases import (
@@ -48,9 +49,14 @@ MAX_NOTE_CHARS = 1_000
 _log = logging.getLogger(__name__)
 
 
-def load_bundle(bundle: bytes, overrides: Mapping[str, Sequence[AxisValue]]) -> LoadedCase:
+def load_bundle(
+    bundle: bytes, overrides: Mapping[str, Sequence[AxisValue]]
+) -> tuple[LoadedCase, bytes]:
+    """The case in `bundle`, and the bundle's canonical bytes (`bundles.pack`), which are what
+    the library hashes and stores."""
     with tempfile.TemporaryDirectory(prefix="swarmeval-case-") as scratch:
-        return load_case(unpack(bundle, Path(scratch)), overrides)
+        case_dir = unpack(bundle, Path(scratch))
+        return load_case(case_dir, overrides), pack(case_dir)
 
 
 def timestamp(value: datetime | None) -> Timestamp | None:
@@ -93,15 +99,32 @@ class CaseRpcs:
 
     async def _accept(
         self, bundle: bytes, overrides: Mapping[str, Sequence[AxisValue]], context: Context
-    ) -> LoadedCase:
-        """The case in `bundle`, loaded as a worker will load it. Aborts for a case that does
-        not load, and for one with case code where the deployment runs none."""
+    ) -> tuple[LoadedCase, bytes]:
+        """The case in `bundle`, loaded as a worker will load it, and the bundle's canonical
+        bytes. Aborts for a bundle over the limit, a case that does not load, and one with case
+        code where the deployment runs none."""
+        if len(bundle) > MAX_BUNDLE_BYTES:
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"the case bundle is {len(bundle)} bytes; the limit is {MAX_BUNDLE_BYTES} "
+                "(64 MiB). Move large data out of the case directory.",
+            )
         try:
-            loaded = await asyncio.to_thread(load_bundle, bundle, overrides)
+            loaded, canonical = await asyncio.to_thread(load_bundle, bundle, overrides)
         except CaseError as err:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err))
         await self._refuse_case_code(loaded, context)
-        return loaded
+        return loaded, canonical
+
+    async def _refuse_archived(self, workspace: str, case_id: str, context: Context) -> None:
+        """Aborts for an archived case, before anything of a write to it is stored. The write
+        checks again under the case's lock (`add_revision`)."""
+        try:
+            refuse_archived((await self._library.get(workspace, case_id)).latest)
+        except CaseNotFound:
+            return
+        except CaseArchived as err:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
 
     async def _refuse_case_code(self, loaded: LoadedCase, context: Context) -> None:
         code = sorted({use for v in loaded.variants for use in v.code})
@@ -132,9 +155,10 @@ class CaseRpcs:
 
     async def PushCase(self, request: pb.PushCaseRequest, context: Context) -> pb.PushCaseResponse:
         note = await self._note(request.note, context)
-        loaded = await self._accept(request.case_bundle, {}, context)
-        sha256 = bundle_hash(request.case_bundle)
-        await asyncio.to_thread(self._store.put, bundle_key(sha256), request.case_bundle)
+        loaded, bundle = await self._accept(request.case_bundle, {}, context)
+        await self._refuse_archived(loaded.workspace, loaded.id, context)
+        sha256 = bundle_hash(bundle)
+        await asyncio.to_thread(self._store.put, bundle_key(sha256), bundle)
         try:
             async with self._engine.begin() as conn:
                 revision, created = await add_revision(
@@ -191,7 +215,7 @@ class CaseRpcs:
                 f"case `{case_id}` would be {len(bundle)} bytes packed; the limit is "
                 f"{MAX_BUNDLE_BYTES} (64 MiB). Move large data out of the case.",
             )
-        loaded = await self._accept(bundle, {}, context)
+        loaded, bundle = await self._accept(bundle, {}, context)
         if (loaded.workspace, loaded.id) != (workspace, case_id):
             await context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT,

@@ -26,6 +26,7 @@ RUN_STATUSES = ("queued", "running", "paused", "interrupted", "done", "failed", 
 DELIVERY_STATUSES = ("pending", "delivered", "dropped", "delayed")
 VERDICT_STATUSES = ("accepted", "rejected")
 VERDICT_ANSWERS = ("yes", "no", "unclear")
+JOB_STATUSES = ("queued", "running", "done", "failed")
 
 metadata = MetaData(
     naming_convention={
@@ -300,3 +301,22 @@ rule_matches = Table(
 )
 """Owned by analysis: a rule's best match in one event, the one with the fewest decodings:
 the payload field it was in, the decodings (`via`, outermost first), and an excerpt around it."""
+
+analysis_jobs = Table(
+    "jobs",
+    metadata,
+    Column("job_id", Text, primary_key=True),
+    Column("kind", Text, nullable=False),
+    Column("status", Text, nullable=False, server_default="queued"),
+    Column("actor", Text),
+    Column("request", JSONB, nullable=False),
+    Column("result", JSONB),
+    Column("error", Text),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("finished_at", DateTime(timezone=True)),
+    CheckConstraint("status IN (" + ", ".join(f"'{s}'" for s in JOB_STATUSES) + ")", name="status"),
+    schema="analysis",
+)
+"""Owned by analysis: background jobs of the analysis service, such as rule scans. A job runs in
+the process that took it; one left `queued` or `running` by a process that stopped is marked
+`failed` when the service next starts (migration 0011)."""

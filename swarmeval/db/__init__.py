@@ -10,10 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from swarmeval.db.tables import (
     DELIVERY_STATUSES,
+    JOB_STATUSES,
     RUN_STATUSES,
     VERDICT_ANSWERS,
     VERDICT_STATUSES,
     agent_state,
+    analysis_jobs,
     canaries,
     case_revisions,
     cases,
@@ -32,10 +34,12 @@ from swarmeval.db.tables import (
 
 __all__ = [
     "DELIVERY_STATUSES",
+    "JOB_STATUSES",
     "RUN_STATUSES",
     "VERDICT_ANSWERS",
     "VERDICT_STATUSES",
     "agent_state",
+    "analysis_jobs",
     "async_engine",
     "canaries",
     "case_revisions",

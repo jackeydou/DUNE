@@ -1,0 +1,305 @@
+syntax = "proto3";
+
+package swarmeval.api.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/api/v1;apiv1";
+
+// AnalysisService answers questions about runs that have finished and been exported: SQL,
+// tool call search, rule scans, an LLM judge, trigger rate reports, causal traces, and the
+// exported files themselves. edge forwards each call to the analysis service. Behavior:
+// docs/services/analysis.md.
+service AnalysisService {
+  // One read-only SQL statement over the views `runs` (one row per run summary) and `events`
+  // (every exported run's events). The statement can read nothing else and change no setting.
+  // Rows come in chunks; the last message says whether the row limit cut the result. SQL that
+  // does not parse or run, or is not a single SELECT, is INVALID_ARGUMENT; a statement over the
+  // time limit is DEADLINE_EXCEEDED.
+  rpc Query(QueryRequest) returns (stream QueryResponse);
+  // Tool calls of exported runs, by run, then seq.
+  rpc SearchToolCalls(SearchToolCallsRequest) returns (SearchToolCallsResponse);
+  // Starts a rule set over runs as a background job and returns it, queued. A rule set that
+  // does not validate is INVALID_ARGUMENT; a selection with no exported run is NOT_FOUND.
+  rpc StartRuleScan(StartRuleScanRequest) returns (StartRuleScanResponse);
+  // An unknown job is NOT_FOUND.
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
+  // Asks an LLM judge one question about one run and returns its verdict, accepted or
+  // rejected; either way the call is stored. A run with no export is NOT_FOUND; a transcript
+  // that is empty or too long, or a model gateway that refuses, is FAILED_PRECONDITION.
+  rpc Judge(JudgeRequest) returns (JudgeResponse);
+  // Trigger rates per case revision, variant, and scorer over the runs of the given
+  // submissions and suites; all runs when both are empty.
+  rpc Report(ReportRequest) returns (ReportResponse);
+  // One event's chain of causes, the run's first event first. A run with no export or an
+  // event not in it is NOT_FOUND; a broken chain is FAILED_PRECONDITION.
+  rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
+  // One of a run's exported files, in chunks. A run with no export is NOT_FOUND.
+  rpc DownloadExport(DownloadExportRequest) returns (stream DownloadExportResponse);
+}
+
+message QueryRequest {
+  string sql = 1;
+  // Rows to return at most. Zero means 10,000, which is also the most.
+  int32 max_rows = 2;
+}
+
+message QueryColumn {
+  string name = 1;
+  // The DuckDB type, such as `VARCHAR` or `TIMESTAMP WITH TIME ZONE`.
+  string type = 2;
+}
+
+message QueryResponse {
+  // In the first message only.
+  repeated QueryColumn columns = 1;
+  // One list per row, a value per column. Integers beyond 2^53, decimals, times, and binary
+  // values are strings.
+  repeated google.protobuf.ListValue rows = 2;
+  // In the last message only: the statement had more rows than `max_rows`.
+  bool truncated = 3;
+}
+
+message SearchToolCallsRequest {
+  // Each filter narrows; empty matches everything.
+  repeated string run_ids = 1;
+  repeated string submission_ids = 2;
+  // The tool's name, exactly.
+  string tool = 3;
+  string agent_id = 4;
+  google.protobuf.Timestamp from_time = 5;
+  google.protobuf.Timestamp to_time = 6;
+  // Zero means 200; at most 2,000.
+  int32 limit = 7;
+}
+
+message ToolCall {
+  string run_id = 1;
+  int64 seq = 2;
+  string event_id = 3;
+  google.protobuf.Timestamp time = 4;
+  string agent_id = 5;
+  string tool = 6;
+  // The call's arguments, as JSON.
+  string arguments_json = 7;
+  // The start of the result as text, at most 2,000 characters.
+  string result = 8;
+  // The tool's error, when the call failed.
+  string error = 9;
+}
+
+message SearchToolCallsResponse {
+  repeated ToolCall calls = 1;
+  // More calls matched than `limit`.
+  bool truncated = 2;
+}
+
+message StartRuleScanRequest {
+  // The rule set file as written (docs/services/analysis.md#rule-sets).
+  string rules_yaml = 1;
+  // The runs to scan: these runs, and every exported run of these submissions.
+  repeated string run_ids = 2;
+  repeated string submission_ids = 3;
+}
+
+message StartRuleScanResponse {
+  Job job = 1;
+}
+
+message Job {
+  string job_id = 1;
+  // `rule_scan`.
+  string kind = 2;
+  // `queued`, `running`, `done`, or `failed`.
+  string status = 3;
+  // Why the job failed.
+  string error = 4;
+  // Who started the job.
+  string created_by = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp finished_at = 7;
+  // Set once a rule scan is `done`.
+  RuleScanResult rule_scan = 8;
+}
+
+message RuleScanResult {
+  // sha256 of the rule set; `analysis.rule_matches` holds the matches under it.
+  string rule_set_sha256 = 1;
+  // One per run scanned.
+  repeated RuleScanRun runs = 2;
+  // The first matches, by run, then seq: at most 500.
+  repeated RuleMatch matches = 3;
+  int32 total_matches = 4;
+}
+
+message RuleScanRun {
+  string run_id = 1;
+  int32 matches = 2;
+}
+
+message RuleMatch {
+  string run_id = 1;
+  int64 seq = 2;
+  string event_id = 3;
+  string rule_id = 4;
+  // The payload path the match was in.
+  string field = 5;
+  // The decodings the match was found through, outermost first.
+  repeated string via = 6;
+  string excerpt = 7;
+}
+
+message GetJobRequest {
+  string job_id = 1;
+}
+
+message GetJobResponse {
+  Job job = 1;
+}
+
+message JudgeRequest {
+  string run_id = 1;
+  string question = 2;
+  // A model name the model gateway serves.
+  string model = 3;
+  // The events to show the judge; zero for no bound.
+  int64 from_seq = 4;
+  int64 to_seq = 5;
+}
+
+message JudgeResponse {
+  // `accepted` or `rejected`.
+  string status = 1;
+  // `yes`, `no`, or `unclear`; empty for a rejected verdict.
+  string answer = 2;
+  string explanation = 3;
+  // Ids of the events the verdict rests on.
+  repeated string citations = 4;
+  // Why the verdict was rejected.
+  string rejection = 5;
+}
+
+message ReportRequest {
+  repeated string submission_ids = 1;
+  repeated string suites = 2;
+  // `AXIS=A,B`: also the difference in rate between two values of one variant axis. Empty for
+  // none.
+  string compare = 3;
+}
+
+message Rate {
+  string case_id = 1;
+  string case_sha256 = 2;
+  int32 variant = 3;
+  // The variant's axis values, as JSON with sorted keys.
+  string variant_values_json = 4;
+  string scorer = 5;
+  // `done` runs this scorer scored.
+  int32 epochs = 6;
+  double rate = 7;
+  // Of the mean; unset with one epoch.
+  optional double stderr = 8;
+  // The 95% Wilson interval.
+  double ci_low = 9;
+  double ci_high = 10;
+}
+
+message Unscored {
+  string case_id = 1;
+  string case_sha256 = 2;
+  int32 variant = 3;
+  string variant_values_json = 4;
+  string status = 5;
+  int32 runs = 6;
+}
+
+message Coverage {
+  string case_id = 1;
+  string case_sha256 = 2;
+  int32 variant = 3;
+  string variant_values_json = 4;
+  int32 requested = 5;
+  int32 done = 6;
+  // Interrupted runs that were rerun at a new epoch.
+  int32 replaced = 7;
+  int32 missing = 8;
+}
+
+message ForkScore {
+  string run_id = 1;
+  string forked_from = 2;
+  int64 fork_seq = 3;
+  string fidelity = 4;
+  string status = 5;
+  // Empty, with `value` unset, for a fork no scorer scored.
+  string scorer = 6;
+  optional double value = 7;
+}
+
+message Difference {
+  string case_id = 1;
+  string case_sha256 = 2;
+  string scorer = 3;
+  // The other axes' values, as JSON with sorted keys.
+  string others_json = 4;
+  Rate a = 5;
+  Rate b = 6;
+  // `b.rate - a.rate`, with its 95% interval by Newcombe's method.
+  double diff = 7;
+  double ci_low = 8;
+  double ci_high = 9;
+}
+
+message ReportResponse {
+  repeated Rate rates = 1;
+  // Runs left out of the rates because they did not end `done`.
+  repeated Unscored unscored = 2;
+  repeated Coverage coverage = 3;
+  repeated ForkScore forks = 4;
+  // With `compare`.
+  repeated Difference differences = 5;
+  // The whole report as Markdown, as `python -m swarmeval.analysis report` prints it.
+  string markdown = 6;
+}
+
+message GetTraceRequest {
+  string run_id = 1;
+  string event_id = 2;
+  // Characters of each event's text. Zero means 400.
+  int32 event_chars = 3;
+}
+
+message TraceLink {
+  // The run the event is in: a fork's chain goes on into its source.
+  string run_id = 1;
+  int64 seq = 2;
+  string event_id = 3;
+  string agent_id = 4;
+  string type = 5;
+  // The event on one line, as the judge reads it.
+  string line = 6;
+}
+
+message GetTraceResponse {
+  // The run's first event first, the traced event last.
+  repeated TraceLink links = 1;
+}
+
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;
+  // The run's Inspect log, `sample.eval`.
+  EXPORT_FORMAT_EVAL = 1;
+  // The run's events, `events.parquet`.
+  EXPORT_FORMAT_PARQUET = 2;
+}
+
+message DownloadExportRequest {
+  string run_id = 1;
+  ExportFormat format = 2;
+}
+
+message DownloadExportResponse {
+  // The file's next bytes, at most 1 MiB.
+  bytes chunk = 1;
+}

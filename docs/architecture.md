@@ -23,9 +23,9 @@ models, the `inspect_ai` mapping, and case hooks exist only in Python.
 | [`model-gateway`](services/model-gateway.md) | Python | Provider adapters, OpenAI-compatible API, recording every model call, per-key rate limits | M0 |
 | [`sandboxd`](services/sandboxd.md) | Go | Sandbox lifecycle through the docker or k8s API; runs tool calls inside sandboxes and reports the file diff and surviving processes after each one | M0 |
 | [`net-gateway`](services/net-gateway.md) | Go | One instance per run: TLS interception, DNS, network policy, pcap | Later: the network capability, outside M0–M5 |
-| [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, timelines, per-variant `.eval`, offline scorers over exported runs | M1 as batch jobs (all but offline scorers are built); service in M4 |
-| [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication, run and case forwarding, and mTLS to the Control API built; analysis forwarding and the console next |
-| [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4: sign-in, runs, suites, events, and forks built |
+| [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, timelines, per-variant `.eval`, offline scorers over exported runs | Built as batch jobs and as a gRPC service behind `edge` (all but offline scorers) |
+| [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication, run, case, and analysis forwarding, and mTLS to the Control API and analysis built; console next |
+| [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4: sign-in, runs, suites, events, forks, the case library, queries, reports, and exports built |
 | [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | M4 |
 
 Users trigger runs with the `swarm` CLI, a client of `edge`; the console follows in M4. Tests
@@ -93,7 +93,7 @@ address, which is how development and the tests run.
 | Service | Accepts |
 |---|---|
 | orchestrator control plane (`ControlService`) | `edge`, `operator` |
-| `analysis` (once it is a service) | `edge` |
+| `analysis` | `edge` |
 | `model-gateway` (HTTP and `RecorderService`) | `worker`, `analysis` |
 | `sandboxd` | `worker` |
 
@@ -177,13 +177,13 @@ flowchart LR
 | Postgres `tenant` schema | Users, browser sessions, API tokens. Workspaces and membership arrive with per-workspace authorization | `edge` |
 | Postgres `control` schema | Run queue, run status, leases (`owner_id`, `lease_until`, `owner_epoch`) | `orchestrator` |
 | Postgres `runs` schema | `events`, `messages`, `agent_state`, `extension_state`, `deliveries`, `checkpoints`, `canaries`, `sandboxes` for every run, keyed by `run_id` ([event-log.md](event-log.md#tables)) | `orchestrator` |
-| Postgres `analysis` schema | Derived results: judge verdicts today; rule matches and offline scores later | `analysis` |
+| Postgres `analysis` schema | Derived results: judge verdicts, rule scans and matches, and the service's jobs; offline scores later | `analysis` |
 | Object storage | Exported `.eval` and Parquet (with hash chain fields); large blobs such as file snapshots and `web_request` bodies, content-addressed | written by `orchestrator`, read by `analysis` |
 
 Object storage is always reached through the standard S3 API, on every deployment, and no
 implementation-specific feature is used, so the backing store can be swapped by configuration.
-The export bucket is created with object lock enabled. `analysis` queries the Parquet files in
-place with DuckDB's `httpfs` extension.
+The export bucket is created with object lock enabled. `analysis` reads the Parquet files in
+place with pyarrow and queries them with DuckDB in process ([analysis.md](services/analysis.md#queries)).
 
 - The rows in `runs` are the evidence original; exports are derived from them. Derived results
   such as later rule matches or judge verdicts go to separate tables and never rewrite `events`.

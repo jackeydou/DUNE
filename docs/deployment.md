@@ -3,10 +3,10 @@
 SwarmEval on one machine with docker compose: `deploy/compose/`. The services and how they are
 isolated are in [architecture.md](architecture.md); k8s arrives in M5.
 
-**Status:** the stack runs every service that is built: `edge`, the orchestrator's control plane
-and one worker, `model-gateway`, `sandboxd`, Postgres, and RustFS. The `analysis` service and the
-web console are not in it yet (M4 Plan steps 5 and 6); until then the public API is used through
-the `swarm` CLI.
+**Status:** the stack runs every service on this branch: `edge`, the orchestrator's control
+plane and one worker, `analysis`, `model-gateway`, `sandboxd`, Postgres, and RustFS. The web
+console is not in it yet (M4 Plan step 6); until then the public API is used through the
+`swarm` CLI.
 
 ## What you need
 
@@ -40,6 +40,7 @@ edge then serves `https://<SWARM_HOST>:<SWARM_PORT>` (default `https://localhost
 | `SWARM_STATE_DIR` | `/var/lib/swarmeval/sandboxd` | Where sandboxd keeps sandboxes' key paths. Mounted at the same path in the container, because the docker daemon mounts from it into sandboxes |
 | `SWARM_SANDBOX_RUNTIME` | `auto` | `runsc`, `runc`, or `auto` |
 | `SWARM_GATEWAY_CONFIG` | `./gateway.yaml` | The [model-gateway config](services/model-gateway.md). Backend keys go in `gateway.env`, one `NAME=value` per line, read by model-gateway only |
+| `SWARM_ANALYSIS_KEY` | empty | The key the analysis service's judge calls model-gateway with, at least 32 characters; `gateway.yaml` must then say `analysis_key_env: SWARMEVAL_ANALYSIS_KEY`. Empty, `Judge` is refused and the rest of analysis works |
 | `SWARM_WORKER_ID`, `SWARM_MAX_RUNS` | `worker-1`, `4` | The worker's id, which must stay the same across restarts, and how many runs it executes at once |
 | `SWARM_ALLOW_CASE_CODE` | `0` | `1` accepts cases that load extensions from their own directory; that code runs in the worker ([orchestrator](services/orchestrator.md#case-code)) |
 | `SWARM_VERSION` | `dev` | Tag of the two images, `swarmeval/python` and `swarmeval/go` |
@@ -75,14 +76,15 @@ Commands: [edge.md](services/edge.md#swarm-cli).
 | `bucket` | python | platform | Creates the bucket if it is missing, then exits |
 | `control` | python | platform | `swarmeval-control`; migrates the `control` and `runs` schemas at start |
 | `model-gateway` | python | platform, egress | Reaches the model backend through `egress` |
+| `analysis` | python | platform | `swarmeval-analysis`: queries, reports, exports, rule scans, the judge. Reaches model-gateway over `platform` |
 | `sandboxd` | go | platform | Root, with the docker socket and the state directory |
 | `worker` | python | platform, egress | `web_request` goes out through `egress` |
 | `edge` | go | platform, public | The only published port; migrates the `tenant` schema at start |
 | `cli` | go | edge's | Only with `docker compose run cli` |
 
 - **Networks.** `platform` is an internal network: its containers reach each other and
-  nothing else, so Postgres, RustFS, the control plane, and sandboxd have no route out and no
-  port on the host. `egress` gives the worker and model-gateway a route out; `public` exists
+  nothing else, so Postgres, RustFS, the control plane, analysis, and sandboxd have no route
+  out and no port on the host. `egress` gives the worker and model-gateway a route out; `public` exists
   because docker publishes ports only for containers on a network that is not internal.
   Sandboxes are on no network at all ([architecture.md](architecture.md#isolation)).
 - **model-gateway is on `egress`**, where the M4 spec put only the worker: the model backend is
@@ -174,10 +176,11 @@ brings the stack up under its own project name and port (17443) with a recorded 
 `cases/scorer_misbelief`), then, as a user would:
 
 1. checks that the platform network is internal and that Postgres, RustFS, the control plane,
-   and sandboxd are on no other;
+   analysis, and sandboxd are on no other;
 2. creates the first admin;
 3. with the CLI: signs in, pushes the case to the library, runs one variant with `--follow`,
-   and reads the run's status, its four scores, and its events;
+   reads the run's status, its four scores, and its events, and asks the analysis service for
+   the run with `swarm query` and for the submission's `swarm report`;
 4. with the API as the console calls it (Connect JSON, session cookie, `Origin`): signs in,
    reads the run and the run list, and checks that a call without credentials is refused;
 5. stops the worker in the middle of a run, and checks that it exited 0 with the run's

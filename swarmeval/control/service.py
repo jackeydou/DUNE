@@ -17,7 +17,7 @@ from pydantic import JsonValue, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from swarmeval.control.bundles import bundle_hash, bundle_key, unpack
+from swarmeval.control.bundles import bundle_hash, bundle_key, pack, unpack
 from swarmeval.control.case_rpcs import CaseRpcs, timestamp
 from swarmeval.control.cases import (
     CaseArchived,
@@ -181,9 +181,10 @@ def plan_runs(
     ]
 
 
-def _load_suite(text: str, bundles: Mapping[str, bytes]) -> LoadedSuite:
-    """Unpacks each bundle and loads the suite against them. A path the suite names with no
-    bundle, or a bundle the suite does not name, is a `SuiteError`."""
+def _load_suite(text: str, bundles: Mapping[str, bytes]) -> tuple[LoadedSuite, dict[str, bytes]]:
+    """Unpacks each bundle and loads the suite against them; also returns each bundle's
+    canonical bytes, by path. A path the suite names with no bundle, or a bundle the suite does
+    not name, is a `SuiteError`."""
     with tempfile.TemporaryDirectory(prefix="swarmeval-suite-") as scratch:
         dirs: dict[str, Path] = {}
         for i, (path, bundle) in enumerate(sorted(bundles.items())):
@@ -203,13 +204,14 @@ def _load_suite(text: str, bundles: Mapping[str, bytes]) -> LoadedSuite:
             return dirs[path]
 
         loaded = load_suite_text(text, source="the suite", case_dir=case_dir)
+        canonical = {path: pack(directory) for path, directory in dirs.items()}
     unused = sorted(set(bundles) - {e.path for e in loaded.entries})
     if unused:
         raise SuiteError(
             f"bundles were sent for {', '.join(f'`{u}`' for u in unused)}, which the suite does "
             "not name. Send only the cases its `cases[].path` lists."
         )
-    return loaded
+    return loaded, canonical
 
 
 class ControlService(CaseRpcs, ControlServiceServicer):
@@ -261,8 +263,9 @@ class ControlService(CaseRpcs, ControlServiceServicer):
             bundle = await asyncio.to_thread(self._store.get, bundle_key(stored.bundle_sha256))
         else:
             bundle = request.case_bundle
-        loaded = await self._accept(bundle, overrides, context)
+        loaded, bundle = await self._accept(bundle, overrides, context)
         if stored is None:
+            await self._refuse_archived(loaded.workspace, loaded.id, context)
             await asyncio.to_thread(self._store.put, bundle_key(bundle_hash(bundle)), bundle)
         submission_id = secrets.token_hex(4)
         try:
@@ -306,13 +309,15 @@ class ControlService(CaseRpcs, ControlServiceServicer):
     async def SubmitSuite(
         self, request: pb.SubmitSuiteRequest, context: Context
     ) -> pb.SubmitSuiteResponse:
-        bundles = dict(request.case_bundles)
         try:
-            loaded = await asyncio.to_thread(_load_suite, request.suite_yaml, bundles)
+            loaded, bundles = await asyncio.to_thread(
+                _load_suite, request.suite_yaml, dict(request.case_bundles)
+            )
         except SuiteError as err:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err))
         for entry in loaded.entries:
             await self._refuse_case_code(entry.case, context)
+            await self._refuse_archived(entry.case.workspace, entry.case.id, context)
         label = f"{loaded.id}.{secrets.token_hex(4)}"
         for bundle in bundles.values():
             await asyncio.to_thread(self._store.put, bundle_key(bundle_hash(bundle)), bundle)
