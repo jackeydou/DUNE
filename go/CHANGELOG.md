@@ -11,14 +11,20 @@
   service's key.
 - `sandboxd --mtls-cert --mtls-key --mtls-ca`: serves mutual TLS 1.3 and accepts only `worker`
   certificates; the handshake fails for any other caller, and the refusal is logged.
-- `edge serve --mtls-cert --mtls-key --mtls-ca`: calls the Control API over mutual TLS as
-  `edge`, and only a server whose certificate names `control`.
+- `edge serve --mtls-cert --mtls-key --mtls-ca`: calls the Control API and the analysis
+  service over mutual TLS as `edge`, and only servers whose certificates name `control` and
+  `analysis`.
 
 ### Changed
 - `sandboxd --listen` must be a loopback address unless sandboxd has a certificate; it exits
   otherwise. Breaking for a deployment that served sandboxd on a network address in plain text.
 
 ### Added
+- Analysis. edge serves `swarmeval.api.v1.AnalysisService` (`Query`, `SearchToolCalls`,
+  `StartRuleScan`, `GetJob`, `Judge`, `Report`, `GetTrace`, `DownloadExport`), forwarded to the
+  analysis service named by `edge serve --analysis host:port`; without the flag the calls are
+  `UNIMPLEMENTED`. `swarm query SQL` (table, `--csv`, or `--json`), `swarm report`
+  (`--submission`, `--suite`, `--compare`), and `swarm export RUN` (`--format eval|parquet`).
 - Case library. edge serves `swarmeval.api.v1.CaseService` (`PushCase`, `UpdateCaseFiles`,
   `GetCase`, `ListCases`, `ListCaseRevisions`, `GetCaseRevision`, `ArchiveCase`,
   `UnarchiveCase`), forwarded to the Control API with the caller as `actor`;

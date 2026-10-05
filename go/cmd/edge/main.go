@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackeydou/DUNE/go/internal/edge"
 	"github.com/jackeydou/DUNE/go/internal/edge/tenant"
+	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/analysis/v1/analysisv1connect"
 	"github.com/jackeydou/DUNE/go/internal/mtls"
 )
 
@@ -62,9 +63,9 @@ func openTenant(ctx context.Context, log *slog.Logger) (*pgxpool.Pool, error) {
 
 func serveCommand(log *slog.Logger) *cobra.Command {
 	var (
-		listen, publicURL, certFile, keyFile, control string
-		idle, maxAge                                  time.Duration
-		identity                                      mtls.Files
+		listen, publicURL, certFile, keyFile, control, analysis string
+		idle, maxAge                                            time.Duration
+		identity                                                mtls.Files
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -108,7 +109,14 @@ func serveCommand(log *slog.Logger) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			handler := edge.NewHandler(cfg, tenant.NewStore(pool), controlClient, log)
+			// A nil client is a deployment without analysis: its calls answer Unimplemented.
+			var analysisClient analysisv1connect.AnalysisServiceClient
+			if analysis != "" {
+				if analysisClient, err = edge.NewAnalysisClient(analysis, identity); err != nil {
+					return err
+				}
+			}
+			handler := edge.NewHandler(cfg, tenant.NewStore(pool), controlClient, analysisClient, log)
 			var protocols http.Protocols
 			protocols.SetHTTP1(true)
 			if useTLS {
@@ -132,7 +140,7 @@ func serveCommand(log *slog.Logger) *cobra.Command {
 				defer cancel()
 				_ = server.Shutdown(shutdown) // streams still open after the timeout are cut
 			}()
-			log.Info("edge serving", "listen", listen, "public_url", public.String(), "tls", useTLS, "control", control, "mtls", identity.Enabled())
+			log.Info("edge serving", "listen", listen, "public_url", public.String(), "tls", useTLS, "control", control, "analysis", analysis, "mtls", identity.Enabled())
 			if useTLS {
 				err = server.ListenAndServeTLS(certFile, keyFile)
 			} else {
@@ -150,6 +158,7 @@ func serveCommand(log *slog.Logger) *cobra.Command {
 	f.StringVar(&certFile, "tls-cert", "", "PEM certificate chain for https")
 	f.StringVar(&keyFile, "tls-key", "", "PEM private key for --tls-cert")
 	f.StringVar(&control, "control", "", "the orchestrator's Control API, host:port (required)")
+	f.StringVar(&analysis, "analysis", "", "the analysis service, host:port; without it the analysis calls are not available")
 	identity.Flags(f)
 	f.DurationVar(&idle, "session-idle", 24*time.Hour, "end a browser session unused for this long")
 	f.DurationVar(&maxAge, "session-max-age", 7*24*time.Hour, "end a browser session this long after sign-in")

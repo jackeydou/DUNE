@@ -12,6 +12,8 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/jackeydou/DUNE/go/internal/certs"
+	analysisv1 "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/analysis/v1"
+	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/analysis/v1/analysisv1connect"
 	controlv1 "github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1"
 	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/control/v1/controlv1connect"
 	"github.com/jackeydou/DUNE/go/internal/mtls"
@@ -73,5 +75,44 @@ func TestControlClientConnectsAsEdgeToControlOnly(t *testing.T) {
 	impostor := tlsControl(t, serverConfig(mtls.Sandboxd))
 	if got := getRun(t, impostor, certs.Paths(dir, mtls.Edge)); got != connect.CodeUnavailable {
 		t.Errorf("edge talked to a server holding sandboxd's certificate: %s", got)
+	}
+}
+
+func TestAnalysisClientConnectsAsEdgeToAnalysisOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := certs.Generate(dir, certs.Options{Now: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// Both stand-ins accept edge; only the client's own check tells them apart.
+	serve := func(service string) string {
+		config, err := certs.Paths(dir, service).Server(log, mtls.Edge)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, handler := analysisv1connect.NewAnalysisServiceHandler(analysisv1connect.UnimplementedAnalysisServiceHandler{})
+		srv := httptest.NewUnstartedServer(handler)
+		srv.EnableHTTP2 = true
+		srv.Config.ErrorLog = slog.NewLogLogger(slog.NewTextHandler(io.Discard, nil), slog.LevelError)
+		srv.TLS = config
+		srv.StartTLS()
+		t.Cleanup(srv.Close)
+		return srv.Listener.Addr().String()
+	}
+	getJob := func(address string) connect.Code {
+		client, err := NewAnalysisClient(address, certs.Paths(dir, mtls.Edge))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err = client.GetJob(ctx, connect.NewRequest(&analysisv1.GetJobRequest{JobId: "j"}))
+		return connect.CodeOf(err)
+	}
+	if got := getJob(serve(mtls.Analysis)); got != connect.CodeUnimplemented {
+		t.Errorf("edge's call ended %s, want it to reach the analysis service", got)
+	}
+	if got := getJob(serve(mtls.Control)); got != connect.CodeUnavailable {
+		t.Errorf("edge sent an analysis call to a server holding control's certificate: %s", got)
 	}
 }

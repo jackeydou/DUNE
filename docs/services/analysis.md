@@ -5,14 +5,14 @@ queries, searching tool calls, rule scans added after a run, and LLM judge verdi
 of the Control API behind [edge](edge.md), not part of it. Its place among the services is in
 [architecture.md](../architecture.md).
 
-**Status:** built as batch jobs (also `detect`, the Monitor's detectors over exported runs) (`swarmeval.analysis`): `report`, trigger rates per case,
+**Status:** built as a gRPC service behind edge, `swarmeval-analysis` ([Interface](#interface)),
+and as the batch jobs the service wraps (also `detect`, the Monitor's detectors over exported runs) (`swarmeval.analysis`): `report`, trigger rates per case,
 variant, and scorer from run summaries; `judge`, an LLM judge whose verdicts cite events;
 `eval-set`, one Inspect `.eval` per variant; `timeline`, one run's events laned by agent;
 `scan`, rule sets over decoded payloads; and `trace`, one event's causal chain. Analysis is built
 here rather than on Docent or inspect-scout
 ([trajectory-first spec](../../spec/2026-10-02-trajectory-first/README.md) decision 9); `.eval`
-stays the format for exchanging runs with those tools. M4 turns analysis into a gRPC service
-behind edge. Items marked *(proposed)* go beyond what the specs decided; they are listed under
+stays the format for exchanging runs with those tools. Items marked *(proposed)* go beyond what the specs decided; they are listed under
 [Not settled](#not-settled).
 
 ## Inputs
@@ -27,7 +27,8 @@ never reads the `runs` schema and never writes object storage.
 Derived results go to their own `analysis` schema in the shared Postgres, which analysis owns:
 judge verdicts (`analysis.judge_verdicts`, migration 0004) and rule scans
 (`analysis.rule_scans`, `analysis.rule_matches`, migration 0005) today, offline scores later,
-each keyed by `run_id` and `event_id`. They have no foreign key into `control` or `runs`.
+each keyed by `run_id` and `event_id`, and the service's [jobs](#jobs) (`analysis.jobs`,
+migration 0011). They have no foreign key into `control` or `runs`.
 Events and exports are never rewritten, and replay and audit always read the originals.
 
 Files a person reads, such as per-variant `.eval` logs, go to a local directory the job is given.
@@ -36,7 +37,8 @@ Files a person reads, such as per-variant `.eval` logs, go to a local directory 
 
 | Capability | How |
 |---|---|
-| Queries | SQL over Parquet views (`events`, `runs`). `swarm query` passes arbitrary SQL. The console offers filters on tool, agent, run, time range, and tags instead |
+| Queries | One read-only SQL statement over two views, `runs` and `events` ([Queries](#queries)). `swarm query` passes arbitrary SQL. Built as the service's `Query` |
+| Tool call search | The console's filters: tool calls by run, submission, tool name, agent, and time range, by run then `seq`, each with its arguments and the first 2,000 characters of its result; 200 by default, at most 2,000, and a flag when more matched. Runs over the same views as a query. Events carry no tags yet, so there is no tag filter. Built as the service's `SearchToolCalls` |
 | Rule scans | A [rule set](#rule-sets) of keywords and regexes over each run's `events.parquet`. Every string in an event's payload is searched on its own, as is and through the decoded views canary detection uses (`swarmeval.honeypot.decode.views`: base64, hex, gzip, zlib, chained up to three layers; the
 matcher is `swarmeval.detect.search`, shared with the `rule` detector); keywords are also found under a single-byte XOR, byte for byte. A view's bytes are read as UTF-8, invalid bytes replaced, before a regex runs. Each rule keeps one match per event, the one with the fewest decodings, then the first field: its payload path (`field`), `via` (decodings, outermost first), and an excerpt of up to 40 characters each side, on one line. Stored per rule set hash (sha256 of the rules in RFC 8785 JSON, so file formatting does not count) and run: `analysis.rule_scans` holds one row per pair, with the rules and the match count, even when nothing matched; `analysis.rule_matches` one row per match. Scanning a run again with the same rules replaces both in one transaction. Built as the `scan` job |
 | Event-rule scorers and detectors | A case's `rule` scorer runs one of `swarmeval.detect`'s detectors in the worker after the agents stop ([orchestrator.md](orchestrator.md#final-state-scorers)); the online Monitor runs the same detectors as events commit. Offline, the `detect` job runs a [detector file](#detectors) over each run's `events.parquet`, reading events through the offline adapter (`view_of_row`), which gives the same view as the worker's. `canary` and `cross_sandbox` need the run's tokens, which exports do not hold, so `detect` refuses them. It prints one line per hit and stores nothing |
@@ -144,21 +146,75 @@ uv run python -m swarmeval.analysis detect --detectors detectors.yaml --submissi
 
 It prints `run<TAB>event ids<TAB>detector<TAB>detail` per hit and a total.
 
-## Interface (M4)
+## Interface
 
-gRPC service `swarmeval.analysis.v1.AnalysisService`, reached only through edge *(RPC names
-proposed)*.
+Built. gRPC service `swarmeval.analysis.v1.AnalysisService`
+(`proto/swarmeval/analysis/v1/analysis.proto`), reached only through [edge](edge.md), which
+serves the same RPCs publicly as `swarmeval.api.v1.AnalysisService`
+([M4 spec](../../spec/2026-10-03-m4-console/README.md) decision 8). Every RPC calls the code of
+the batch job it stands for.
 
-| RPC | Does |
+```bash
+export SWARMEVAL_ANALYSIS_KEY=...   # optional: without it `Judge` is refused
+uv run swarmeval-analysis --listen 127.0.0.1:7091 --gateway-url http://127.0.0.1:7080 \
+  --s3-endpoint 127.0.0.1:9000 --s3-scheme http   # and the database flags
+```
+
+It does not migrate the database: the control plane does, when it starts. With `--mtls-cert`,
+`--mtls-key`, and `--mtls-ca` it accepts only `edge` certificates and calls model-gateway with
+its own, so `--gateway-url` must then be `https`
+([service identity](../architecture.md#service-identity)); without them `--listen` must be a
+loopback address.
+
+| RPC | Job | Does |
+|---|---|---|
+| `Query` | — | One SELECT over `runs` and `events`, streamed in chunks of 500 rows ([Queries](#queries)) |
+| `SearchToolCalls` | — | Tool calls by run, submission, tool, agent, and time range |
+| `StartRuleScan` | `scan` | Validates the [rule set](#rule-sets), selects the runs (the run ids given, and every `done` or `cancelled` run of the submissions given), and starts the scan as a [job](#jobs), returned `queued`. A rule set that does not validate or a selection of no runs is `INVALID_ARGUMENT`; submissions with no exported run are `NOT_FOUND` |
+| `GetJob` | — | A job's status, and once a rule scan is `done` its result: the rule set's hash, the match count per run, and the first 500 matches by run and `seq`. All matches are in `analysis.rule_matches` |
+| `Judge` | `judge` | One question about one run, optionally a `seq` range; returns the verdict, accepted or rejected, and stores the call either way. A run with no export is `NOT_FOUND`; an empty or too long transcript, a gateway that refuses, or a service started without `SWARMEVAL_ANALYSIS_KEY` is `FAILED_PRECONDITION` |
+| `Report` | `report` | Rates, unscored runs, coverage, and forks as messages, the differences with `compare` (`AXIS=A,B`), and the same report as Markdown, which `swarm report` prints |
+| `GetTrace` | `trace` | An event's causal chain, root first, each link with its run, `seq`, agent, type, and one-line text. An event or run that is not there is `NOT_FOUND`; a broken chain `FAILED_PRECONDITION` |
+| `DownloadExport` | — | A run's `sample.eval` or `events.parquet`, read from the bucket and sent 1 MiB at a time, so the service never holds a whole export in memory. It is here and not in edge because analysis already reads the bucket, so edge needs no object store credentials |
+
+Run ids arrive from outside and become object keys, so only run-id characters (letters,
+digits, `_`, `.`, `-`, no `..`) are accepted; anything else is `INVALID_ARGUMENT`.
+
+## Queries
+
+`Query` takes one SQL statement in DuckDB's dialect and at most `max_rows` rows (default and
+most: 10,000).
+
+| View | Rows |
 |---|---|
-| `Query` | Read-only SQL over the Parquet views; results are streamed |
-| `SearchToolCalls` | Structured filters, which the console uses |
-| `StartRuleScan` | Starts a rule set over selected runs, returning a job id |
-| `Judge` | One interactive judge request, returning a verdict and its citations |
-| `GetJob` | Job status and results |
+| `runs` | One per run summary in the bucket: the columns of [`summaries/<run_id>.parquet`](../event-log.md#export) |
+| `events` | The events of every exported run: the columns of `events.parquet`, `payload` as JSON text (`json_extract_string(payload, '$.function')`) |
 
-Queries run on a DuckDB connection that can read only the export bucket, and its configuration is
-locked after setup.
+- **Read-only, and nothing else to read.** Each call gets a new in-memory DuckDB connection.
+  pyarrow reads the bucket and DuckDB scans the Arrow datasets, so DuckDB itself needs no file
+  or network access: once the two views are registered the connection sets
+  `enable_external_access = false` and `lock_configuration = true`, and turns off Python
+  replacement scans, so a statement cannot name a variable of the service as a table. The
+  statement must parse as exactly one `SELECT`. Reading a local file or an `s3://` path,
+  `COPY`, `ATTACH`, `INSTALL`, `LOAD`, `SET`, `RESET`, `PRAGMA`, `CREATE`, and `DROP` are all
+  refused as `INVALID_ARGUMENT`, as is SQL that does not parse or run.
+- **Limits.** 30 seconds, after which the statement is interrupted and the call is
+  `DEADLINE_EXCEEDED`; 1 GB of memory; `max_rows`, after which the result is cut and the last
+  message says `truncated`.
+- **Values.** Rows are lists of JSON values. What a JSON number cannot hold exactly is sent as
+  a string: integers beyond 2^53, decimals, non-finite floats, dates and times (ISO 8601), and
+  binary (hex).
+- **Cost.** `events` is one Parquet file per run, and a statement that does not filter on
+  `run_id` reads every one of them. Query `runs` first, then `events` for the runs found.
+
+## Jobs
+
+Work too long for one call runs as a job: a row in `analysis.jobs` with a kind (`rule_scan`
+today), status (`queued`, `running`, `done`, `failed`), the `actor` edge named, the request,
+and the result or error. A job runs as a task in the service process that took it. When the
+service starts, it marks every job still `queued` or `running` as `failed`, since the process
+that ran it has stopped; start the scan again. A scan that names a run with no export fails
+with that run in its error, and what it stored for the runs before it stays.
 
 ## Tech choices
 
@@ -173,7 +229,8 @@ also uses the following:
 
 ## Not settled
 
-1. RPC names of `AnalysisService`.
+1. RPC names of `AnalysisService`, and jobs running as tasks in the service process rather
+   than in a queue of their own.
 2. The rule file format (`schema_version: 1`, `keyword` / `regex` / `ignore_case`), keeping one
    match per rule and event, and the `rule_scans` / `rule_matches` layout. Rule scans were
    specified only as "keywords, regexes, rule sets, after decoding"; these are this

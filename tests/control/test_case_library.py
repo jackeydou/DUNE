@@ -2,7 +2,9 @@
 submitted by revision (M4 spec decision 6)."""
 
 import asyncio
+import io
 import secrets
+import tarfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,8 +14,11 @@ import yaml
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from swarmeval.control.bundles import bundle_hash, pack
+from swarmeval.control.bundles import MAX_BUNDLE_BYTES, bundle_hash, bundle_key, pack
+from swarmeval.control.case_rpcs import MAX_NOTE_CHARS
+from swarmeval.control.server import MAX_MESSAGE_BYTES
 from swarmeval.db import case_revisions
+from swarmeval.events import ObjectStore
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.core.test_loader import base_case, write
 
@@ -83,6 +88,70 @@ async def test_a_push_makes_a_revision_only_when_the_bundle_changed(
     assert listed.revisions[0].bundle_sha256 == listed.revisions[2].bundle_sha256
     case = (await control.GetCase(pb.GetCaseRequest(workspace=workspace, case_id="demo"))).case
     assert case.latest.revision == 3 and not case.HasField("archived_at")
+
+
+def repacked(bundle: bytes) -> bytes:
+    """The same files as another tool would archive them: another header format, times and
+    owners set, no padding to a record."""
+    out = io.BytesIO()
+    with (
+        tarfile.open(fileobj=io.BytesIO(bundle)) as src,
+        tarfile.open(fileobj=out, mode="w", format=tarfile.USTAR_FORMAT) as dst,
+    ):
+        for member in src:
+            member.mtime, member.uid, member.uname = 1_790_000_000, 501, "ada"
+            dst.addfile(member, src.extractfile(member))
+    return out.getvalue().rstrip(b"\0") + b"\0" * 1024
+
+
+async def test_the_same_files_archived_by_another_tool_are_the_same_revision(
+    control: "ControlServiceAsyncStub", workspace: str, tmp_path: Path
+) -> None:
+    bundle = bundle_of(tmp_path, workspace)
+    other = repacked(bundle)
+    assert other != bundle
+
+    pushed = await control.PushCase(pb.PushCaseRequest(case_bundle=other))
+    again = await control.PushCase(pb.PushCaseRequest(case_bundle=bundle))
+    edited = await control.UpdateCaseFiles(
+        pb.UpdateCaseFilesRequest(
+            workspace=workspace,
+            case_id="demo",
+            base_revision=1,
+            changes=[write_change("task.md", "Fix it twice.")],
+        )
+    )
+    pulled = await control.GetCaseRevision(
+        pb.GetCaseRevisionRequest(workspace=workspace, case_id="demo")
+    )
+    for f in pulled.files:
+        path = tmp_path / "pulled" / f.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f.content)
+    back = await control.PushCase(
+        pb.PushCaseRequest(case_bundle=repacked(pack(tmp_path / "pulled")))
+    )
+    submitted = await control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=other, epochs=1))
+
+    assert (pushed.created, again.created) == (True, False)
+    assert pushed.revision.bundle_sha256 == bundle_hash(bundle)
+    # What an edit stored, pulled and pushed back unchanged, is still that revision.
+    assert (edited.revision.revision, back.created, back.revision.revision) == (2, False, 2)
+    assert submitted.case_revision == 3
+    run = (await control.GetRun(pb.GetRunRequest(run_id=submitted.run_ids[0]))).run
+    assert run.case_sha256 == bundle_hash(bundle)
+    await control.CancelRun(pb.CancelRunRequest(run_id=run.run_id))
+
+
+def test_a_bundle_of_the_limit_fits_the_control_apis_messages() -> None:
+    bundle = bytes(MAX_BUNDLE_BYTES)
+    push = pb.PushCaseRequest(case_bundle=bundle, actor="a" * 256, note="n" * MAX_NOTE_CHARS)
+    suite = pb.SubmitSuiteRequest(
+        suite_yaml="x" * (512 << 10), case_bundles={"p" * 4096: bundle}, actor="a" * 256
+    )
+
+    assert push.ByteSize() < MAX_MESSAGE_BYTES
+    assert suite.ByteSize() < MAX_MESSAGE_BYTES
 
 
 async def test_a_case_that_does_not_load_stores_nothing(
@@ -295,7 +364,7 @@ async def test_edits_the_library_cannot_take_are_refused_and_store_nothing(
 
 
 async def test_an_archived_case_is_hidden_and_takes_nothing_until_unarchived(
-    control: "ControlServiceAsyncStub", workspace: str, tmp_path: Path
+    control: "ControlServiceAsyncStub", object_store: ObjectStore, workspace: str, tmp_path: Path
 ) -> None:
     bundle = bundle_of(tmp_path, workspace)
     await control.PushCase(pb.PushCaseRequest(case_bundle=bundle))
@@ -306,6 +375,11 @@ async def test_an_archived_case_is_hidden_and_takes_nothing_until_unarchived(
     )
 
     assert archived.case.HasField("archived_at")
+    refused_bundle = bundle_of(tmp_path / "refused", workspace, {"task.md": "never stored"})
+    code, _ = await refused(control.PushCase(pb.PushCaseRequest(case_bundle=refused_bundle)))
+    assert code == grpc.StatusCode.FAILED_PRECONDITION
+    with pytest.raises(FileNotFoundError):
+        object_store.get(bundle_key(bundle_hash(refused_bundle)))
     listed = await control.ListCases(pb.ListCasesRequest(workspace=workspace))
     with_archived = await control.ListCases(
         pb.ListCasesRequest(workspace=workspace, include_archived=True)

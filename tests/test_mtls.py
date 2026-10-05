@@ -14,6 +14,7 @@ import pytest
 import uvicorn
 
 from swarmeval import mtls
+from swarmeval.analysis import server as analysis_server
 from swarmeval.control import server as control_server
 from swarmeval.control import suite
 from swarmeval.gateway.model import server as gateway_server
@@ -23,6 +24,12 @@ from swarmeval.gateway.model.recorder import Attachments
 from swarmeval.gateway.model.tls import uvicorn_config
 from swarmeval.gateway.model.upstream import Upstreams
 from swarmeval.mtls import Identity
+from swarmeval.proto.swarmeval.analysis.v1 import analysis_pb2 as analysis_pb
+from swarmeval.proto.swarmeval.analysis.v1.analysis_pb2_grpc import (
+    AnalysisServiceServicer,
+    AnalysisServiceStub,
+    add_AnalysisServiceServicer_to_server,
+)
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import (
     ControlServiceServicer,
@@ -269,6 +276,15 @@ async def test_without_a_certificate_servers_listen_on_loopback_only(listen: str
             allow_case_code=False,
             mtls=None,
         )
+    with pytest.raises(SystemExit, match=f"--listen {listen} is not a loopback address"):
+        await analysis_server.serve(
+            "postgresql://nowhere",
+            None,  # pyright: ignore[reportArgumentType]
+            listen,
+            None,
+            gateway_url="http://127.0.0.1:7080",
+            mtls=None,
+        )
     with pytest.raises(SystemExit, match=f"--http {listen} is not a loopback address"):
         await gateway_server.serve(config, http=listen, grpc_address="127.0.0.1:0", mtls=None)
     with pytest.raises(SystemExit, match=f"--grpc {listen} is not a loopback address"):
@@ -381,3 +397,51 @@ async def test_gateway_http_refuses_tls_1_2(
 
 def test_http_clients_offer_tls_1_3_only(identities: dict[str, Identity]) -> None:
     assert identities[mtls.WORKER].client_context().minimum_version == ssl.TLSVersion.TLSv1_3
+
+
+async def test_analysis_serves_edge_only_and_calls_the_gateway_over_https(
+    identities: dict[str, Identity],
+) -> None:
+    class _Analysis(AnalysisServiceServicer):
+        async def GetJob(
+            self, request: analysis_pb.GetJobRequest, context: Any
+        ) -> analysis_pb.GetJobResponse:
+            return analysis_pb.GetJobResponse()
+
+    identity = identities[mtls.ANALYSIS]
+    server = grpc.aio.server(interceptors=mtls.interceptors(identity, analysis_server.CALLERS))
+    add_AnalysisServiceServicer_to_server(
+        _Analysis(),  # pyright: ignore[reportAbstractUsage]
+        server,
+    )
+    port = mtls.add_port(server, "127.0.0.1:0", identity)
+    await server.start()
+
+    async def get_job(caller: Identity | None) -> grpc.StatusCode:
+        async with mtls.channel(f"localhost:{port}", caller) as channel:
+            try:
+                await AnalysisServiceStub(channel).GetJob(
+                    analysis_pb.GetJobRequest(job_id="j"), timeout=10
+                )
+            except grpc.aio.AioRpcError as err:
+                return err.code()
+        return grpc.StatusCode.OK
+
+    try:
+        assert await get_job(identities[mtls.EDGE]) == grpc.StatusCode.OK
+        for service in (mtls.OPERATOR, mtls.WORKER, mtls.CONTROL):
+            assert await get_job(identities[service]) == grpc.StatusCode.PERMISSION_DENIED, service
+        assert await get_job(None) == grpc.StatusCode.UNAVAILABLE
+    finally:
+        await server.stop(None)
+
+    # Its judge calls model-gateway, which serves https once services have certificates.
+    with pytest.raises(SystemExit, match="with --mtls-cert the service is reached over https"):
+        await analysis_server.serve(
+            "postgresql://nowhere",
+            None,  # pyright: ignore[reportArgumentType]
+            "127.0.0.1:0",
+            None,
+            gateway_url="http://model-gateway:7080",
+            mtls=identity,
+        )

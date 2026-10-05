@@ -1,5 +1,64 @@
 # Bug fixes
 
+## 2026-10-04 — `DownloadExport` reads the whole export into memory
+
+**Symptom.** Downloading a large `sample.eval` or `events.parquet` allocated the whole object in
+the analysis service before the first chunk was sent; a multi-gigabyte run could exhaust its
+memory and take every other request with it.
+**Root cause.** The RPC called `ObjectStore.get` and then sliced the bytes into chunks.
+**Fix.** `ObjectStore.open` returns the object as a stream, and the RPC reads and sends 1 MiB
+at a time, closing the stream when the call ends. `swarmeval/events/export.py`,
+`swarmeval/analysis/service.py`.
+**Guard.** `tests/analysis/test_service.py::test_exports_are_downloaded_in_chunks`, which fails
+any download that calls `ObjectStore.get`.
+**Touches.** `Judge`, `GetTrace`, and rule scans still read a run's `events.parquet` whole
+(`exports.read_events_table`); they parse it, so streaming does not apply, and the judge refuses
+a long transcript on its own. Reported by Codex review on #23.
+
+## 2026-10-04 — The same case pushed from two tools makes two revisions
+
+**Symptom.** After the console saved a revision, `swarm case pull` followed by `swarm case push`
+of the unchanged directory made a new revision with the same files.
+**Root cause.** A revision was the sha256 of the uploaded archive. Python's `tarfile` pads an
+archive to 10,240-byte records and the CLI's Go packer does not, so one directory had two
+hashes.
+**Fix.** The control plane packs what it unpacked again with `bundles.pack` and hashes and
+stores those bytes, for `PushCase`, `SubmitRuns`, and `SubmitSuite`. `swarmeval/control/
+case_rpcs.py`, `swarmeval/control/service.py`.
+**Guard.** `tests/control/test_case_library.py::test_the_same_files_archived_by_another_tool_are_the_same_revision`.
+**Touches.** `case_sha256` is now the canonical bundle's hash, not the upload's; the worker
+still fetches by it. `UpdateCaseFiles` already compared repacked bytes to tell whether an edit
+changed anything, and still does. Go's `pack` (`go/internal/cli/pack.go`) no longer has to
+match Python's byte for byte, only file for file. Reported by Codex review on #22.
+
+## 2026-10-04 — A bundle of exactly 64 MiB is refused by gRPC
+
+**Symptom.** edge accepted a bundle of the documented 64 MiB, and the Control API answered
+`RESOURCE_EXHAUSTED` before the service saw it.
+**Root cause.** The Control API's `grpc.max_receive_message_length` was the bundle limit itself,
+and a request is its bundle plus field framing, the actor, and a note or a suite file.
+**Fix.** `MAX_MESSAGE_BYTES` is `MAX_BUNDLE_BYTES` plus 1 MiB, and the service refuses a bundle
+over `MAX_BUNDLE_BYTES` itself, as `INVALID_ARGUMENT`. `swarmeval/control/server.py`,
+`swarmeval/control/case_rpcs.py`.
+**Guard.** `tests/control/test_case_library.py::test_a_bundle_of_the_limit_fits_the_control_apis_messages`.
+**Touches.** edge's `MaxBundleBytes` (`go/internal/edge/config.go`) must stay equal to
+`MAX_BUNDLE_BYTES`; the headroom is on the Control API's side only. Reported by Codex review
+on #22.
+
+## 2026-10-04 — A push to an archived case leaves its bundle in object storage
+
+**Symptom.** Each refused push to an archived case with new content left an object under
+`cases/sha256/` that no revision names.
+**Root cause.** The bundle was uploaded before `add_revision` checked the archive under the
+case's lock.
+**Fix.** `_refuse_archived` checks before the upload, in `PushCase`, `SubmitRuns`, and
+`SubmitSuite`; the locked check stays, for a case archived in between. `swarmeval/control/
+case_rpcs.py`, `swarmeval/control/service.py`.
+**Guard.** `tests/control/test_case_library.py::test_an_archived_case_is_hidden_and_takes_nothing_until_unarchived`.
+**Touches.** A case archived between the two checks still leaves one object; closing that
+needs the upload inside the lock, which would hold a row lock across object-store I/O.
+Reported by Codex review on #22.
+
 ## 2026-10-03 — A stale owner overwrites the summary its run's new owner wrote
 
 **Symptom.** An owner taken over between the end of its run and its final status (its lease ran

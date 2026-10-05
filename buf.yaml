@@ -10,6 +10,7 @@ breaking:
   # Only the public API (swarmeval/api) is a contract with outside clients. Internal services
   # change together with their callers in one commit.
   ignore:
+    - proto/swarmeval/analysis
     - proto/swarmeval/control
     - proto/swarmeval/modelgw
     - proto/swarmeval/netgw

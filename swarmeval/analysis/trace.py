@@ -26,6 +26,10 @@ class TraceError(Exception):
     """The event is not in the run, or its chain is broken."""
 
 
+class EventNotInRun(TraceError):
+    """The event to trace is not one of the run's."""
+
+
 @dataclass(frozen=True)
 class Link:
     run_id: str
@@ -68,7 +72,7 @@ def trace(
     traced_run = _run_of(rows)
     if event_id not in rows:
         run_ids = {row["run_id"] for row in rows.values()}
-        raise TraceError(
+        raise EventNotInRun(
             f"event {event_id} is not in run {', '.join(sorted(run_ids)) or '(empty)'}. "
             "Copy the id from the run's timeline."
         )
