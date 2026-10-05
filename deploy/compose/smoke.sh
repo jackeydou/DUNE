@@ -25,8 +25,9 @@ PASSWORD="smoke test passphrase"
 URL="https://localhost:${SWARM_PORT}"
 
 compose() { docker compose -f compose.yaml -f compose.smoke.yaml "$@"; }
-# Quiet: compose would report the state of every dependency before each CLI call.
-cli() { compose --progress quiet run --rm -T cli "$@"; }
+# --no-deps: the stack is up, and starting the CLI's dependencies again would rerun the
+# one-shot services before every call.
+cli() { compose --progress quiet run --rm -T --no-deps cli "$@"; }
 # awk reads to the end: `grep -q` on a pipe closes it at the first match and fails the writer,
 # so everything else here is captured first and searched from a here-string.
 status_of() { cli runs get "$1" | awk '$1 == "status:" { print $2 }'; }

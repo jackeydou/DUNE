@@ -80,7 +80,7 @@ func TestControlClientConnectsAsEdgeToControlOnly(t *testing.T) {
 
 func TestAnalysisClientConnectsAsEdgeToAnalysisOnly(t *testing.T) {
 	dir := t.TempDir()
-	if err := certs.Generate(dir, certs.Options{Now: time.Now()}); err != nil {
+	if _, err := certs.Generate(dir, certs.Options{Now: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
