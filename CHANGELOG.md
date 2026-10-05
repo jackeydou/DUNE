@@ -4,28 +4,38 @@
 
 ### Added
 - Single-machine deployment, `deploy/compose/`: `docker compose up` runs edge, the control
-  plane, a worker, model-gateway, sandboxd, Postgres, and RustFS, with mutual TLS between the
+  plane, a worker, the analysis service, model-gateway, sandboxd, Postgres, and RustFS, with mutual TLS between the
   services from certificates generated at start, platform services on a network with no route
   out, and edge the only published port, on https. `deploy/images/python.Dockerfile` is the
   image of the Python services. `deploy/compose/smoke.sh` (`mise run deploy:smoke`) runs
   `cases/scorer_misbelief` through the stack with a recorded model backend. Setup and
   operations: `docs/deployment.md`.
 - Mutual TLS between services (`swarmeval.mtls`). `swarmeval-control`, `swarmeval-worker`,
-  `swarmeval-model-gateway`, `python -m swarmeval.control.suite submit`, and `python -m
-  swarmeval.analysis judge` take `--mtls-cert`, `--mtls-key`, and `--mtls-ca`, the files
-  `swarm-certs` writes. With them the Control API accepts only `edge` and `operator`
-  certificates, and model-gateway (HTTP and `RecorderService`) only `worker` and `analysis`:
+  `swarmeval-model-gateway`, `swarmeval-analysis`, `python -m swarmeval.control.suite submit`,
+  and `python -m swarmeval.analysis judge` take `--mtls-cert`, `--mtls-key`, and `--mtls-ca`,
+  the files `swarm-certs` writes. With them the Control API accepts only `edge` and `operator`
+  certificates, the analysis service only `edge`, and model-gateway (HTTP and
+  `RecorderService`) only `worker` and `analysis`:
   another service's call is `PERMISSION_DENIED`, or `403 caller_not_allowed` on HTTP, and a
   connection without a certificate of the deployment's CA fails in the handshake. Clients
   connect only to certificates that CA signed for the host they dialed.
 
 ### Changed
-- Without `--mtls-cert`, `swarmeval-control --listen` and `swarmeval-model-gateway --http` /
-  `--grpc` must be loopback addresses; they exit otherwise. Breaking for a deployment that
+- Without `--mtls-cert`, `swarmeval-control --listen`, `swarmeval-analysis --listen`, and
+  `swarmeval-model-gateway --http` / `--grpc` must be loopback addresses; they exit otherwise. Breaking for a deployment that
   served plain text on a network address: issue certificates with `swarm-certs`. With
-  `--mtls-cert`, the worker's `--gateway-http` must be an `https` URL.
+  `--mtls-cert`, the worker's `--gateway-http` and the analysis service's `--gateway-url` must
+  be `https` URLs.
 
 ### Added
+- Analysis service: `swarmeval-analysis` serves `swarmeval.analysis.v1.AnalysisService` for
+  edge. `Query` runs one read-only SELECT over the views `runs` and `events` on a DuckDB
+  connection with external access off and its configuration locked, at most 10,000 rows and
+  30 seconds; `SearchToolCalls` filters tool calls by run, submission, tool, agent, and time;
+  `StartRuleScan` runs a rule set as a background job (`analysis.jobs`, migration 0011) and
+  `GetJob` returns it; `Judge`, `Report`, and `GetTrace` call the batch jobs' code;
+  `DownloadExport` streams a run's `.eval` or `events.parquet`. Jobs left unfinished by a
+  stopped service are marked `failed` when it starts.
 - Case library: `control.cases` and `control.case_revisions` (migration 0010). Every case the
   platform stores or runs has numbered, immutable revisions, each naming a bundle and who made
   it, and every run references one (`control.run_specs.case_revision_id`, `Run.case_revision`).
@@ -38,6 +48,13 @@
   to the library in the transaction that queues its runs; `SubmitSuite` likewise. The
   migration gives runs queued before it cases and revisions, one revision per bundle hash in
   order of first use.
+
+### Changed
+- A case bundle is stored, and hashed, in canonical form: the control plane packs what it
+  unpacked again, so `case_sha256` no longer depends on the tool that archived the directory.
+  Runs already queued keep the hash they have; a directory submitted before this change gets
+  a new hash, and so a new revision, the next time it is pushed.
+- The Control API takes messages of 65 MiB, so a bundle of exactly the 64 MiB limit arrives.
 - Control API `SubmitSuite`: a suite file and one bundle per `cases[].path`, loaded by the
   control plane and queued in one transaction under one suite label, so a suite with a broken
   case queues nothing. `swarmeval.core.load_suite_text` loads a suite from its text with any

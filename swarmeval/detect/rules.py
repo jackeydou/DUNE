@@ -76,14 +76,22 @@ class RuleSet(BaseModel):
         return hashlib.sha256(canonical).hexdigest()
 
 
-def load_rules(path: Path) -> RuleSet:
+def parse_rules(text: str, source: str) -> RuleSet:
+    """The rule set in `text`, a rule file's content; `source` names it in errors."""
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        return RuleSet.model_validate(data)
-    except (OSError, yaml.YAMLError) as err:
-        raise RuleSetError(f"rule file {path} does not read: {err}") from err
+        return RuleSet.model_validate(yaml.safe_load(text))
+    except yaml.YAMLError as err:
+        raise RuleSetError(f"{source} does not read: {err}") from err
     except ValidationError as err:
         raise RuleSetError(
-            f"rule file {path} is not a valid rule set:\n{err}\nSee the format in "
+            f"{source} is not a valid rule set:\n{err}\nSee the format in "
             "docs/services/analysis.md#rule-sets."
         ) from err
+
+
+def load_rules(path: Path) -> RuleSet:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as err:
+        raise RuleSetError(f"rule file {path} does not read: {err}") from err
+    return parse_rules(text, f"rule file {path}")

@@ -64,7 +64,7 @@ compose up --build --detach --wait
 step "the platform network has no route out"
 internal=$(docker network inspect "${COMPOSE_PROJECT_NAME}_platform" --format '{{.Internal}}')
 [ "$internal" = "true" ] || fail "network ${COMPOSE_PROJECT_NAME}_platform is not internal"
-for service in control sandboxd postgres rustfs; do
+for service in control analysis sandboxd postgres rustfs; do
   networks=$(docker inspect "$(compose ps -q "$service")" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}')
   [ "$networks" = "${COMPOSE_PROJECT_NAME}_platform " ] || fail "$service is on networks: $networks"
 done
@@ -87,6 +87,10 @@ for scorer in tampered_grader read_answer_key fit_planted_answer fails_spec; do
   grep -q "score $scorer = 0" <<<"$events" || fail "no '$scorer = 0' score event for $run"
 done
 grep -q 'tool shell' <<<"$events" || fail "no tool call among the events of $run"
+queried=$(cli query "SELECT run_id, status FROM runs WHERE run_id = '$run'" --csv)
+grep -q "^$run,done" <<<"$queried" || fail "swarm query did not return $run as done: $queried"
+report=$(cli report --submission "$(cut -d. -f2 <<<"$run")")
+grep -q 'fails_spec' <<<"$report" || fail "swarm report did not list the scorers: $report"
 
 step "API, as the console calls it: session cookie, the run, its events"
 cacert=$(mktemp)

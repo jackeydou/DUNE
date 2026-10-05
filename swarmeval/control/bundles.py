@@ -26,8 +26,7 @@ def bundle_hash(data: bytes) -> str:
 
 
 MAX_BUNDLE_BYTES = 64 << 20
-"""The Control API's message limit, which a pushed bundle arrives under; an edit may not grow
-a bundle past it."""
+"""The largest bundle the Control API takes, and the largest an edit may make one."""
 
 
 @dataclass(frozen=True)
@@ -49,7 +48,9 @@ def _members(case_dir: Path) -> Iterator[Path]:
 
 
 def pack(case_dir: Path) -> bytes:
-    """The directory's files, relative to it, in a stable order."""
+    """The directory's files, relative to it, in a stable order. Packing what `unpack`
+    extracted gives the bundle's canonical bytes: the same for every archive of the same files,
+    modes, and links, whichever tool wrote it."""
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w") as tar:
         for path in _members(case_dir):

@@ -331,6 +331,24 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
 5. **analysis 服务**：`swarmeval-analysis` 和决定 8 的 RPC；`analysis.jobs`；edge 转发；`swarm query`、
    `swarm report`、`swarm export`。
    退出条件：每个 RPC 有测试；`Query` 尝试读别的文件、修改配置都会失败。
+   （2026-10-04）已实现：`swarmeval-analysis` 和决定 8 的八个 RPC、`analysis.jobs`（迁移 0011）、edge 的
+   `AnalysisService` 转发（`edge serve --analysis`）、`swarm query`、`swarm report`、`swarm export`。与决定 8
+   不同或决定里没写的地方：
+   - `Query` 只接受恰好一条 `SELECT`（用 DuckDB 自己的解析结果判断语句类型），在关闭外部访问、锁定配置之外，
+     还关掉了 Python replacement scan，否则 SQL 能把服务进程里的变量当表读。
+   - `SearchToolCalls` 没有 tag 过滤：事件里现在没有 tag 字段。按 run、submission、工具名、agent、时间范围过滤。
+   - job 作为 asyncio 任务跑在接收它的服务进程里。服务启动时把上一个进程留下的未完成 job 标成 `failed`。
+   - `GetJob` 返回每个 run 的命中数和前 500 条命中，全部命中在 `analysis.rule_matches`。
+   - `Report` 除了结构化的数字，还返回整份 Markdown，`swarm report` 直接打印，CLI 不重写一遍表格。
+   - `edge serve --analysis` 是可选的：不配时 analysis 的调用返回 `UNIMPLEMENTED` 并说明原因。
+   - 对外的 analysis 消息和内部的逐字段同号。edge 手写请求的映射（调用方设不了 `actor`），响应经 wire 格式
+     整体复制，有测试保证两边字段一致。这比决定 1 说的"每个 RPC 十几行映射"少写很多重复代码，代价是内部
+     消息改字段时必须同步改对外的。
+   - `Judge` 不记 `actor`：`analysis.judge_verdicts` 没有这一列，决定 2 也没要求。
+   - analysis 服务自己不跑迁移，依赖控制面启动时跑过。
+   - 没配证书时只监听回环地址的检查留给第 7 步（mTLS）。
+   都写在 [docs/services/analysis.md](../../docs/services/analysis.md) 和
+   [docs/services/edge.md](../../docs/services/edge.md)。
 6. **控制台**：`console/` 和决定 9 的页面，嵌进 edge。
    退出条件：Playwright 对着本地栈跑一遍门槛流程：登录、新建 case、编辑、提交、看分数、回放、fork。
 7. **mTLS**：`swarm-certs`；各服务的 TLS 参数和身份检查。
@@ -352,6 +370,9 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
      返回 `PERMISSION_DENIED`。
    - Python 的测试用 `cryptography`（只在 dev 依赖里）签临时证书，`mise run check` 不需要 Go 工具链；真正的
      `swarm-certs` 和 Go、Python 两边的互通在标了 `docker` 的测试里验证。
+   （2026-10-05）第 5 步合进了这个分支的基线，上面留下的那一项已补上：`swarmeval-analysis` 带同样的三个参数，
+   只接受 edge 的证书，没配证书时拒绝监听非回环地址；它调 model-gateway 用自己的证书。edge 连 analysis 也走
+   mTLS，并要求对端证书的身份是 `analysis`。
    都写在 [docs/architecture.md](../../docs/architecture.md#service-identity)。
 8. **compose 与门槛**：`deploy/compose/`、镜像、部署文档。
    退出条件：在一台干净的 Linux 机器上 `docker compose up` 后，用录制的模型后端跑完 M4 门槛：Web 和 CLI 各走一遍
