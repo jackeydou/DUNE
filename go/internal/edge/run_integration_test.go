@@ -71,11 +71,11 @@ func TestRunCallsCarryTheCallerAsActor(t *testing.T) {
 		t.Fatalf("ForkRun: %v", forked.Msg.GetRun())
 	}
 
-	listed, err := s.runs.ListRuns(t.Context(), bearer(token, &apiv1.ListRunsRequest{Suite: "core", Limit: 5}))
+	listed, err := s.runs.ListRuns(t.Context(), bearer(token, &apiv1.ListRunsRequest{Suite: "core", Workspace: "safety", Limit: 5}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Msg.GetRuns()) != 1 || s.control.last().(*controlv1.ListRunsRequest).GetLimit() != 5 {
+	if sent := s.control.last().(*controlv1.ListRunsRequest); len(listed.Msg.GetRuns()) != 1 || sent.GetLimit() != 5 || sent.GetWorkspace() != "safety" || sent.GetSuite() != "core" {
 		t.Fatalf("ListRuns: %v", listed.Msg.GetRuns())
 	}
 }

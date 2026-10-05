@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -20,6 +23,7 @@ type clients struct {
 	users    apiv1connect.UserServiceClient
 	runs     apiv1connect.RunServiceClient
 	cases    apiv1connect.CaseServiceClient
+	analysis apiv1connect.AnalysisServiceClient
 }
 
 // bearer adds `Authorization: Bearer <token>` to every request, streams included.
@@ -62,19 +66,47 @@ func checkEndpoint(raw string) (string, error) {
 
 // newClients speaks Connect's protocol, which works over HTTP/1.1 and through any proxy, so the
 // CLI needs nothing from the network that a browser does not.
-func newClients(endpoint, token string) (*clients, error) {
-	base, err := checkEndpoint(endpoint)
+func newClients(cfg Config) (*clients, error) {
+	base, err := checkEndpoint(cfg.Endpoint)
 	if err != nil {
 		return nil, err
 	}
-	opts := connect.WithInterceptors(bearer(token))
+	client, err := httpClient(cfg.CAFile)
+	if err != nil {
+		return nil, err
+	}
+	opts := connect.WithInterceptors(bearer(cfg.Token))
 	return &clients{
 		endpoint: base,
-		auth:     apiv1connect.NewAuthServiceClient(http.DefaultClient, base, opts),
-		users:    apiv1connect.NewUserServiceClient(http.DefaultClient, base, opts),
-		runs:     apiv1connect.NewRunServiceClient(http.DefaultClient, base, opts),
-		cases:    apiv1connect.NewCaseServiceClient(http.DefaultClient, base, opts),
+		auth:     apiv1connect.NewAuthServiceClient(client, base, opts),
+		users:    apiv1connect.NewUserServiceClient(client, base, opts),
+		runs:     apiv1connect.NewRunServiceClient(client, base, opts),
+		cases:    apiv1connect.NewCaseServiceClient(client, base, opts),
+		analysis: apiv1connect.NewAnalysisServiceClient(client, base, opts),
 	}, nil
+}
+
+// httpClient trusts the system's certificate authorities, and the certificates in caFile when
+// one is given: an edge with a self-signed certificate is trusted by naming that certificate,
+// never by turning verification off.
+func httpClient(caFile string) (*http.Client, error) {
+	if caFile == "" {
+		return http.DefaultClient, nil
+	}
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("read the CA file (config `ca_file`, or %s): %w", envCAFile, err)
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("load the system's certificate authorities: %w", err)
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("CA file %s holds no PEM certificate; give edge's certificate or the CA that signed it", caFile)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
+	return &http.Client{Transport: transport}, nil
 }
 
 // explain turns a failed call into a message for a person: edge's own message, with a hint

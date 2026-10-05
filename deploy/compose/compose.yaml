@@ -1,0 +1,277 @@
+# SwarmEval on one machine. Setup, settings, and operations: docs/deployment.md.
+name: swarmeval
+
+# Two images, each built by one service (`control`, `certs`) and used by the others: several
+# services building one tag at once leave containers on different builds of it.
+x-python: &python
+  image: swarmeval/python:${SWARM_VERSION:-dev}
+  pull_policy: never
+  restart: unless-stopped
+
+x-go: &go
+  image: swarmeval/go:${SWARM_VERSION:-dev}
+  pull_policy: never
+  restart: unless-stopped
+
+x-store: &store
+  SWARMEVAL_DATABASE_URL: postgresql://swarmeval:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/swarmeval
+  SWARMEVAL_S3_ENDPOINT: rustfs:9000
+  SWARMEVAL_S3_BUCKET: swarmeval
+  SWARMEVAL_S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+  SWARMEVAL_S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+  SWARMEVAL_ALLOW_CASE_CODE: ${SWARM_ALLOW_CASE_CODE:-0}
+
+services:
+  # Runs at every `up`: keeps the CA and the public certificate, renews the service
+  # certificates. The services read theirs when they start.
+  certs:
+    <<: *go
+    build:
+      context: ../..
+      dockerfile: deploy/images/go.Dockerfile
+    restart: "no"
+    network_mode: none
+    command:
+      - swarm-certs
+      - --out=/certs
+      - --public-host=${SWARM_HOST:-localhost}
+      - --public-host=127.0.0.1
+    volumes:
+      - certs:/certs
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: swarmeval
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: swarmeval
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "swarmeval", "-d", "swarmeval"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [platform]
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+    volumes:
+      - objects:/data
+    networks: [platform]
+
+  # Waits for the store to answer and makes the bucket; a bucket already there is left alone.
+  bucket:
+    <<: *python
+    restart: "no"
+    environment: *store
+    command:
+      - python
+      - -c
+      - |
+        import os, time
+        from pyarrow.fs import S3FileSystem
+        fs = S3FileSystem(
+            access_key=os.environ["SWARMEVAL_S3_ACCESS_KEY"],
+            secret_key=os.environ["SWARMEVAL_S3_SECRET_KEY"],
+            endpoint_override=os.environ["SWARMEVAL_S3_ENDPOINT"],
+            scheme="http", region="us-east-1", allow_bucket_creation=True,
+        )
+        for attempt in range(60):
+            try:
+                fs.create_dir(os.environ["SWARMEVAL_S3_BUCKET"])
+                break
+            except OSError as err:
+                print(f"object store not ready: {err}", flush=True)
+                time.sleep(2)
+        else:
+            raise SystemExit("the object store did not answer in two minutes; see `docker compose logs rustfs`")
+    depends_on: [rustfs]
+    networks: [platform]
+
+  # Every service below mounts its own directory of the certificate volume at /certs and sees
+  # no other service's key.
+  control:
+    <<: *python
+    build:
+      context: ../..
+      dockerfile: deploy/images/python.Dockerfile
+    environment: *store
+    command:
+      - swarmeval-control
+      - --listen=0.0.0.0:7090
+      - --s3-scheme=http
+      - --mtls-cert=/certs/tls.crt
+      - --mtls-key=/certs/tls.key
+      - --mtls-ca=/certs/ca.crt
+    volumes:
+      - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: control } }
+    depends_on:
+      certs: { condition: service_completed_successfully }
+      bucket: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+    networks: [platform]
+
+  model-gateway:
+    <<: *python
+    command:
+      - swarmeval-model-gateway
+      - --config=/etc/swarmeval/gateway.yaml
+      - --http=0.0.0.0:7080
+      - --grpc=0.0.0.0:7081
+      - --mtls-cert=/certs/tls.crt
+      - --mtls-key=/certs/tls.key
+      - --mtls-ca=/certs/ca.crt
+    # Backend API keys the gateway config names (`api_key_env`).
+    env_file:
+      - { path: gateway.env, required: false }
+    environment:
+      # The key analysis calls with, for a config with `analysis_key_env: SWARMEVAL_ANALYSIS_KEY`.
+      SWARMEVAL_ANALYSIS_KEY: ${SWARM_ANALYSIS_KEY:-}
+    volumes:
+      - ${SWARM_GATEWAY_CONFIG:-./gateway.yaml}:/etc/swarmeval/gateway.yaml:ro
+      - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: model-gateway } }
+    depends_on:
+      certs: { condition: service_completed_successfully }
+    # egress: the model backend is outside compose.
+    networks: [platform, egress]
+
+  analysis:
+    <<: *python
+    environment:
+      <<: *store
+      # The judge's key. Empty, Judge is refused and everything else works.
+      SWARMEVAL_ANALYSIS_KEY: ${SWARM_ANALYSIS_KEY:-}
+    command:
+      - swarmeval-analysis
+      - --listen=0.0.0.0:7091
+      - --s3-scheme=http
+      - --gateway-url=https://model-gateway:7080
+      - --mtls-cert=/certs/tls.crt
+      - --mtls-key=/certs/tls.key
+      - --mtls-ca=/certs/ca.crt
+    volumes:
+      - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: analysis } }
+    depends_on:
+      # The control plane migrates the database analysis reads and writes.
+      control: { condition: service_started }
+      model-gateway: { condition: service_started }
+    networks: [platform]
+
+  # Controls the host's docker daemon, which is root on the host: only the worker's
+  # certificate is accepted, and nothing but the platform network reaches it.
+  sandboxd:
+    <<: *go
+    user: root
+    command:
+      - sandboxd
+      - --listen=0.0.0.0:7071
+      - --state-dir=${SWARM_STATE_DIR:-/var/lib/swarmeval/sandboxd}
+      - --runtime=${SWARM_SANDBOX_RUNTIME:-auto}
+      - --mtls-cert=/certs/tls.crt
+      - --mtls-key=/certs/tls.key
+      - --mtls-ca=/certs/ca.crt
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The daemon mounts key paths from here into sandboxes, so the path must be the same on
+      # the host and in this container.
+      - ${SWARM_STATE_DIR:-/var/lib/swarmeval/sandboxd}:${SWARM_STATE_DIR:-/var/lib/swarmeval/sandboxd}
+      - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: sandboxd } }
+    depends_on:
+      certs: { condition: service_completed_successfully }
+    networks: [platform]
+
+  # Restarts keep the worker's id, so a restarted worker finishes the runs it left as
+  # `interrupted` at once and they are rerun; under another id they would wait for their leases
+  # to run out. On `stop` it removes its runs' sandboxes first, hence the grace period. A worker
+  # that found the host broken stays up idle (--stay-halted): restarted, it would fail the next
+  # queued run the same way. docs/deployment.md#when-a-worker-stops.
+  worker:
+    <<: *python
+    environment: *store
+    stop_grace_period: 1m
+    command:
+      - swarmeval-worker
+      - --worker-id=${SWARM_WORKER_ID:-worker-1}
+      - --max-runs=${SWARM_MAX_RUNS:-4}
+      - --stay-halted
+      - --s3-scheme=http
+      - --sandboxd=sandboxd:7071
+      - --gateway-http=https://model-gateway:7080
+      - --gateway-grpc=model-gateway:7081
+      - --mtls-cert=/certs/tls.crt
+      - --mtls-key=/certs/tls.key
+      - --mtls-ca=/certs/ca.crt
+    volumes:
+      - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: worker } }
+    depends_on:
+      control: { condition: service_started }
+      sandboxd: { condition: service_started }
+      model-gateway: { condition: service_started }
+    # egress: `web_request` reaches the public internet from the worker, and only it.
+    networks: [platform, egress]
+
+  edge:
+    <<: *go
+    environment:
+      SWARMEVAL_DATABASE_URL: postgresql://swarmeval:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/swarmeval
+    command:
+      - edge
+      - serve
+      - --listen=0.0.0.0:7443
+      - --public-url=https://${SWARM_HOST:-localhost}:${SWARM_PORT:-7443}
+      - --tls-cert=${SWARM_TLS_CERT:-/tls/tls.crt}
+      - --tls-key=${SWARM_TLS_KEY:-/tls/tls.key}
+      - --control=control:7090
+      - --analysis=analysis:7091
+      - --mtls-cert=/certs/tls.crt
+      - --mtls-key=/certs/tls.key
+      - --mtls-ca=/certs/ca.crt
+    ports:
+      - ${SWARM_BIND:-0.0.0.0}:${SWARM_PORT:-7443}:7443
+    volumes:
+      - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: edge } }
+      - { type: volume, source: certs, target: /tls, read_only: true, volume: { subpath: public } }
+    depends_on:
+      certs: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      control: { condition: service_started }
+      analysis: { condition: service_started }
+    # public: a published port needs a network that is not internal.
+    networks: [platform, public]
+
+  # `docker compose run --rm cli …`: the swarm CLI next to edge, for a machine without a
+  # build of it. Its sign-in is kept in the `cli` volume.
+  cli:
+    <<: *go
+    profiles: [cli]
+    restart: "no"
+    entrypoint: [swarm]
+    network_mode: service:edge
+    environment:
+      SWARM_ENDPOINT: https://127.0.0.1:7443
+      SWARM_CA_FILE: ${SWARM_TLS_CERT:-/tls/tls.crt}
+      SWARM_CONFIG: /config/config.yaml
+    working_dir: /work
+    volumes:
+      - cli:/config
+      - ${SWARM_CLI_DIR:-../..}:/work:ro
+      - { type: volume, source: certs, target: /tls, read_only: true, volume: { subpath: public } }
+
+networks:
+  # No route out: platform services reach each other and nothing else.
+  platform:
+    internal: true
+  egress: {}
+  public: {}
+
+volumes:
+  certs:
+  postgres:
+  objects:
+  cli:

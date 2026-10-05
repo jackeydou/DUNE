@@ -6,9 +6,10 @@ web console are its two clients. Their place among the services is in
 [architecture.md](../architecture.md). The plan they are built to is the
 [M4 spec](../../spec/2026-10-03-m4-console/README.md).
 
-**Status:** edge is built with authentication and run forwarding, and the CLI with sign-in,
-runs, suites, events, and forks (M4 Plan steps 2 and 3). Case calls, analysis calls, the
-console, mTLS, and deployment are not built yet. Items marked
+**Status:** built (M4 Plan steps 2 to 8): edge with authentication, run, case, and analysis
+forwarding, the embedded console, and mutual TLS to the Control API and the analysis service;
+the CLI with sign-in, runs, suites, events, forks, the case library, queries, reports,
+exports, and `view`. All of it runs in the [compose deployment](../deployment.md). Items marked
 *(proposed)* go beyond what the specs decided; they are listed under [Not settled](#not-settled).
 
 ## edge
@@ -27,7 +28,9 @@ edge serve --public-url https://swarm.example.com --tls-cert cert.pem --tls-key 
 | `--public-url` | required | The address browsers use to reach edge. Its origin is the only one whose requests are accepted, and an https URL makes the session cookie `Secure`. It is read in canonical form, as browsers send Origin: host in lower case, no default port |
 | `--listen` | `127.0.0.1:7443` | Without a certificate it must be a loopback address: edge refuses to serve plain HTTP to the network, so a deployment without `--tls-cert` puts a TLS-terminating proxy in front |
 | `--tls-cert`, `--tls-key` | none | PEM certificate chain and key. Together or not at all |
-| `--control` | required | The orchestrator's Control API, `host:port`, reached with gRPC over HTTP/2 without TLS until services use mTLS |
+| `--control` | required | The orchestrator's Control API, `host:port`, reached with gRPC over HTTP/2: mutual TLS with `--mtls-cert`, plain text without |
+| `--analysis` | none | The [analysis service](analysis.md#interface), `host:port`, reached the same way. Without it every `AnalysisService` call is `UNIMPLEMENTED`, with a message naming this flag |
+| `--mtls-cert`, `--mtls-key`, `--mtls-ca` | none | edge's service certificate, its key, and the deployment's CA ([service identity](../architecture.md#service-identity)). All three or none. With them edge connects to the Control API and the analysis service as `edge`, and only to servers whose certificates name `control` and `analysis`. They are not `--tls-cert`, which is the certificate browsers see |
 | `--session-idle` | `24h` | A browser session unused for this long ends |
 | `--session-max-age` | `168h` | A browser session ends this long after sign-in, however active |
 
@@ -36,11 +39,12 @@ edge migrates its `tenant` schema when `serve` or `user create` starts.
 - **Public API.** `swarmeval.api.v1` in [`proto/swarmeval/api/v1/`](../../proto/swarmeval/api/v1/),
   separate from the internal protos so that internal changes never break outside clients
   (M4 spec decision 1); `mise run proto:breaking` guards it. Defined so far: `AuthService`,
-  `UserService`, `RunService`, `CaseService`. Connect (connect-go) serves one definition as JSON to the
+  `UserService`, `RunService`, `CaseService`, `AnalysisService`. Connect (connect-go) serves one definition as JSON to the
   browser and as gRPC to the CLI, over HTTP/1.1 or HTTP/2 (unencrypted HTTP/2 on a loopback
   listener).
 - **Request limits.** A `RunService` or `CaseService` body may be up to 64 MiB of bundle plus
-  encoding; `AuthService` and `UserService` bodies 64 KiB. A body must arrive within 30 seconds
+  encoding; an `AnalysisService` body 1 MiB (a rule set or a statement); `AuthService` and
+  `UserService` bodies 64 KiB. A body must arrive within 30 seconds
   of the headers, 5 minutes for `SubmitRuns`, `SubmitSuite`, `PushCase`, and `UpdateCaseFiles`; the headers within 10 seconds. The deadline does not limit
   the answer, so an event stream lasts as long as the run. Idle keep-alive connections close after
   2 minutes.
@@ -63,7 +67,15 @@ edge migrates its `tenant` schema when `serve` or `user create` starts.
   Connect) with the newest revision's number in the message, which is how the console learns
   that someone else changed the case. A pushed bundle over 64 MiB, or an edit whose written
   files pass 64 MiB in all, is refused before the control plane sees it.
-- **Errors.** Control API errors that are about the caller's request (`INVALID_ARGUMENT`,
+- **Analysis forwarding.** `AnalysisService` is the [analysis service](analysis.md#interface):
+  `Query`, `SearchToolCalls`, `StartRuleScan`, `GetJob`, `Judge`, `Report`, `GetTrace`, and
+  `DownloadExport`, each forwarded to the RPC of the same name. `Query` and `DownloadExport`
+  are relayed chunk by chunk. `StartRuleScan` carries the caller's username as `actor`, and the
+  job returns it as `created_by`. The public messages mirror the internal ones field for field
+  with the same numbers; edge builds each request by hand, so a caller cannot set `actor`, and
+  copies each response through the wire format (`TestAnalysisResponsesKeepEveryField` fails
+  when the two drift apart).
+- **Errors.** Control API and analysis service errors that are about the caller's request (`INVALID_ARGUMENT`,
   `NOT_FOUND`, `FAILED_PRECONDITION`, `ALREADY_EXISTS`, `ABORTED`, `OUT_OF_RANGE`,
   `RESOURCE_EXHAUSTED`, `CANCELLED`, `DEADLINE_EXCEEDED`) go back with their message. Anything
   else is logged with its cause and returned as `UNAVAILABLE` with a generic message, so
@@ -127,13 +139,6 @@ starting together migrate once. No other service reads the schema.
 
 Users are disabled, never deleted, so the runs they submitted keep naming someone who existed.
 
-### Not built yet
-
-- **Forwarding** of analysis calls to `AnalysisService` (M4 Plan step 5). It sits beside the
-  case and run services in the public API, nested under neither.
-- **Internal mTLS** (step 7): edge will be the only caller the Control API and analysis accept.
-- **Console assets**, embedded in the binary with `embed.FS` (step 6).
-
 ## swarm CLI
 
 Go, with cobra: `go/cmd/swarm` and `go/internal/cli`. It ships as one static binary, so users
@@ -152,18 +157,21 @@ swarm runs list --suite m1_core.3fa1b2c4
 swarm events collusion_pricing.fb47ae64.v0.e1        # one line per event, until the run ends
 swarm case push cases/collusion_pricing -m "tighter threshold"
 swarm run --case safety/collusion_pricing@3          # a revision in the library
+swarm query "SELECT status, count(*) FROM runs GROUP BY ALL"
+swarm report --suite m1_core.3fa1b2c4 --compare 'paraphrased=[],[dm_ab]'
+swarm export collusion_pricing.fb47ae64.v0.e1       # the .eval, for `inspect view`
 swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 ```
 
 | Command | Does |
 |---|---|
-| `login` | Signs in with a username and password (asked on a terminal, otherwise the first line of stdin) and saves a new API token named `swarm CLI on <hostname>`; or `--token` saves one you have, after checking it |
+| `login` | Signs in with a username and password (asked on a terminal, otherwise the first line of stdin) and saves a new API token named `swarm CLI on <hostname>`; or `--token` saves one you have, after checking it. `--ca-file` saves a certificate to trust for edge |
 | `logout` | Revokes the token `login` made and forgets it. A token given with `--token` is only forgotten |
 | `whoami` | Who the token signs in as |
 | `run CASE_DIR` | Packs the directory and submits it, with `-V axis=values` (repeatable), `--epochs`, and `--suite`. The directory is stored in the case library as `case push` stores it. Prints the submission, the revision its runs use, and the run ids |
 | `run --case WORKSPACE/CASE[@REVISION]` | Submits a revision already in the library, the newest without `@REVISION`, with the same flags |
 | `run SUITE_FILE` | Packs every case directory the suite's `cases[].path` names, relative to the file, and submits the suite whole (`SubmitSuite`). Prints each submission and the suite label |
-| `runs list`, `get`, `cancel`, `resume` | `list` filters by `--submission`, `--case`, `--status`, `--suite`, `--limit` |
+| `runs list`, `get`, `cancel`, `resume` | `list` filters by `--submission`, `--case`, `--workspace`, `--status`, `--suite`, `--limit`. `get` also shows what a run reruns, what it was forked from and with what fidelity, and how often it was taken over from a worker whose lease ran out |
 | `events RUN` | Prints `[event_id] #seq agent line` per event, as the judge reads them, until the run finishes; `--after SEQ` skips earlier ones |
 | `replay RUN --fork-at EVENT` | `ForkRun`, with `--edit FILE`: a YAML or JSON list of edits in protobuf's JSON form (`replace_message`, `delete_message`, `replace_delivery`) |
 | `case list` | The library's cases as `WORKSPACE/CASE`, each with its newest revision; `--workspace`, and `--archived` to include archived ones |
@@ -171,6 +179,10 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 | `case pull WORKSPACE/CASE[@REVISION] [DIR]` | Writes the revision's files, with their modes and links, to `DIR` (default `./CASE`), which must be empty or new |
 | `case revisions WORKSPACE/CASE` | Revision, bundle hash, time, author, and note, newest first |
 | `case archive`, `case unarchive` | An archived case leaves the list and takes no pushes, edits, or runs; nothing is deleted |
+| `query SQL` | One read-only SELECT over the views `runs` and `events` ([analysis.md](analysis.md#queries)), as a table; `--csv`, or `--json` for one JSON object per row, where a column label that repeats (two columns of a join) gets `_2`, `_3`, … so every column is kept; `--max-rows N` (default and most 10,000). A result cut at the limit says so on stderr |
+| `report` | The trigger rate report as Markdown, for `--submission ID` and `--suite LABEL` (both repeatable; neither means every run), with `--compare AXIS=A,B` for the difference between two values of an axis. `--json` prints the numbers |
+| `export RUN` | Downloads the run's `.eval` (`--format eval`, the default) or events (`--format parquet`) to `RUN.eval` or `RUN.events.parquet`, or to `-o FILE` (`-` for stdout). It does not overwrite a file, and a download that fails, on the network or on the local disk, leaves none |
+| `view RUN` | Prints the address of the run's page in the [console](#console) and opens it in a browser (`open` or `xdg-open`); `--no-open` only prints. The console asks for a sign-in of its own |
 | `token create`, `list`, `revoke` | Your API tokens; `create --expires 720h` |
 | `user create`, `list`, `disable`, `enable`, `reset-password` | Admins only. Passwords are asked twice on a terminal, read once from a pipe |
 
@@ -190,25 +202,68 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
   inside the directory, so nothing is ever written through a link. A pulled directory packs
   back to the same files.
 - **Config.** `~/.config/swarm/config.yaml` (`$XDG_CONFIG_HOME/swarm/`, or `$SWARM_CONFIG`) holds
-  `endpoint`, `token`, and the id of a token `login` made. It is written mode 0600, through a
-  rename. `$SWARM_ENDPOINT` and `$SWARM_TOKEN` override it, and `--endpoint` overrides both.
+  `endpoint`, `token`, the id of a token `login` made, and `ca_file`. It is written mode 0600,
+  through a rename. `$SWARM_ENDPOINT`, `$SWARM_TOKEN`, and `$SWARM_CA_FILE` override it, and
+  `--endpoint` overrides both.
+- **Self-signed edge.** `ca_file` is a PEM file trusted for edge besides the system's
+  authorities: the certificate of an edge that serves a self-signed one
+  ([deployment.md](../deployment.md#certificates)), or the CA that signed it. `login --ca-file`
+  saves its absolute path. There is no switch that turns verification off.
 - **Output.** Tables for people; `--json` prints records as protobuf JSON. Errors go to stderr as
   `swarm: <what>: <edge's message>`, with a hint for a missing sign-in or an unreachable edge, and
   exit 1.
-- **Not built.** `swarm view` arrives with the console (step 6); `query`, `report`, and `export`
-  with the analysis service (step 5). Editing a case's files in place is the console's
+- **Not built.** Rule scans, the judge, and traces are in the public API for the console and
+  have no CLI command. Editing a case's files in place is the console's
   (`UpdateCaseFiles`); from the CLI, pull, edit, and push. `env up` and the
   `otel` / `docent` export formats wait for the network capability and the export adapters.
 
 ## Console
 
-Not built (M4 Plan step 6). React + Vite in the top-level `console/` project, with its own
-README and changelog. It imports no `swarmeval` code. It calls edge through a client generated by
-buf *(proposed: Connect-ES)*.
+Built. A single-page app in the top-level [`console/`](../../console/README.md) project:
+TypeScript, React, Vite, TanStack Router and Query, Tailwind with shadcn/ui components, and
+CodeMirror 6 for the file editor. It imports no `swarmeval` code. It calls edge's public API
+through a Connect-ES client generated by buf into `console/src/gen/` (committed, like the other
+stubs), with Connect's JSON protocol and the session cookie.
 
-The replay viewer shows one lane per agent plus a lane for events no agent caused. Clicking an
-event expands its causal chain through `parent_id`, events can be filtered by type and tag, and
-two runs can be compared side by side.
+- **Serving.** `mise run console:build` writes the build into `go/internal/edge/webui/static/`,
+  which edge embeds (`embed.FS`); build edge after it. One binary then serves the pages and the
+  API. A path that is a built file is served as it is; any other page path gets `index.html`,
+  where the app's router takes over; a path under `/swarmeval.` never gets a page. Hashed
+  assets are cached for good, `index.html` is revalidated on every load. An edge built without
+  the console answers page requests with a 404 that says how to build it, and serves the API
+  as usual.
+- **No credentials for pages, credentials for data.** The pages are static and public; every
+  call they make is an API call behind the authenticator. With no session the app shows the
+  sign-in form and nothing else. Signing out reloads the app, so nothing the user read stays
+  in memory. When any call comes back `UNAUTHENTICATED`, because the session ran out or was
+  ended elsewhere, the app drops the session and shows the sign-in form at once, without a
+  reload.
+- **Headers.** Pages carry a Content-Security-Policy that allows scripts, fonts, and
+  connections from edge's own origin only and forbids framing; styles may be inline, because
+  the code editor writes its theme into a style element. Also `X-Content-Type-Options:
+  nosniff` and `Referrer-Policy: no-referrer`.
+- **Run content is text.** Model output, tool results, prompts, and injected payloads are
+  rendered as text nodes, never as HTML, and no field is rendered as Markdown. Trajectories
+  hold content that was built to attack whoever reads it.
+
+| Page | Shows |
+|---|---|
+| Sign-in | Username and password |
+| Runs | The newest 500 runs that match, grouped by submission; filtered by workspace, case, suite, submission, and status, all on the server, so a filter reaches runs that are not among the newest overall; the workspace list comes from the case library; refreshed every 5 seconds; each submission's trigger rates on demand (`Report`) |
+| Run | Status, case revision, variant values, isolation, times, who submitted, cancelled, and resumed; cancel and resume; each scorer's last score, from the run's `score` events; the replay |
+| Replay | The run's events from `StreamEvents`, in order, one lane per agent and one for events no agent caused, appended live while the run goes on. Types can be hidden. Clicking an event shows its stored payload and its causal chain (`GetTrace`, so only once the run is exported; a fork's chain goes on into its source), and, for a run that ended `done` or `cancelled`, forks from it with edits given as JSON |
+| Compare | Two runs' replays side by side |
+| Cases | The library by workspace; a new case from a template that loads and scores; a case's files in an editor (text files edited in place, binary files and links replaced by upload or deleted), saved as the next revision with a note; a save against a revision someone else has replaced says so and keeps the edits on screen; the revision history; the diff between two revisions, computed in the browser; submitting a revision with variant overrides and epochs; archive and unarchive |
+| Analysis | SQL (`Query`, up to 1,000 rows), tool call search, rule scans (started as a job and polled), and the judge |
+| Account | Change password; create, list, and revoke API tokens |
+| Users | Admins: create, disable, enable, reset password |
+
+Development: `pnpm dev` in `console/` serves the app on `http://127.0.0.1:5173` and proxies the
+API to a local edge (`SWARM_EDGE`, default `http://127.0.0.1:7443`), which must run with
+`--public-url http://127.0.0.1:5173`, the only origin it then accepts cookie requests from.
+
+Not built: events carry no tags, so the replay filters by type only; the replay renders every
+event of a run at once, which is slow past a few thousand events.
 
 ## Tech choices
 

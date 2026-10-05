@@ -2,10 +2,10 @@
 (docs/services/orchestrator.md#leases-fencing-and-takeover)."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.control.queue import Queue
@@ -127,3 +127,29 @@ async def test_two_takers_never_claim_the_same_run(engine: AsyncEngine, submissi
     for claim in claims:
         if claim is not None:
             await queue.finish(claim.run.run_id, claim.run.owner_epoch, "done")
+
+
+async def test_each_takeover_is_counted_and_a_first_claim_is_not(
+    engine: AsyncEngine, submission: str
+) -> None:
+    queue = Queue(engine)
+    (run_id,) = await enqueue(queue, engine, submission)
+    # Expired longer ago than any run another test left behind, so it is the one claimed.
+    await lease(engine, run_id, "w_first", -1_000_000)
+    assert (await queue.get(run_id)).takeovers == 0
+
+    first = await queue.claim_expired("w_second", lease_s=20)
+    assert first is not None
+    assert (first.run.run_id, first.run.takeovers) == (run_id, 1)
+
+    # The second owner stops renewing too.
+    async with engine.begin() as conn:
+        await conn.execute(
+            update(control_runs)
+            .where(control_runs.c.run_id == run_id)
+            .values(lease_until=func.now() - timedelta(seconds=1_000_000))
+        )
+    second = await queue.claim_expired("w_third", lease_s=20)
+    assert second is not None
+    assert (second.run.run_id, second.run.takeovers) == (run_id, 2)
+    await queue.finish(run_id, second.run.owner_epoch, "cancelled")

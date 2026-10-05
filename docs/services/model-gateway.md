@@ -14,7 +14,13 @@ Not built: per-key rate limits and streaming upstream. Items marked
 swarmeval-model-gateway --config gateway.yaml --http 127.0.0.1:7080 --grpc 127.0.0.1:7081
 ```
 
-Both addresses have no authentication beyond the virtual keys; bind them to the internal network.
+With `--mtls-cert`, `--mtls-key`, and `--mtls-ca`, both addresses serve mutual TLS and accept
+only `worker` and `analysis` certificates ([service identity](../architecture.md#service-identity)):
+a call from another service gets `403 caller_not_allowed` on HTTP and `PERMISSION_DENIED` on
+gRPC. Without them, both must be loopback addresses, where the virtual keys are the only
+authentication. The HTTP check is made per connection, in a subclass of uvicorn's HTTP/1.1
+protocol (`swarmeval.gateway.model.tls`), because uvicorn does not hand the peer certificate to
+the application.
 
 ## Callers
 

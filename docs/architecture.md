@@ -23,14 +23,15 @@ models, the `inspect_ai` mapping, and case hooks exist only in Python.
 | [`model-gateway`](services/model-gateway.md) | Python | Provider adapters, OpenAI-compatible API, recording every model call, per-key rate limits | M0 |
 | [`sandboxd`](services/sandboxd.md) | Go | Sandbox lifecycle through the docker or k8s API; runs tool calls inside sandboxes and reports the file diff and surviving processes after each one | M0 |
 | [`net-gateway`](services/net-gateway.md) | Go | One instance per run: TLS interception, DNS, network policy, pcap | Later: the network capability, outside M0–M5 |
-| [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, timelines, per-variant `.eval`, offline scorers over exported runs | M1 as batch jobs (all but offline scorers are built); service in M4 |
-| [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication and run forwarding built; case and analysis forwarding, console, mTLS next |
-| [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4: sign-in, runs, suites, events, and forks built |
-| [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | M4 |
+| [`analysis`](services/analysis.md) | Python | DuckDB queries, rule scans, LLM judge, timelines, per-variant `.eval`, offline scorers over exported runs | Built as batch jobs and as a gRPC service behind `edge` (all but offline scorers) |
+| [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication, run, case, and analysis forwarding, the embedded console, and mTLS to the Control API and analysis built |
+| [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4: sign-in, runs, suites, events, forks, the case library, queries, reports, exports, and `view` built |
+| [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | Built |
 
-Users trigger runs with the `swarm` CLI, a client of `edge`; the console follows in M4. Tests
+Users trigger runs with the `swarm` CLI or the web console, both clients of `edge`. Tests
 and operators on the internal network can also call the orchestrator's gRPC Control API
-directly (grpcurl), which has no authentication until services use mTLS.
+directly (grpcurl), with the `operator` certificate where services use
+[mutual TLS](#service-identity).
 
 ## How they talk
 
@@ -73,12 +74,64 @@ flowchart TB
     class CP,W,AN,MG py
 ```
 
-- Services talk gRPC with mTLS. Contracts live in `proto/` and are managed with buf; `edge`
-  serves HTTP/JSON to browsers and the CLI through Connect. mTLS arrives in M4, with `edge`.
-  Until then services talk plain gRPC on the internal network.
+- Services talk gRPC with mutual TLS ([Service identity](#service-identity)). Contracts live in
+  `proto/` and are managed with buf; `edge` serves HTTP/JSON to browsers and the CLI through
+  Connect.
 - Each service owns its data. Another service asks it over gRPC and never reads its tables.
 - The split is by function, never by run. All agent loops of one run, its sequencing, and its
   writes stay in one worker. Different runs spread across workers.
+
+## Service identity
+
+Every service holds one certificate, signed by a CA that belongs to the deployment. The
+certificate names the service in a URI SAN, `spiffe://swarmeval/<service>`, and is both its
+server and its client certificate. A service started with one (`--mtls-cert`, `--mtls-key`,
+`--mtls-ca`, on every service) serves only mutual TLS and accepts only the callers below.
+Started without one, it serves plain text and refuses to listen on anything but a loopback
+address, which is how development and the tests run.
+
+| Service | Accepts |
+|---|---|
+| orchestrator control plane (`ControlService`) | `edge`, `operator` |
+| `analysis` | `edge` |
+| `model-gateway` (HTTP and `RecorderService`) | `worker`, `analysis` |
+| `sandboxd` | `worker` |
+
+`operator` is for tools a person runs on the internal network: `python -m
+swarmeval.control.suite` and grpcurl. `worker`, `edge`, and `operator` certificates are client
+certificates only.
+
+- **Protocol version.** sandboxd, edge's client, model-gateway's HTTP API, and the Python HTTP
+  clients speak TLS 1.3 only. The Python gRPC servers and clients (the Control API,
+  `RecorderService`, the worker's channels) use grpcio's range, which also allows TLS 1.2:
+  grpcio has no setting for it. Between this deployment's services they negotiate 1.3.
+- **Refusals.** A connection with no certificate, or one another CA signed, fails in the TLS
+  handshake. A certificate of the CA that names a service not on the list is refused by
+  `sandboxd` in the handshake too, by the Python gRPC servers with `PERMISSION_DENIED`, and by
+  model-gateway's HTTP API with `403 caller_not_allowed`; each logs who it refused. A
+  certificate that names no service, several, or another trust domain is nobody.
+- **Clients** connect only to a certificate the CA signed for the host they dialed. `edge`, in
+  Go, also requires the certificate to name `control`. The Python clients (the worker, the
+  judge, the suite tool) check the host name only; server certificates name their own service
+  and loopback, so two services of one deployment can pass for each other only on `localhost`.
+- **Issuing.** `swarm-certs --out DIR` (`go/cmd/swarm-certs`, the standard library's
+  `crypto/x509`) writes `ca.crt`, `ca.key`, and `<service>/{ca.crt,tls.crt,tls.key}`, ECDSA
+  P-256. Each service's directory holds what that service needs and no other's key, so it can
+  be mounted alone. Server certificates name the service (`control`, `model-gateway`, …),
+  `localhost`, `127.0.0.1`, and `::1`; `--host SERVICE=NAME` adds a DNS name or address.
+- **Rotation.** Certificates last one year, the CA ten. Running `swarm-certs` again keeps the
+  CA, and keeps each certificate that the CA signed, whose key is beside it, that names the
+  same hosts, and that has more than 30 days left, so a deployment can run it at every start;
+  the rest it replaces. `--renew` replaces them all. A service reads its files once, at start,
+  and services can be restarted one at a time. Each service's directory is replaced whole, so
+  a service starting meanwhile reads one run's files or, for an instant, finds none and fails
+  to start; it never reads files of two runs. `--new-ca` replaces the CA and every
+  certificate, after which every service must restart before any two can talk.
+- **edge's public certificate** is a different thing: `--public-host NAME` also writes
+  `public/{tls.crt,tls.key}`, self-signed and not from the service CA, for a deployment without
+  a certificate from a public CA ([deployment.md](deployment.md#certificates)).
+- The actor edge passes to the control plane is trusted because only `edge` and `operator`
+  can connect ([edge](services/edge.md)).
 
 ## Event flow
 
@@ -124,13 +177,13 @@ flowchart LR
 | Postgres `tenant` schema | Users, browser sessions, API tokens. Workspaces and membership arrive with per-workspace authorization | `edge` |
 | Postgres `control` schema | Run queue, run status, leases (`owner_id`, `lease_until`, `owner_epoch`) | `orchestrator` |
 | Postgres `runs` schema | `events`, `messages`, `agent_state`, `extension_state`, `deliveries`, `checkpoints`, `canaries`, `sandboxes` for every run, keyed by `run_id` ([event-log.md](event-log.md#tables)) | `orchestrator` |
-| Postgres `analysis` schema | Derived results: judge verdicts today; rule matches and offline scores later | `analysis` |
+| Postgres `analysis` schema | Derived results: judge verdicts, rule scans and matches, and the service's jobs; offline scores later | `analysis` |
 | Object storage | Exported `.eval` and Parquet (with hash chain fields); large blobs such as file snapshots and `web_request` bodies, content-addressed | written by `orchestrator`, read by `analysis` |
 
 Object storage is always reached through the standard S3 API, on every deployment, and no
 implementation-specific feature is used, so the backing store can be swapped by configuration.
-The export bucket is created with object lock enabled. `analysis` queries the Parquet files in
-place with DuckDB's `httpfs` extension.
+The export bucket is created with object lock enabled. `analysis` reads the Parquet files in
+place with pyarrow and queries them with DuckDB in process ([analysis.md](services/analysis.md#queries)).
 
 - The rows in `runs` are the evidence original; exports are derived from them. Derived results
   such as later rule matches or judge verdicts go to separate tables and never rewrite `events`.
@@ -194,13 +247,13 @@ build the single-machine column; the k8s column arrives in M5.
 
 | | Single machine (physical or VM) | k8s |
 |---|---|---|
-| Orchestration | docker compose | Helm chart |
+| Orchestration | docker compose ([deployment.md](deployment.md)) | Helm chart |
 | Sandbox driver | docker API, gVisor | k8s API: Pod + RuntimeClass (gVisor) |
 | Sandbox network | None (`--network none`) | No egress: a deny-all NetworkPolicy on sandbox Pods |
 | Worker egress | Outbound internet, for `web_request` | The same, from worker Pods |
 | Postgres | Container in compose, on a persistent volume | Managed service or an operator |
 | Object storage | RustFS container in compose, on a persistent volume | RustFS or a cloud S3 service |
-| Service certificates | Self-signed CA generated at start | cert-manager |
+| Service certificates | `swarm-certs`: a CA of the deployment's own, generated at start | cert-manager |
 | Run takeover | On the same machine | On any node; sandbox Pods outlive workers *(open, runtime spec Q4)* |
 
 On a shared server, SwarmEval must not disturb other workloads: it does not restart the docker

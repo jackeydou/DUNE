@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +22,8 @@ import (
 
 	"github.com/jackeydou/DUNE/go/internal/edge"
 	"github.com/jackeydou/DUNE/go/internal/edge/tenant"
+	"github.com/jackeydou/DUNE/go/internal/gen/swarmeval/analysis/v1/analysisv1connect"
+	"github.com/jackeydou/DUNE/go/internal/mtls"
 )
 
 const databaseEnv = "SWARMEVAL_DATABASE_URL"
@@ -60,22 +61,11 @@ func openTenant(ctx context.Context, log *slog.Logger) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func isLoopback(listen string) bool {
-	host, _, err := net.SplitHostPort(listen)
-	if err != nil {
-		return false
-	}
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
 func serveCommand(log *slog.Logger) *cobra.Command {
 	var (
-		listen, publicURL, certFile, keyFile, control string
-		idle, maxAge                                  time.Duration
+		listen, publicURL, certFile, keyFile, control, analysis string
+		idle, maxAge                                            time.Duration
+		identity                                                mtls.Files
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -90,8 +80,11 @@ func serveCommand(log *slog.Logger) *cobra.Command {
 				return errors.New("--tls-cert and --tls-key go together: give both to serve https, or neither")
 			}
 			useTLS := certFile != ""
-			if !useTLS && !isLoopback(listen) {
+			if !useTLS && !mtls.IsLoopback(listen) {
 				return fmt.Errorf("--listen %s is not a loopback address, and edge has no certificate: give --tls-cert and --tls-key, or listen on 127.0.0.1 behind a TLS-terminating proxy", listen)
+			}
+			if err := identity.Check(); err != nil {
+				return err
 			}
 			if control == "" {
 				return errors.New("--control is required: the orchestrator's Control API address, such as control:7090")
@@ -112,7 +105,18 @@ func serveCommand(log *slog.Logger) *cobra.Command {
 				PublicURL: public, SessionIdle: idle, SessionMaxAge: maxAge,
 				BodyTimeout: edge.DefaultBodyTimeout, UploadTimeout: edge.DefaultUploadTimeout,
 			}
-			handler := edge.NewHandler(cfg, tenant.NewStore(pool), edge.NewControlClient("http://"+control), log)
+			controlClient, err := edge.NewControlClient(control, identity)
+			if err != nil {
+				return err
+			}
+			// A nil client is a deployment without analysis: its calls answer Unimplemented.
+			var analysisClient analysisv1connect.AnalysisServiceClient
+			if analysis != "" {
+				if analysisClient, err = edge.NewAnalysisClient(analysis, identity); err != nil {
+					return err
+				}
+			}
+			handler := edge.NewHandler(cfg, tenant.NewStore(pool), controlClient, analysisClient, log)
 			var protocols http.Protocols
 			protocols.SetHTTP1(true)
 			if useTLS {
@@ -136,7 +140,7 @@ func serveCommand(log *slog.Logger) *cobra.Command {
 				defer cancel()
 				_ = server.Shutdown(shutdown) // streams still open after the timeout are cut
 			}()
-			log.Info("edge serving", "listen", listen, "public_url", public.String(), "tls", useTLS, "control", control)
+			log.Info("edge serving", "listen", listen, "public_url", public.String(), "tls", useTLS, "control", control, "analysis", analysis, "mtls", identity.Enabled())
 			if useTLS {
 				err = server.ListenAndServeTLS(certFile, keyFile)
 			} else {
@@ -154,6 +158,8 @@ func serveCommand(log *slog.Logger) *cobra.Command {
 	f.StringVar(&certFile, "tls-cert", "", "PEM certificate chain for https")
 	f.StringVar(&keyFile, "tls-key", "", "PEM private key for --tls-cert")
 	f.StringVar(&control, "control", "", "the orchestrator's Control API, host:port (required)")
+	f.StringVar(&analysis, "analysis", "", "the analysis service, host:port; without it the analysis calls are not available")
+	identity.Flags(f)
 	f.DurationVar(&idle, "session-idle", 24*time.Hour, "end a browser session unused for this long")
 	f.DurationVar(&maxAge, "session-max-age", 7*24*time.Hour, "end a browser session this long after sign-in")
 	return cmd

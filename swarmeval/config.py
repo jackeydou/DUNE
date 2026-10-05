@@ -4,7 +4,11 @@ Secrets come from the environment only, never from flags, so they stay out of pr
 """
 
 import argparse
+import asyncio
 import os
+import signal
+from collections.abc import Coroutine
+from typing import Any
 
 from swarmeval.events import ObjectStore
 
@@ -68,3 +72,24 @@ def add_case_code(parser: argparse.ArgumentParser) -> None:
         "That code runs inside the worker with the worker's privileges. Off by default "
         "(env SWARMEVAL_ALLOW_CASE_CODE=1)",
     )
+
+
+def run_service(main: Coroutine[Any, Any, None]) -> None:
+    """Runs a service until it ends or is told to stop. SIGTERM, which `docker stop`, compose,
+    and k8s send, and SIGINT (Ctrl-C) both cancel `main`, so its cleanup runs (a worker removes
+    its runs' sandboxes), and the process then exits 0. Without the SIGTERM handler a Python
+    process that is a container's first process ignores the signal and is killed, with no
+    cleanup, once the grace period is over."""
+
+    async def until_stopped() -> None:
+        task = asyncio.current_task()
+        assert task is not None, "run inside asyncio.run"
+        loop = asyncio.get_running_loop()
+        for stop in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(stop, task.cancel)
+        await main
+
+    try:
+        asyncio.run(until_stopped())
+    except asyncio.CancelledError:
+        raise SystemExit(0) from None

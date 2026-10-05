@@ -79,6 +79,11 @@ func printRun(w io.Writer, r *apiv1.Run) error {
 	}
 	if r.GetForkedFrom() != "" {
 		rows = append(rows, [2]string{"forked from", fmt.Sprintf("%s after seq %d (%s)", r.GetForkedFrom(), r.GetForkSeq(), orDash(r.GetFidelity()))})
+	} else if r.GetFidelity() != "" {
+		rows = append(rows, [2]string{"fidelity", r.GetFidelity()})
+	}
+	if r.GetTakeovers() > 0 {
+		rows = append(rows, [2]string{"taken over", takeovers(r.GetTakeovers())})
 	}
 	if r.GetCancelledBy() != "" {
 		rows = append(rows, [2]string{"cancelled by", r.GetCancelledBy()})
@@ -94,6 +99,14 @@ func printRun(w io.Writer, r *apiv1.Run) error {
 		_, _ = fmt.Fprintf(tw, "%s:\t%s\n", row[0], row[1])
 	}
 	return tw.Flush()
+}
+
+// takeovers says how often a run changed hands because its worker stopped renewing its lease.
+func takeovers(n int32) string {
+	if n == 1 {
+		return "once, after its worker's lease ran out"
+	}
+	return fmt.Sprintf("%d times, each after its worker's lease ran out", n)
 }
 
 func short(sha string) string {

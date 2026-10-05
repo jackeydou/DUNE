@@ -259,6 +259,7 @@ class Run(_message.Message):
     CANCELLED_BY_FIELD_NUMBER: _builtins.int
     RESUMED_BY_FIELD_NUMBER: _builtins.int
     CASE_REVISION_FIELD_NUMBER: _builtins.int
+    TAKEOVERS_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     submission_id: _builtins.str
     case_id: _builtins.str
@@ -294,6 +295,10 @@ class Run(_message.Message):
     resumed_by: _builtins.str
     case_revision: _builtins.int
     """The case library revision the run uses; `case_sha256` is that revision's bundle."""
+    takeovers: _builtins.int
+    """Times a worker claimed the run after its owner's lease ran out
+    (docs/services/orchestrator.md#leases-fencing-and-takeover).
+    """
     @_builtins.property
     def task_args(self) -> _struct_pb2.Struct:
         """The variant's axis values."""
@@ -332,10 +337,11 @@ class Run(_message.Message):
         cancelled_by: _builtins.str = ...,
         resumed_by: _builtins.str = ...,
         case_revision: _builtins.int = ...,
+        takeovers: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["created_at", b"created_at", "finished_at", b"finished_at", "started_at", b"started_at", "task_args", b"task_args"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["cancelled_by", b"cancelled_by", "case_id", b"case_id", "case_revision", b"case_revision", "case_sha256", b"case_sha256", "created_at", b"created_at", "epoch", b"epoch", "epochs", b"epochs", "error", b"error", "fidelity", b"fidelity", "finished_at", b"finished_at", "fork_seq", b"fork_seq", "forked_from", b"forked_from", "isolation", b"isolation", "owner_id", b"owner_id", "replaces", b"replaces", "resumed_by", b"resumed_by", "run_id", b"run_id", "started_at", b"started_at", "status", b"status", "submission_id", b"submission_id", "submitted_by", b"submitted_by", "suite", b"suite", "task_args", b"task_args", "variant", b"variant", "workspace", b"workspace"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["cancelled_by", b"cancelled_by", "case_id", b"case_id", "case_revision", b"case_revision", "case_sha256", b"case_sha256", "created_at", b"created_at", "epoch", b"epoch", "epochs", b"epochs", "error", b"error", "fidelity", b"fidelity", "finished_at", b"finished_at", "fork_seq", b"fork_seq", "forked_from", b"forked_from", "isolation", b"isolation", "owner_id", b"owner_id", "replaces", b"replaces", "resumed_by", b"resumed_by", "run_id", b"run_id", "started_at", b"started_at", "status", b"status", "submission_id", b"submission_id", "submitted_by", b"submitted_by", "suite", b"suite", "takeovers", b"takeovers", "task_args", b"task_args", "variant", b"variant", "workspace", b"workspace"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -388,12 +394,14 @@ class ListRunsRequest(_message.Message):
     CASE_ID_FIELD_NUMBER: _builtins.int
     STATUS_FIELD_NUMBER: _builtins.int
     SUITE_FIELD_NUMBER: _builtins.int
+    WORKSPACE_FIELD_NUMBER: _builtins.int
     LIMIT_FIELD_NUMBER: _builtins.int
     submission_id: _builtins.str
     """Filters; empty matches everything."""
     case_id: _builtins.str
     status: _builtins.str
     suite: _builtins.str
+    workspace: _builtins.str
     limit: _builtins.int
     """Zero means 100."""
     def __init__(
@@ -403,11 +411,12 @@ class ListRunsRequest(_message.Message):
         case_id: _builtins.str = ...,
         status: _builtins.str = ...,
         suite: _builtins.str = ...,
+        workspace: _builtins.str = ...,
         limit: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "limit", b"limit", "status", b"status", "submission_id", b"submission_id", "suite", b"suite"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["case_id", b"case_id", "limit", b"limit", "status", b"status", "submission_id", b"submission_id", "suite", b"suite", "workspace", b"workspace"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

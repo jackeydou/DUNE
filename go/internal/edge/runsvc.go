@@ -130,6 +130,7 @@ func (s *RunService) ListRuns(ctx context.Context, req *connect.Request[apiv1.Li
 		CaseId:       req.Msg.GetCaseId(),
 		Status:       req.Msg.GetStatus(),
 		Suite:        req.Msg.GetSuite(),
+		Workspace:    req.Msg.GetWorkspace(),
 		Limit:        req.Msg.GetLimit(),
 	}))
 	if err != nil {

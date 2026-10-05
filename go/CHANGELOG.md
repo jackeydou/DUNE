@@ -3,6 +3,52 @@
 ## [Unreleased]
 
 ### Added
+- `Run.takeovers` in `swarmeval.api.v1` and `swarmeval.control.v1`, forwarded by edge. `swarm
+  runs get` shows `taken over` for a run a worker took over after its owner's lease ran out,
+  and `fidelity` for a run that has one and is not a fork.
+- `swarm login --ca-file`, config `ca_file`, and `$SWARM_CA_FILE`: a PEM file the CLI trusts
+  for edge besides the system's authorities, for an edge with a self-signed certificate.
+- `swarm-certs --public-host NAME`: also writes `public/{tls.crt,tls.key}`, a self-signed
+  certificate for edge's `--tls-cert`, kept while it names the same hosts and has more than
+  30 days left. `swarm-certs --renew` replaces every service certificate.
+- `deploy/images/go.Dockerfile`: one image with `edge`, `sandboxd`, `swarm-certs`, and `swarm`.
+  It builds the console first, so its `edge` serves the pages.
+
+### Changed
+- `swarm-certs` keeps a service certificate that its CA signed, that names the same hosts, and
+  that has more than 30 days left, where it replaced every certificate on every run. A
+  deployment can now run it at every start.
+
+### Added
+- `swarm-certs`: writes a CA of the deployment's own and one certificate per service (`edge`,
+  `control`, `worker`, `analysis`, `model-gateway`, `sandboxd`, `operator`), each naming its
+  service in a URI SAN, `spiffe://swarmeval/<service>`. ECDSA P-256, one year; running it again
+  keeps the CA and replaces the certificates, `--new-ca` replaces the CA, `--host
+  SERVICE=NAME` adds a name a server is reached at. Each service's directory holds only that
+  service's key.
+- `sandboxd --mtls-cert --mtls-key --mtls-ca`: serves mutual TLS 1.3 and accepts only `worker`
+  certificates; the handshake fails for any other caller, and the refusal is logged.
+- `edge serve --mtls-cert --mtls-key --mtls-ca`: calls the Control API and the analysis
+  service over mutual TLS as `edge`, and only servers whose certificates name `control` and
+  `analysis`.
+
+### Changed
+- `sandboxd --listen` must be a loopback address unless sandboxd has a certificate; it exits
+  otherwise. Breaking for a deployment that served sandboxd on a network address in plain text.
+
+### Added
+- `RunService.ListRuns` takes `workspace`, forwarded to the Control API; `swarm runs list
+  --workspace`.
+- edge serves the web console, embedded from `go/internal/edge/webui/static/` (built by
+  `mise run console:build`): built files as they are, `index.html` for any other page path,
+  never a page for an API path, with a Content-Security-Policy that allows only edge's own
+  origin and forbids framing. An edge built without the console serves the API and says how to
+  build the pages. `swarm view RUN` prints the run's page in the console and opens it.
+- Analysis. edge serves `swarmeval.api.v1.AnalysisService` (`Query`, `SearchToolCalls`,
+  `StartRuleScan`, `GetJob`, `Judge`, `Report`, `GetTrace`, `DownloadExport`), forwarded to the
+  analysis service named by `edge serve --analysis host:port`; without the flag the calls are
+  `UNIMPLEMENTED`. `swarm query SQL` (table, `--csv`, or `--json`), `swarm report`
+  (`--submission`, `--suite`, `--compare`), and `swarm export RUN` (`--format eval|parquet`).
 - Case library. edge serves `swarmeval.api.v1.CaseService` (`PushCase`, `UpdateCaseFiles`,
   `GetCase`, `ListCases`, `ListCaseRevisions`, `GetCaseRevision`, `ArchiveCase`,
   `UnarchiveCase`), forwarded to the Control API with the caller as `actor`;

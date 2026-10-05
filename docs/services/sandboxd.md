@@ -33,8 +33,10 @@ Items marked *(proposed)* go beyond what the specs decided; they are listed unde
 ## Interface
 
 gRPC service `swarmeval.sandbox.v1.SandboxService`. Its only caller is the run's worker in the
-[orchestrator](orchestrator.md). It listens on `127.0.0.1` unless told otherwise and has no
-authentication, so only the internal network may reach it.
+[orchestrator](orchestrator.md). With `--mtls-cert`, `--mtls-key`, and `--mtls-ca` it serves
+mutual TLS and the handshake fails for anything but a `worker` certificate
+([service identity](../architecture.md#service-identity)). Without them it has no
+authentication and refuses to listen on anything but a loopback address.
 
 | RPC | Does | State |
 |---|---|---|

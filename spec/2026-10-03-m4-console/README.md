@@ -331,11 +331,108 @@ Alembic 的版本表互不干扰。理由：每个服务只拥有自己的数据
 5. **analysis 服务**：`swarmeval-analysis` 和决定 8 的 RPC；`analysis.jobs`；edge 转发；`swarm query`、
    `swarm report`、`swarm export`。
    退出条件：每个 RPC 有测试；`Query` 尝试读别的文件、修改配置都会失败。
+   （2026-10-04）已实现：`swarmeval-analysis` 和决定 8 的八个 RPC、`analysis.jobs`（迁移 0011）、edge 的
+   `AnalysisService` 转发（`edge serve --analysis`）、`swarm query`、`swarm report`、`swarm export`。与决定 8
+   不同或决定里没写的地方：
+   - `Query` 只接受恰好一条 `SELECT`（用 DuckDB 自己的解析结果判断语句类型），在关闭外部访问、锁定配置之外，
+     还关掉了 Python replacement scan，否则 SQL 能把服务进程里的变量当表读。
+   - `SearchToolCalls` 没有 tag 过滤：事件里现在没有 tag 字段。按 run、submission、工具名、agent、时间范围过滤。
+   - job 作为 asyncio 任务跑在接收它的服务进程里。服务启动时把上一个进程留下的未完成 job 标成 `failed`。
+   - `GetJob` 返回每个 run 的命中数和前 500 条命中，全部命中在 `analysis.rule_matches`。
+   - `Report` 除了结构化的数字，还返回整份 Markdown，`swarm report` 直接打印，CLI 不重写一遍表格。
+   - `edge serve --analysis` 是可选的：不配时 analysis 的调用返回 `UNIMPLEMENTED` 并说明原因。
+   - 对外的 analysis 消息和内部的逐字段同号。edge 手写请求的映射（调用方设不了 `actor`），响应经 wire 格式
+     整体复制，有测试保证两边字段一致。这比决定 1 说的"每个 RPC 十几行映射"少写很多重复代码，代价是内部
+     消息改字段时必须同步改对外的。
+   - `Judge` 不记 `actor`：`analysis.judge_verdicts` 没有这一列，决定 2 也没要求。
+   - analysis 服务自己不跑迁移，依赖控制面启动时跑过。
+   - 没配证书时只监听回环地址的检查留给第 7 步（mTLS）。
+   都写在 [docs/services/analysis.md](../../docs/services/analysis.md) 和
+   [docs/services/edge.md](../../docs/services/edge.md)。
 6. **控制台**：`console/` 和决定 9 的页面，嵌进 edge。
    退出条件：Playwright 对着本地栈跑一遍门槛流程：登录、新建 case、编辑、提交、看分数、回放、fork。
+   （2026-10-04）已实现：`console/` 和决定 9 的全部页面，嵌进 edge（`go/internal/edge/webui`）；`swarm view`；
+   `mise run console:e2e` 用 Playwright 对着真实的 edge、Control API、worker、analysis（模拟模型后端）走完门槛
+   流程。与决定 9 不同或决定里没写的地方：
+   - 构建产物写到 `go/internal/edge/webui/static/`，不提交：Go 的 embed 只能嵌模块目录里的文件。没构建控制台
+     的 edge 照常提供 API，页面请求返回 404 并说明怎么构建。
+   - 因果链用 `AnalysisService.GetTrace` 取，不在浏览器里沿 `parent_id` 走：`StreamEvents` 不返回 `parent_id`，
+     而 `GetTrace` 已经处理了跨 fork 进入原 run。代价是运行中的 run 还没有导出，看不到因果链。
+   - 回放只按事件类型过滤，没有 tag：事件里没有 tag 字段（同第 5 步）。
+   - fork 的编辑以 JSON 列表填写（和 `swarm replay --edit` 同一种格式），没有做逐条消息的编辑界面。
+   - 没有任何字段按 Markdown 渲染：现在没有"明确标记"为 Markdown 的字段，全部当文本。
+   - 新建 case 从一个能加载、带一个 `command` scorer 的模板开始，走 `UpdateCaseFiles` 的 `base_revision = 0`。
+   - 修订之间的 diff 用 `diff` 包在浏览器里算。
+   - 页面带 CSP：脚本、字体、连接只允许 edge 自己的源，禁止被嵌入 frame；样式允许 inline，因为 CodeMirror
+     把主题写进 style 元素。
+   - 登出后整页重新加载，内存里不留上一个用户读过的数据。
+   - 浏览器测试单独用 `browser` 标记，不进 `mise run check` 和 `test:docker`：它需要 node、pnpm 和 Chromium。
+     `check` 里加了控制台的类型检查、lint、单元测试，以及生成的客户端与 proto 一致的检查。
+   - 回放一次渲染一个 run 的全部事件，没有做虚拟滚动；几千个事件以上会慢。
+   都写在 [docs/services/edge.md](../../docs/services/edge.md#console) 和 `console/README.md`。
 7. **mTLS**：`swarm-certs`；各服务的 TLS 参数和身份检查。
    退出条件：每个服务拒绝不在白名单里的证书、拒绝没有证书的连接；没配证书时拒绝监听非回环地址。
+   （2026-10-04）已实现，基于第 4 步的分支；第 5 步（analysis 服务）当时还没合并，所以 analysis 的服务端白名单
+   （只接受 edge）留给第 5 步用 `swarmeval.mtls` 接上，证书已经会签发。与决定 10 不同或决定里没写的地方：
+   - 参数名是 `--mtls-cert`、`--mtls-key`、`--mtls-ca`，所有服务一致。edge 的 `--tls-cert` 仍是给浏览器看的那张。
+   - CA 有效期 10 年，服务证书 1 年。重新运行 `swarm-certs` 保留 CA、只换服务证书，这样可以逐个重启；
+     `--new-ca` 才换 CA。
+   - 输出按服务分目录（`<service>/{ca.crt,tls.crt,tls.key}`），每个目录只有这个服务自己的私钥，compose 里可以
+     只挂它自己的目录。
+   - 只被调用的服务（control、analysis、model-gateway、sandboxd）的证书才带服务端用途和主机名；worker、edge、
+     operator 的证书只能当客户端证书。
+   - 客户端也检查服务端：Go 客户端（edge）要求对端证书的身份是 `control`；Python 客户端（grpcio、httpx2）
+     只做主机名校验，grpcio 没有握手后的校验回调。
+   - model-gateway 的 HTTP 身份检查不在 ASGI 中间件里：uvicorn 不把对端证书传给应用。检查放在 uvicorn HTTP/1.1
+     协议类的子类里，按连接做，不在白名单里的连接每个请求都得到 `403 caller_not_allowed`。
+   - sandboxd 在握手阶段就拒绝不在白名单里的证书（Go 的 `VerifyConnection`）；Python 的 gRPC 服务在拦截器里
+     返回 `PERMISSION_DENIED`。
+   - Python 的测试用 `cryptography`（只在 dev 依赖里）签临时证书，`mise run check` 不需要 Go 工具链；真正的
+     `swarm-certs` 和 Go、Python 两边的互通在标了 `docker` 的测试里验证。
+   （2026-10-05）第 5 步合进了这个分支的基线，上面留下的那一项已补上：`swarmeval-analysis` 带同样的三个参数，
+   只接受 edge 的证书，没配证书时拒绝监听非回环地址；它调 model-gateway 用自己的证书。edge 连 analysis 也走
+   mTLS，并要求对端证书的身份是 `analysis`。
+   都写在 [docs/architecture.md](../../docs/architecture.md#service-identity)。
 8. **compose 与门槛**：`deploy/compose/`、镜像、部署文档。
    退出条件：在一台干净的 Linux 机器上 `docker compose up` 后，用录制的模型后端跑完 M4 门槛：Web 和 CLI 各走一遍
    "创建 case → 运行 → 看结果和回放"。
+   （2026-10-04）已实现能实现的部分，基于第 7 步的分支。第 5 步（analysis 服务）和第 6 步（控制台）当时还没
+   合并，所以 compose 里没有 `analysis` 服务，edge 也还不提供页面；退出条件里 Web 的那一半没有走，等控制台合并后
+   补。`deploy/compose/smoke.sh` 走的是：CLI 完成"创建 case → 运行 → 看结果和事件"，再用控制台将来的调用方式
+   （Connect JSON、会话 cookie、`Origin`）读同一个 run。它在 macOS 上的 OrbStack（Linux 虚拟机里的 docker，
+   runc）上跑通了；"干净的 Linux 机器"和 gVisor 还没有验证。与决定 13 不同或决定里没写的地方：
+   - model-gateway 也接出网的网络：模型后端在 compose 之外，要由它去连。决定 13 写的是只有 worker 能出网。
+   - edge 另接一个非 internal 的网络：docker 只给非 internal 网络上的容器发布端口。
+   - edge 默认用 https：容器里必须监听非回环地址，而 edge 没有证书时拒绝这样做（决定 4）。`swarm-certs
+     --public-host` 为 `SWARM_HOST` 生成一张自签的公开证书，不由服务 CA 签发，信任它不会连带信任别的；到期前
+     30 天以上、主机名不变就沿用，用户钉住的证书不会因为重启而失效。要用公共 CA 的证书时用 override 挂进去。
+   - CLI 增加 `ca_file`（`swarm login --ca-file`、`SWARM_CA_FILE`）：信任一张指定的证书，没有"关闭校验"的开关。
+   - `swarm-certs` 改成沿用还有 30 天以上有效期的服务证书（第 7 步是每次都重签），`--renew` 才全部重签。
+     compose 每次 `up` 都跑它，否则每次 CLI 调用都会在运行中的服务脚下换证书。
+   - Go 镜像里还带 `swarm`，compose 里有一个 `cli` 服务（`docker compose run --rm cli …`），机器上不需要 Go。
+   - 每个镜像只由一个服务构建（`control`、`certs`），其余服务只引用镜像：多个服务同时构建同一个 tag 时，
+     容器会落在不同的构建结果上，下一次 compose 命令会重建它们。
+   - 存储桶由一个一次性的 `bucket` 服务创建。没有开对象锁（architecture.md 写的是导出桶开对象锁，现有的开发
+     流程和测试也没有开），留给导出保留策略定下来时一起做。
+   （2026-10-05）第 5、6 步合进来之后补上的：compose 里有 `analysis` 服务，Go 镜像构建时先构建控制台，edge
+   提供页面；冒烟测试多了 `swarm query`、`swarm report`，以及取一个控制台页面和它引用的脚本。冒烟测试不驱动
+   浏览器：控制台的门槛流程由 `mise run console:e2e`（Playwright）走，它对着从源码起的栈，不是 compose 的栈。
+   所以"在 compose 起的栈上用浏览器走一遍"仍然没有自动化的验证。
+   都写在 [docs/deployment.md](../../docs/deployment.md)。
 9. **M3 衔接**（M3 合并后）：决定 12。
+   （2026-10-04）已实现现在能实现的部分，基于第 8 步的分支。决定 12 的四项里：
+   - **接管次数**：已实现。`control.runs.takeovers`（迁移 0012）在 `claim_expired` 里加一，Control API 和对外
+     `Run` 都返回，`swarm runs get` 显示。排队后的第一次认领、同一个 worker id 重启后收尾，都不算接管。
+     迁移编号是 0012，接在第 5 步的 0011（`analysis.jobs`）之后。
+   - **恢复保真度**：对外 `Run.fidelity` 和 `swarm runs get` 已经能显示任何取值，但现在只有 fork 会写它。M3 合并
+     的是租约和接管（#14），恢复执行（`exact`、`fs_preserved`、`lost`）还没做，所以没有值可显示。
+   - **回放渲染 `CheckpointEvent` 和基础设施暂停**：没做。这两种事件现在都不产生（M3 的恢复和"基础设施故障时
+     暂停"都没实现），它们的字段还没定；控制台（第 6 步）也还没合并。等事件有了再渲染。事件的单行文本对未知
+     类型有通用的兜底，到时不会显示不出来。
+   - **compose 的 worker 重启策略**：已实现。worker id 固定，`restart: unless-stopped`，重启后立刻把自己留下的
+     run 标成 `interrupted` 并补跑；`stop_grace_period` 1 分钟。为了让它成立，另改了两处 worker 行为：
+     收到 SIGTERM 时和 Ctrl-C 一样先清掉沙箱再以 0 退出（原来作为容器的 1 号进程会忽略 SIGTERM，10 秒后被
+     杀掉，沙箱留在宿主机上）；新增 `--stay-halted`，隔离自检失败而停机的 worker 不退出、空转等人处理（退出就会
+     被重启策略拉起来，在同一台坏掉的宿主机上把队列里的 run 一个个跑成 `failed`，而 `failed` 不会补跑）。
+     不带这个参数时行为不变。
+   都写在 [docs/deployment.md](../../docs/deployment.md#when-a-worker-stops)。

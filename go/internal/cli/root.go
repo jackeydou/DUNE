@@ -28,7 +28,8 @@ func NewRoot(in io.Reader, out, errOut io.Writer) *cobra.Command {
 		Short: "SwarmEval's command line: submit and follow evaluation runs through edge",
 		Long: "swarm talks to edge, SwarmEval's public entry point, with an API token from `swarm login`.\n" +
 			"The endpoint and token are read from ~/.config/swarm/config.yaml (or $SWARM_CONFIG),\n" +
-			"and $SWARM_ENDPOINT and $SWARM_TOKEN override them.",
+			"and $SWARM_ENDPOINT and $SWARM_TOKEN override them. For an edge with a self-signed\n" +
+			"certificate, `swarm login --ca-file` or $SWARM_CA_FILE names the certificate to trust.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -40,6 +41,7 @@ func NewRoot(in io.Reader, out, errOut io.Writer) *cobra.Command {
 	root.AddCommand(
 		a.loginCommand(), a.logoutCommand(), a.whoamiCommand(), a.tokenCommand(), a.userCommand(),
 		a.runCommand(), a.runsCommand(), a.eventsCommand(), a.replayCommand(), a.caseCommand(),
+		a.queryCommand(), a.reportCommand(), a.exportCommand(), a.viewCommand(),
 	)
 	return root
 }
@@ -65,7 +67,7 @@ func (a *app) signedIn() (*clients, error) {
 	if cfg.Token == "" {
 		return nil, errors.New("not signed in: run `swarm login`, or set " + envToken)
 	}
-	return newClients(cfg.Endpoint, cfg.Token)
+	return newClients(cfg)
 }
 
 // stdinIsTerminal reports whether prompts can hide what is typed.

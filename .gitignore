@@ -8,3 +8,6 @@ build/
 .DS_Store
 .env
 .state/
+# The console's build, embedded into edge (`mise run console:build`).
+go/internal/edge/webui/static/*
+!go/internal/edge/webui/static/.gitkeep

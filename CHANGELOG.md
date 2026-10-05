@@ -3,6 +3,55 @@
 ## [Unreleased]
 
 ### Added
+- `Run.takeovers` (migration 0012, `control.runs.takeovers`): how many times a worker claimed
+  the run after its owner's lease ran out. The Control API returns it.
+- `swarmeval-worker --stay-halted`: a worker that a failed isolation self-check halted stays
+  up without claiming runs instead of exiting, so a restart policy does not put it back on
+  the broken host. The compose stack sets it.
+
+### Changed
+- `swarmeval-worker`, `swarmeval-control`, and `swarmeval-analysis` stop on SIGTERM as on
+  Ctrl-C and exit 0: the
+  worker cancels its runs, which removes their sandboxes. Before, a worker that was a
+  container's first process ignored SIGTERM, was killed when the grace period ended, and left
+  its sandboxes until a worker with its id started again.
+- compose: the worker has a 1 minute `stop_grace_period`.
+
+### Added
+- Single-machine deployment, `deploy/compose/`: `docker compose up` runs edge, the control
+  plane, a worker, the analysis service, model-gateway, sandboxd, Postgres, and RustFS, with mutual TLS between the
+  services from certificates generated at start, platform services on a network with no route
+  out, and edge the only published port, on https. `deploy/images/python.Dockerfile` is the
+  image of the Python services. `deploy/compose/smoke.sh` (`mise run deploy:smoke`) runs
+  `cases/scorer_misbelief` through the stack with a recorded model backend. Setup and
+  operations: `docs/deployment.md`.
+- Mutual TLS between services (`swarmeval.mtls`). `swarmeval-control`, `swarmeval-worker`,
+  `swarmeval-model-gateway`, `swarmeval-analysis`, `python -m swarmeval.control.suite submit`,
+  and `python -m swarmeval.analysis judge` take `--mtls-cert`, `--mtls-key`, and `--mtls-ca`,
+  the files `swarm-certs` writes. With them the Control API accepts only `edge` and `operator`
+  certificates, the analysis service only `edge`, and model-gateway (HTTP and
+  `RecorderService`) only `worker` and `analysis`:
+  another service's call is `PERMISSION_DENIED`, or `403 caller_not_allowed` on HTTP, and a
+  connection without a certificate of the deployment's CA fails in the handshake. Clients
+  connect only to certificates that CA signed for the host they dialed.
+
+### Changed
+- Without `--mtls-cert`, `swarmeval-control --listen`, `swarmeval-analysis --listen`, and
+  `swarmeval-model-gateway --http` / `--grpc` must be loopback addresses; they exit otherwise. Breaking for a deployment that
+  served plain text on a network address: issue certificates with `swarm-certs`. With
+  `--mtls-cert`, the worker's `--gateway-http` and the analysis service's `--gateway-url` must
+  be `https` URLs.
+
+### Added
+- Control API `ListRuns` filters by `workspace`.
+- Analysis service: `swarmeval-analysis` serves `swarmeval.analysis.v1.AnalysisService` for
+  edge. `Query` runs one read-only SELECT over the views `runs` and `events` on a DuckDB
+  connection with external access off and its configuration locked, at most 10,000 rows and
+  30 seconds; `SearchToolCalls` filters tool calls by run, submission, tool, agent, and time;
+  `StartRuleScan` runs a rule set as a background job (`analysis.jobs`, migration 0011) and
+  `GetJob` returns it; `Judge`, `Report`, and `GetTrace` call the batch jobs' code;
+  `DownloadExport` streams a run's `.eval` or `events.parquet`. Jobs left unfinished by a
+  stopped service are marked `failed` when it starts.
 - Case library: `control.cases` and `control.case_revisions` (migration 0010). Every case the
   platform stores or runs has numbered, immutable revisions, each naming a bundle and who made
   it, and every run references one (`control.run_specs.case_revision_id`, `Run.case_revision`).

@@ -20,6 +20,9 @@ type Config struct {
 	// TokenID is the token's public id when `swarm login` made it, so `swarm logout` can revoke
 	// it. Empty for a token given with --token.
 	TokenID string `yaml:"token_id,omitempty"`
+	// CAFile is a PEM file of certificates to trust for edge besides the system's: the
+	// certificate of an edge that serves a self-signed one, or the CA that signed it.
+	CAFile string `yaml:"ca_file,omitempty"`
 }
 
 // Environment variables that override the file.
@@ -27,6 +30,7 @@ const (
 	envConfig   = "SWARM_CONFIG"
 	envEndpoint = "SWARM_ENDPOINT"
 	envToken    = "SWARM_TOKEN"
+	envCAFile   = "SWARM_CA_FILE"
 )
 
 // configPath is $SWARM_CONFIG, else $XDG_CONFIG_HOME/swarm/config.yaml, else
@@ -67,6 +71,9 @@ func loadConfig() (Config, string, error) {
 	}
 	if v := os.Getenv(envToken); v != "" {
 		cfg.Token, cfg.TokenID = v, ""
+	}
+	if v := os.Getenv(envCAFile); v != "" {
+		cfg.CAFile = v
 	}
 	return cfg, path, nil
 }

@@ -65,14 +65,18 @@ The sandboxd client is `swarmeval/sandbox/`.
 ### Control API
 
 gRPC service `swarmeval.control.v1.ControlService` (`proto/swarmeval/control/v1/control.proto`)
-on the internal network. It has no authentication until [edge](edge.md) exists in M4 *(RPC names
-proposed)*. A case bundle may be up to 64 MiB, and a message 1 MiB more, so that a bundle of
-exactly the limit still fits with the rest of its request.
+on the internal network *(RPC names proposed)*. With `--mtls-cert`, `--mtls-key`, and `--mtls-ca`
+it accepts only `edge` and `operator` certificates
+([service identity](../architecture.md#service-identity)); without them `--listen` must be a
+loopback address. The worker takes the same three flags to call sandboxd and model-gateway,
+and then `--gateway-http` must be an `https` URL. A case bundle may be up to 64 MiB, and a
+message 1 MiB more, so that a bundle of exactly the limit still fits with the rest of its
+request.
 
 | RPC | Does | From |
 |---|---|---|
 | `SubmitRuns` | Takes a case, as a bundle or as a [library](#case-library) revision (`case`: workspace, case id, revision, 0 = newest), exactly one of the two; variant overrides (axis → list of values), epochs (0 = the case's), and an optional [suite](#suites) label. A bundle is validated and pushed to the library as `PushCase` pushes it, in the transaction that queues the runs. Enqueues one run per variant and epoch; returns the submission id, the run ids, and the revision they use. A case that does not load is `INVALID_ARGUMENT` with the loader's message; an unknown case or revision is `NOT_FOUND`; an archived case is `FAILED_PRECONDITION` | Built |
-| `GetRun`, `ListRuns` | Status, variant and its values, epoch, the run it [reruns](#reruns), owner, isolation level, error, timestamps. `ListRuns` filters by submission, suite label, case, and status, newest first | Built. Fidelity arrives with recovery (M3) |
+| `GetRun`, `ListRuns` | Status, variant and its values, epoch, the run it [reruns](#reruns), owner, isolation level, error, timestamps. `ListRuns` filters by submission, suite label, case, workspace, and status, newest first; the filters apply before the limit | Built. Fidelity arrives with recovery (M3) |
 | `CancelRun` | Marks cancelled. A queued run never starts; a running one stops at its owner's next hook point, is not scored, and is still exported. A finished run is `FAILED_PRECONDITION` | Built |
 | `ResumeRun` | A run paused for a person (a Monitor's `pause`) goes on from the hook point where it stopped. A run that is not paused is `FAILED_PRECONDITION` | Built |
 | `ForkRun` | A new run that goes on from a finished run's state at the start of the turn an event happened in, with edits: replace a message's text, delete a user message, or replace an undelivered message's content ([forks](#forks)). Returns the fork, `<source>.f<n>`, queued. Only a run that ended `done` or `cancelled` (an exported one) can be forked. An unknown run or event is `NOT_FOUND`; any other source run, an event before the first turn, a turn that began with extension background work (`ctx.spawn`) still running, a run recorded before forks were possible, or an edit that does not fit is `FAILED_PRECONDITION`; a malformed edit is `INVALID_ARGUMENT` | Built |
@@ -290,6 +294,11 @@ should stay the same across restarts, because on start the worker marks the runs
 `interrupted`, which [reruns](#reruns) them, gives a run cancelled while it ran its `finished_at`
 and summary, and asks its sandboxd to remove both kinds' sandboxes. Under a new id, the old id's
 runs wait for their leases to run out and are [taken over](#leases-fencing-and-takeover).
+On SIGTERM, as on Ctrl-C, the worker cancels its runs, which removes their sandboxes, and
+exits 0; the control plane and the analysis service stop the same way
+(`swarmeval.config.run_service`). With
+`--stay-halted`, a worker that a failed self-check halted stays up idle instead of exiting,
+for deployments that restart whatever exits ([deployment.md](../deployment.md#when-a-worker-stops)).
 
 ### Several workers
 
@@ -666,6 +675,9 @@ run. The tables were shaped for recovery from the start, so none of this needed 
   created them, so a sandboxd on another node finds none, and they are left, labeled with the run,
   until the old worker's id restarts on that node *(proposed)*. A run claimed before leases
   existed has no lease, never runs out, and is still finished when its worker id restarts.
+  Each takeover adds one to the run's `takeovers` (`control.runs`, migration 0012), which `Run`
+  returns and `swarm runs get` shows; a claim from the queue and a restart of the owner's own
+  id are not takeovers.
 
   With resuming, a takeover will do the following instead:
   1. Reconcile the run's containers through sandboxd `ListRun`. Live ones are adopted, not

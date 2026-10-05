@@ -13,6 +13,7 @@ agent needs in *every* session, and it stops working once it's long enough to sk
 - `case.yaml` / `env.yaml`, variants, sandbox topology: [docs/case-format.md](docs/case-format.md)
 - Tooling and libraries shared across services: [docs/tech-stack.md](docs/tech-stack.md)
 - What is in the repo and where new code goes: [docs/repo-layout.md](docs/repo-layout.md)
+- Running it on one machine with docker compose: [docs/deployment.md](docs/deployment.md)
 - Setup and tasks: [docs/development.md](docs/development.md). Run `mise run check` before you
   call a change done.
 - Why things are the way they are: [spec/](spec/AGENTS.md). "spec §N" below means the

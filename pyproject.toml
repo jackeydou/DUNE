@@ -35,6 +35,7 @@ dependencies = [
 swarmeval-model-gateway = "swarmeval.gateway.model.server:main"
 swarmeval-control = "swarmeval.control.server:main"
 swarmeval-worker = "swarmeval.worker.server:main"
+swarmeval-analysis = "swarmeval.analysis.server:main"
 
 [build-system]
 requires = ["uv_build>=0.10,<0.11"]
@@ -67,15 +68,19 @@ venv = ".venv"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 # Tests that start containers run in `mise run test:docker`, not in `mise run check`.
-addopts = ["-m", "not docker"]
+addopts = ["-m", "not docker and not browser"]
 filterwarnings = [
     "error::DeprecationWarning:swarmeval.*",
     "error::DeprecationWarning:tests.*",
 ]
-markers = ["docker: needs a local docker daemon (testcontainers)"]
+markers = [
+    "docker: needs a local docker daemon (testcontainers)",
+    "browser: drives the console in a browser; needs docker, node, pnpm, and a Chromium",
+]
 
 [dependency-groups]
 dev = [
+    "cryptography>=50.0.2",
     "grpcio-tools>=1.84.0",
     "mypy-protobuf>=5.1.0",
     "pyarrow-stubs>=20.0.0.20260819",
