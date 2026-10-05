@@ -193,17 +193,35 @@ func issue(dir, service string, opts Options, ca *x509.Certificate, caKey *ecdsa
 	if err != nil {
 		return fmt.Errorf("sign: %w", err)
 	}
+	// The bundle is built beside the service's directory and swapped in whole, so a service
+	// starting during a rotation reads the old bundle or the new one, or for an instant finds
+	// none and fails to start; it never reads a key, certificate, and CA of different runs.
 	out := filepath.Join(dir, service)
-	if err := os.MkdirAll(out, 0o755); err != nil {
+	next, old := out+".new", out+".old"
+	for _, leftover := range []string{next, old} {
+		if err := os.RemoveAll(leftover); err != nil {
+			return err
+		}
+	}
+	if err := os.Mkdir(next, 0o755); err != nil {
 		return err
 	}
-	if err := writeKey(filepath.Join(out, KeyFile), key); err != nil {
+	if err := writeKey(filepath.Join(next, KeyFile), key); err != nil {
 		return err
 	}
-	if err := write(filepath.Join(out, CertFile), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+	if err := write(filepath.Join(next, CertFile), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
 		return err
 	}
-	return write(filepath.Join(out, CAFile), caPEM, 0o644)
+	if err := write(filepath.Join(next, CAFile), caPEM, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(out, old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(next, out); err != nil {
+		return err
+	}
+	return os.RemoveAll(old)
 }
 
 func serial() *big.Int {
@@ -224,8 +242,7 @@ func writeKey(path string, key *ecdsa.PrivateKey) error {
 	return write(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600)
 }
 
-// write replaces path in one rename, so a service starting during a rotation reads the old
-// file or the new one, never part of either.
+// write replaces path in one rename, so no reader sees part of a file.
 func write(path string, data []byte, mode fs.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {

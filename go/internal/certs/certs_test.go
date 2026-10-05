@@ -1,6 +1,7 @@
 package certs
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"os"
@@ -146,5 +147,41 @@ func TestGenerateRefuses(t *testing.T) {
 				t.Fatalf("got %v, want an error containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestABundleIsReplacedWholeAndLeftoversOfAnInterruptedRunAreCleared(t *testing.T) {
+	dir, now := t.TempDir(), time.Now()
+	if err := Generate(dir, Options{Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	// A run that died between its two renames leaves the old bundle aside and none in place;
+	// one that died earlier leaves a half-written new one.
+	worker := filepath.Join(dir, mtls.Worker)
+	if err := os.Rename(worker, worker+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(worker+".new", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Generate(dir, Options{Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".new") || strings.HasSuffix(e.Name(), ".old") {
+			t.Errorf("left %s behind", e.Name())
+		}
+	}
+	// Every file of a bundle comes from one run: the key is the certificate's, under this CA.
+	files := Paths(dir, mtls.Worker)
+	if _, err := tls.LoadX509KeyPair(files.Cert, files.Key); err != nil {
+		t.Fatalf("worker's key and certificate do not belong together: %v", err)
+	}
+	if err := verify(readCert(t, files.CA), readCert(t, files.Cert), x509.ExtKeyUsageClientAuth, now); err != nil {
+		t.Fatal(err)
 	}
 }
