@@ -1,3 +1,4 @@
-.env
-gateway.env
-gateway.yaml
+# Local settings of a deployment made here. Anchored: smoke/gateway.yaml is committed.
+/.env
+/gateway.env
+/gateway.yaml

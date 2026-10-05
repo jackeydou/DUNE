@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # The M4 gate on one machine: bring the stack up with a recorded model backend, then, as a user
 # would, create a case, run it, and read its result and events, through the CLI and through
-# the API the console calls. Needs docker with compose, and nothing else. docs/deployment.md.
+# the API the console calls. Needs docker with compose and the images it checks for first; it
+# pulls nothing and calls nothing outside the machine once the two images of this repository
+# are built. docs/deployment.md.
 #
 #   deploy/compose/smoke.sh          # leaves nothing behind
 #   KEEP=1 deploy/compose/smoke.sh   # leaves the stack up to look at
@@ -12,8 +14,13 @@ export COMPOSE_PROJECT_NAME=swarmeval-smoke
 export POSTGRES_PASSWORD=smoke-postgres S3_ACCESS_KEY=smoke-access S3_SECRET_KEY=smoke-secret
 export SWARM_HOST=localhost SWARM_PORT="${SWARM_PORT:-17443}" SWARM_BIND=127.0.0.1
 export SWARM_GATEWAY_CONFIG=./smoke/gateway.yaml
-# The docker daemon must see this path as sandboxd does; a fresh one keeps the test to itself.
-export SWARM_STATE_DIR="${SWARM_STATE_DIR:-/tmp/swarmeval-smoke-$$}"
+# sandboxd's state directory, which the docker daemon must see at the same path. The test
+# makes one of its own and removes it afterwards. SMOKE_STATE_PARENT says where, for a daemon
+# that does not share /tmp with this shell; a SWARM_STATE_DIR from the environment is never
+# used, since it may be a real deployment's.
+state_parent="${SMOKE_STATE_PARENT:-/tmp}"
+SWARM_STATE_DIR=$(mktemp -d "$state_parent/swarmeval-smoke.XXXXXX")
+export SWARM_STATE_DIR
 PASSWORD="smoke test passphrase"
 URL="https://localhost:${SWARM_PORT}"
 
@@ -33,8 +40,10 @@ cleanup() {
   fi
   if [ -z "${KEEP:-}" ]; then
     compose --profile cli down --volumes --remove-orphans >/dev/null 2>&1 || true
-    docker run --rm -v "$(dirname "$SWARM_STATE_DIR"):/parent" busybox:latest \
-      rm -rf "/parent/$(basename "$SWARM_STATE_DIR")" >/dev/null 2>&1 || true
+    # sandboxd wrote there as root. Only the directory made above is removed.
+    docker run --rm --network none -v "$SWARM_STATE_DIR:/state" busybox:latest \
+      find /state -mindepth 1 -delete >/dev/null 2>&1 || true
+    rmdir "$SWARM_STATE_DIR" 2>/dev/null || true
   else
     echo "left running: $URL (admin root, password \"$PASSWORD\"). Remove with:"
     echo "  COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose -f $PWD/compose.yaml -f $PWD/compose.smoke.yaml --profile cli down --volumes"
@@ -43,9 +52,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-step "images the case's sandboxes use (sandboxd never pulls)"
-docker image inspect python:3.12-slim >/dev/null 2>&1 || docker pull python:3.12-slim
-docker image inspect busybox:latest >/dev/null 2>&1 || docker pull busybox:latest
+step "images that must be on the host already (nothing is pulled here, and sandboxd never pulls)"
+for image in python:3.12-slim busybox:latest postgres:18-alpine rustfs/rustfs:latest; do
+  docker image inspect "$image" >/dev/null 2>&1 ||
+    fail "image $image is not on this host. Pull it first: docker pull $image"
+done
 
 step "docker compose up"
 compose up --build --detach --wait
