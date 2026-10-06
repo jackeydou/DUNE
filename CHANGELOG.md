@@ -16,6 +16,8 @@
   container's first process ignored SIGTERM, was killed when the grace period ended, and left
   its sandboxes until a worker with its id started again.
 - compose: the worker has a 1 minute `stop_grace_period`.
+- compose: `control` and `analysis` are healthy once they listen, and `docker compose up
+  --wait`, edge, the worker, and analysis wait for that instead of for the container to start.
 
 ### Added
 - Single-machine deployment, `deploy/compose/`: `docker compose up` runs edge, the control

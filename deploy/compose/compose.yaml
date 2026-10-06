@@ -115,6 +115,15 @@ services:
       certs: { condition: service_completed_successfully }
       bucket: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
+    # Ready once it listens: it migrates first, and `up --wait` and the services that
+    # depend on it wait for this.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 7090), 1)"]
+      start_period: 2m
+      start_interval: 1s
+      interval: 30s
+      timeout: 2s
+      retries: 3
     networks: [platform]
 
   model-gateway:
@@ -159,8 +168,16 @@ services:
       - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: analysis } }
     depends_on:
       # The control plane migrates the database analysis reads and writes.
-      control: { condition: service_started }
+      control: { condition: service_healthy }
       model-gateway: { condition: service_started }
+    # Ready once it listens, which `up --wait` and edge wait for.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 7091), 1)"]
+      start_period: 2m
+      start_interval: 1s
+      interval: 30s
+      timeout: 2s
+      retries: 3
     networks: [platform]
 
   # Controls the host's docker daemon, which is root on the host: only the worker's
@@ -210,7 +227,7 @@ services:
     volumes:
       - { type: volume, source: certs, target: /certs, read_only: true, volume: { subpath: worker } }
     depends_on:
-      control: { condition: service_started }
+      control: { condition: service_healthy }
       sandboxd: { condition: service_started }
       model-gateway: { condition: service_started }
     # egress: `web_request` reaches the public internet from the worker, and only it.
@@ -240,8 +257,8 @@ services:
     depends_on:
       certs: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
-      control: { condition: service_started }
-      analysis: { condition: service_started }
+      control: { condition: service_healthy }
+      analysis: { condition: service_healthy }
     # public: a published port needs a network that is not internal.
     networks: [platform, public]
 

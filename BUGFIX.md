@@ -1,5 +1,21 @@
 # Bug fixes
 
+## 2026-10-05 — The first call after `docker compose up --wait` finds the control plane down
+
+**Symptom.** On a Linux host, `deploy/compose/smoke.sh` failed at its first CLI call:
+`PushCase: the control plane did not answer`, edge logging `connect: connection refused` to
+`control:7090`. The same call a few seconds later succeeded.
+**Root cause.** `control` and `analysis` had no healthcheck, so `up --wait` returned, and edge,
+the worker, and analysis started, as soon as their containers started. The control plane runs
+its migrations before it listens, which took about two seconds there.
+**Fix.** Both have a healthcheck that passes once their port accepts a connection, and the
+services that call them depend on `service_healthy`. `deploy/compose/compose.yaml`.
+**Guard.** `deploy/compose/smoke.sh` (`mise run deploy:smoke`), whose first CLI call comes right
+after `up --wait`.
+**Touches.** model-gateway and sandboxd still count as up when their containers start; the
+worker reaches them only once a run is claimed. A service that migrates before it listens
+needs the same healthcheck.
+
 ## 2026-10-04 — `DownloadExport` reads the whole export into memory
 
 **Symptom.** Downloading a large `sample.eval` or `events.parquet` allocated the whole object in
