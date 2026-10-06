@@ -32,6 +32,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import type { User } from "@/gen/swarmeval/api/v1/auth_pb"
 import { isAdmin } from "@/session"
@@ -79,13 +80,16 @@ export function AppSidebar({ user }: { user: User }) {
     [item.to, ...(item.also ?? [])].some(
       (p) => path === p || path.startsWith(`${p}/`)
     )
+  // On a narrow screen the sidebar is a modal sheet, open across pages until closed.
+  const { setOpenMobile } = useSidebar()
+  const picked = () => setOpenMobile(false)
   return (
     <Sidebar collapsible="icon" data-testid="nav">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link to="/runs">
+              <Link to="/runs" onClick={picked}>
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                   <Hexagon className="size-4" />
                 </div>
@@ -114,7 +118,7 @@ export function AppSidebar({ user }: { user: User }) {
                     isActive={active(item)}
                     tooltip={item.label}
                   >
-                    <Link to={item.to}>
+                    <Link to={item.to} onClick={picked}>
                       <item.icon />
                       <span>{item.label}</span>
                     </Link>
@@ -157,7 +161,7 @@ export function AppSidebar({ user }: { user: User }) {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link to="/account">
+                  <Link to="/account" onClick={picked}>
                     <KeyRound /> Password and tokens
                   </Link>
                 </DropdownMenuItem>

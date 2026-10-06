@@ -1,5 +1,32 @@
 # Bug fixes
 
+## 2026-10-06 — The sidebar sheet stays open over the page it opened
+
+**Symptom.** Below 768px, picking a page in the sidebar navigated behind the sheet, which
+stayed open with its overlay until dismissed.
+**Root cause.** On a narrow screen the sidebar is a modal sheet whose open state lives in
+`SidebarProvider`, which outlives the page, and the links only navigated.
+**Fix.** Every link in the sidebar closes the sheet (`setOpenMobile(false)`).
+`src/components/AppSidebar.tsx`.
+**Guard.** `e2e/threshold.spec.ts`: at 390px, Runs is picked from the sheet and no dialog is
+left.
+**Touches.** A link added to the sidebar needs the same `onClick`. On a wide screen the
+sidebar is not a sheet and `setOpenMobile` changes nothing. Reported by Codex review on #31.
+
+## 2026-10-06 — A replay narrower than the event detail clips its controls
+
+**Symptom.** On a phone, choosing an event cut off the right of its detail, Close and Fork
+from here included, and squeezed the lanes to nothing.
+**Root cause.** The detail was a fixed 28rem that would not shrink, inside a panel that clips
+what overflows it.
+**Fix.** The replay panel is a size container: below 48rem the detail covers the lanes at
+the panel's width, and beside them from 48rem. `src/components/Replay.tsx`.
+**Guard.** `e2e/threshold.spec.ts`: at 390px, the chosen event's Close button is wholly on
+screen.
+**Touches.** The width is the panel's, not the viewport's, so a narrow panel on a wide screen
+gets the overlay too. The placeholder beside the lanes shows from 64rem of panel. Reported by
+Codex review on #31.
+
 ## 2026-10-04 — A changed binary file is missing from a revision diff
 
 **Symptom.** Two revisions holding different binary files of the same length and mode at one
