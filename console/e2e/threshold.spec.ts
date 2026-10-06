@@ -103,6 +103,18 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await expect(page.getByText(`after seq`)).toBeVisible()
   await expect(page.locator("h1 [data-status]")).toHaveAttribute("data-status", "done", { timeout: 120_000 })
 
+  // At phone width an event's detail covers the lanes with its controls on screen, and the
+  // sidebar is a sheet that closes once a page is picked.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.locator('[data-testid="event"]').first().click()
+  await expect(page.getByTestId("event-detail").getByRole("button", { name: "Close" })).toBeInViewport({ ratio: 1 })
+  await page.getByTestId("event-detail").getByRole("button", { name: "Close" }).click()
+  await page.getByRole("button", { name: "Toggle Sidebar" }).click()
+  await page.getByRole("dialog").getByRole("link", { name: "Runs", exact: true }).click()
+  await expect(page).toHaveURL(/\/runs$/)
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
   // The submission's rates, from the analysis service.
   await nav(page, "Runs").click()
   // The workspace filter lists the library's workspaces and is applied by the server.

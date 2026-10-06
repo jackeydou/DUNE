@@ -179,7 +179,7 @@ function EventDetail({
   const [forking, setForking] = useState(false)
   return (
     <aside
-      className="flex w-[28rem] shrink-0 flex-col overflow-hidden border-l bg-background"
+      className="absolute inset-0 z-20 flex flex-col overflow-hidden bg-background @3xl:static @3xl:w-[28rem] @3xl:shrink-0 @3xl:border-l"
       data-testid="event-detail"
     >
       <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
@@ -298,7 +298,7 @@ export function Replay({
         ))}
       </div>
       <ErrorAlert title="The event stream stopped" error={error} />
-      <div className="flex h-[calc(100svh-12rem)] min-h-[28rem] overflow-hidden rounded-xl border bg-card shadow-xs">
+      <div className="@container relative flex h-[calc(100svh-12rem)] min-h-[28rem] overflow-hidden rounded-xl border bg-card shadow-xs">
         <div className="min-w-0 flex-1 overflow-auto">
           <div
             className="grid text-xs"
@@ -362,7 +362,7 @@ export function Replay({
               onClose={() => setSelected(undefined)}
             />
           ) : (
-            <aside className="hidden w-72 shrink-0 flex-col items-center justify-center gap-2 border-l p-6 text-center text-sm text-muted-foreground xl:flex">
+            <aside className="hidden w-72 shrink-0 flex-col items-center justify-center gap-2 border-l p-6 text-center text-sm text-muted-foreground @5xl:flex">
               <MousePointerClick className="size-5" />
               Pick an event to see its stored payload and what caused it.
             </aside>
