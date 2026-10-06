@@ -3,7 +3,8 @@ import { useState, type FormEvent } from "react"
 import { toast } from "sonner"
 
 import { auth, when } from "@/api"
-import { ErrorAlert, Loading, Page, Verbatim } from "@/components/common"
+import { ErrorAlert, Loading, Page, TableCard, Verbatim } from "@/components/common"
+import { ago } from "@/lib/time"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -108,6 +109,7 @@ function Tokens() {
         {tokens.isPending ? (
           <Loading what="tokens" />
         ) : (
+          <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -121,13 +123,13 @@ function Tokens() {
             <TableBody>
               {(tokens.data?.tokens ?? []).map((t) => (
                 <TableRow key={t.tokenId}>
-                  <TableCell>{t.name}</TableCell>
-                  <TableCell>{when(t.createdAt)}</TableCell>
-                  <TableCell>{when(t.lastUsedAt)}</TableCell>
+                  <TableCell className="font-medium">{t.name}</TableCell>
+                  <TableCell title={when(t.createdAt)}>{ago(t.createdAt)}</TableCell>
+                  <TableCell title={when(t.lastUsedAt)}>{t.lastUsedAt ? ago(t.lastUsedAt) : "never"}</TableCell>
                   <TableCell>{t.revokedAt ? `revoked ${when(t.revokedAt)}` : when(t.expiresAt)}</TableCell>
                   <TableCell className="text-right">
                     {!t.revokedAt && (
-                      <Button variant="destructive" size="sm" onClick={() => revoke.mutate(t.tokenId)}>
+                      <Button variant="ghost" size="sm" className="text-danger hover:bg-danger/10 hover:text-danger" onClick={() => revoke.mutate(t.tokenId)}>
                         Revoke
                       </Button>
                     )}
@@ -136,6 +138,7 @@ function Tokens() {
               ))}
             </TableBody>
           </Table>
+          </TableCard>
         )}
         <ErrorAlert title="Tokens did not load" error={tokens.error} />
       </CardContent>
@@ -145,9 +148,11 @@ function Tokens() {
 
 export function Account() {
   return (
-    <Page title="Account">
-      <ChangePassword />
-      <Tokens />
+    <Page title="Account" description="Your password, and the API tokens the swarm CLI and scripts sign in with.">
+      <div className="grid items-start gap-4 xl:grid-cols-[24rem_1fr]">
+        <ChangePassword />
+        <Tokens />
+      </div>
     </Page>
   )
 }

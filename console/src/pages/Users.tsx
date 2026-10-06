@@ -3,7 +3,8 @@ import { useState, type FormEvent } from "react"
 import { toast } from "sonner"
 
 import { users, when } from "@/api"
-import { ErrorAlert, Loading, Page } from "@/components/common"
+import { ErrorAlert, Loading, Page, TableCard } from "@/components/common"
+import { ago } from "@/lib/time"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -38,7 +39,7 @@ export function Users() {
     onSuccess: (_, v) => toast.success(`Password of ${v.username} reset`),
   })
   return (
-    <Page title="Users">
+    <Page title="Users" description="Who can sign in. Admins also manage users; members do everything else.">
       <Card>
         <CardHeader>
           <CardTitle>New user</CardTitle>
@@ -75,6 +76,7 @@ export function Users() {
       {list.isPending ? (
         <Loading what="users" />
       ) : (
+        <TableCard>
         <Table>
           <TableHeader>
             <TableRow>
@@ -88,10 +90,14 @@ export function Users() {
             {(list.data?.users ?? []).map((u) => (
               <TableRow key={u.username}>
                 <TableCell>
-                  {u.username} {u.disabled && <Badge variant="destructive">disabled</Badge>}
+                  <span className="flex items-center gap-2 font-medium">
+                    {u.username} {u.disabled && <Badge variant="outline" className="text-muted-foreground">disabled</Badge>}
+                  </span>
                 </TableCell>
-                <TableCell>{u.role === Role.ADMIN ? "admin" : "member"}</TableCell>
-                <TableCell>{when(u.createdAt)}</TableCell>
+                <TableCell>
+                  <Badge variant={u.role === Role.ADMIN ? "default" : "secondary"}>{u.role === Role.ADMIN ? "admin" : "member"}</Badge>
+                </TableCell>
+                <TableCell title={when(u.createdAt)}>{ago(u.createdAt)}</TableCell>
                 <TableCell className="flex justify-end gap-2">
                   <Button
                     variant="outline"
@@ -103,7 +109,7 @@ export function Users() {
                   >
                     Reset password
                   </Button>
-                  <Button variant={u.disabled ? "outline" : "destructive"} size="sm" onClick={() => disable.mutate({ username: u.username, disabled: !u.disabled })}>
+                  <Button variant={u.disabled ? "outline" : "ghost"} size="sm" className={u.disabled ? undefined : "text-danger hover:bg-danger/10 hover:text-danger"} onClick={() => disable.mutate({ username: u.username, disabled: !u.disabled })}>
                     {u.disabled ? "Enable" : "Disable"}
                   </Button>
                 </TableCell>
@@ -111,6 +117,7 @@ export function Users() {
             ))}
           </TableBody>
         </Table>
+        </TableCard>
       )}
     </Page>
   )

@@ -242,6 +242,11 @@ stubs), with Connect's JSON protocol and the session cookie.
   connections from edge's own origin only and forbids framing; styles may be inline, because
   the code editor writes its theme into a style element. Also `X-Content-Type-Options:
   nosniff` and `Referrer-Policy: no-referrer`.
+- **Layout.** A sidebar on the left (Runs, Cases, Analysis, and Users for admins; the account
+  menu and sign-out at its foot) collapses to icons with the toggle or `Ctrl/⌘ B`, and becomes
+  a sheet on narrow screens. Each page has a bar with where the reader is (breadcrumbs), its
+  title, and its actions. The colours are tweakcn's "Claude" theme; run and job states have
+  colours of their own, since the theme's destructive colour is near-black.
 - **Run content is text.** Model output, tool results, prompts, and injected payloads are
   rendered as text nodes, never as HTML, and no field is rendered as Markdown. Trajectories
   hold content that was built to attack whoever reads it.
@@ -249,9 +254,9 @@ stubs), with Connect's JSON protocol and the session cookie.
 | Page | Shows |
 |---|---|
 | Sign-in | Username and password |
-| Runs | The newest 500 runs that match, grouped by submission; filtered by workspace, case, suite, submission, and status, all on the server, so a filter reaches runs that are not among the newest overall; the workspace list comes from the case library; refreshed every 5 seconds; each submission's trigger rates on demand (`Report`) |
+| Runs | The newest 500 runs that match, counted by status (a count filters to its status), grouped by submission, each with its duration and how long ago it finished; filtered by workspace, case, suite, submission, and status, all on the server, so a filter reaches runs that are not among the newest overall; the workspace list comes from the case library; refreshed every 5 seconds; each submission's trigger rates on demand (`Report`) |
 | Run | Status, case revision, variant values, isolation, times, who submitted, cancelled, and resumed; cancel and resume; each scorer's last score, from the run's `score` events; the replay |
-| Replay | The run's events from `StreamEvents`, in order, one lane per agent and one for events no agent caused, appended live while the run goes on. Types can be hidden. Clicking an event shows its stored payload and its causal chain (`GetTrace`, so only once the run is exported; a fork's chain goes on into its source), and, for a run that ended `done` or `cancelled`, forks from it with edits given as JSON |
+| Replay | The run's events from `StreamEvents`, in order, one lane per agent and one for events no agent caused, appended live while the run goes on, in a panel of fixed height beside the chosen event's detail; each event is tagged with its type's colour and shows its first four lines. Types can be hidden. Clicking an event shows its stored payload and its causal chain (`GetTrace`, so only once the run is exported; a fork's chain goes on into its source), and, for a run that ended `done` or `cancelled`, forks from it with edits given as JSON |
 | Compare | Two runs' replays side by side |
 | Cases | The library by workspace; a new case from a template that loads and scores; a case's files in an editor (text files edited in place, binary files and links replaced by upload or deleted), saved as the next revision with a note; a save against a revision someone else has replaced says so and keeps the edits on screen; the revision history; the diff between two revisions, computed in the browser; submitting a revision with variant overrides and epochs; archive and unarchive |
 | Analysis | SQL (`Query`, up to 1,000 rows), tool call search, rule scans (started as a job and polled), and the judge |

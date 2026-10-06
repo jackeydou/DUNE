@@ -1,10 +1,12 @@
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { createRootRoute, createRoute, createRouter, Link, Navigate, Outlet } from "@tanstack/react-router"
+import { createRootRoute, createRoute, createRouter, Navigate, Outlet } from "@tanstack/react-router"
 
-import { auth, Code, isCode } from "@/api"
+import { Code, isCode } from "@/api"
+import { AppSidebar } from "@/components/AppSidebar"
 import { Loading } from "@/components/common"
-import { Button } from "@/components/ui/button"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { Account } from "@/pages/Account"
 import { Analysis } from "@/pages/Analysis"
 import { CaseDetail } from "@/pages/CaseDetail"
@@ -14,7 +16,7 @@ import { NewCase } from "@/pages/NewCase"
 import { Compare, RunDetail } from "@/pages/RunDetail"
 import { Runs, type RunsSearch } from "@/pages/Runs"
 import { Users } from "@/pages/Users"
-import { endSessionOn, isAdmin, useSession } from "@/session"
+import { endSessionOn, useSession } from "@/session"
 
 // Any call that finds the session gone ends it in the app too, whichever page made the call.
 const queries: QueryClient = new QueryClient({
@@ -34,45 +36,20 @@ function Root() {
   )
 }
 
-/** Every page but sign-in: the navigation, and the page only for a signed-in user. */
+/** Every page but sign-in: the sidebar, and the page only for a signed-in user. */
 function Shell() {
   const { user } = useSession()
   if (user === undefined) return <div className="p-6"><Loading what="your session" /></div>
   if (user === null) return <Login />
-  const link = "rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground [&.active]:bg-muted [&.active]:text-foreground"
   return (
-    <div className="flex min-h-svh flex-col">
-      <header className="flex items-center justify-between gap-4 border-b px-6 py-2">
-        <nav className="flex items-center gap-1">
-          <span className="mr-4 font-heading font-semibold">SwarmEval</span>
-          <Link to="/runs" className={link}>Runs</Link>
-          <Link to="/cases" className={link}>Cases</Link>
-          <Link to="/analysis" className={link}>Analysis</Link>
-          {isAdmin(user) && <Link to="/users" className={link}>Users</Link>}
-        </nav>
-        <div className="flex items-center gap-2 text-sm">
-          <Link to="/account" className={link} data-testid="whoami">{user.username}</Link>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={async () => {
-              try {
-                await auth.logout({})
-              } finally {
-                // A full load, also when the session had already ended: nothing the
-                // signed-out user read stays in memory.
-                window.location.assign("/")
-              }
-            }}
-          >
-            Sign out
-          </Button>
-        </div>
-      </header>
-      <main className="min-w-0 flex-1">
-        <Outlet />
-      </main>
-    </div>
+    <TooltipProvider delayDuration={300}>
+      <SidebarProvider>
+        <AppSidebar user={user} />
+        <SidebarInset className="min-w-0">
+          <Outlet />
+        </SidebarInset>
+      </SidebarProvider>
+    </TooltipProvider>
   )
 }
 

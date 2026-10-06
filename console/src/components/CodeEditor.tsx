@@ -34,7 +34,13 @@ export function CodeEditor({ path, value, readOnly, onChange }: { path: string; 
           EditorView.updateListener.of((update) => {
             if (update.docChanged) latest.current(update.state.doc.toString())
           }),
-          EditorView.theme({ "&": { fontSize: "13px", height: "100%" }, ".cm-scroller": { overflow: "auto" } }),
+          EditorView.theme({
+            "&": { fontSize: "13px", height: "100%", backgroundColor: "var(--card)" },
+            ".cm-scroller": { overflow: "auto", fontFamily: "var(--font-mono)" },
+            ".cm-gutters": { backgroundColor: "var(--muted)", color: "var(--muted-foreground)", borderRight: "1px solid var(--border)" },
+            ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "color-mix(in oklch, var(--accent) 60%, transparent)" },
+            "&.cm-focused": { outline: "none" },
+          }),
         ],
       }),
     })
@@ -43,5 +49,5 @@ export function CodeEditor({ path, value, readOnly, onChange }: { path: string; 
     // every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, readOnly])
-  return <div ref={host} data-testid="editor" className="h-[28rem] overflow-hidden rounded-lg border" />
+  return <div ref={host} data-testid="editor" className="h-[32rem] overflow-hidden" />
 }

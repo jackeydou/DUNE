@@ -46,6 +46,6 @@ A change to `proto/` goes in the ledger of each project whose generated code it 
 | `orchestrator`, `model-gateway`, `analysis` | Subpackages of `swarmeval/`: one uv project, one entry point per service. `openai` is imported only in `swarmeval/gateway/model/` |
 | `edge`, `net-gateway`, `sandboxd`, the CLI | The Go module in `go/`: one `go/cmd/<name>` per binary, shared code under `go/internal/` |
 | gRPC contracts | `proto/`, managed with buf. Go stubs are generated into `go/internal/gen/`, Python stubs into `swarmeval/proto/`, and the console's client of the public API into `console/src/gen/`; all are committed |
-| Web console and replay | `console/`: pages in `src/pages/`, shared pieces in `src/components/`, shadcn/ui components in `src/components/ui/` (added with the shadcn CLI, not hand-written), pure helpers with their tests in `src/lib/`, Playwright specs in `e2e/` |
+| Web console and replay | `console/`: pages in `src/pages/`, shared pieces in `src/components/`, shadcn/ui components in `src/components/ui/` and their hooks in `src/hooks/` (added with the shadcn CLI, not hand-written), pure helpers with their tests in `src/lib/`, Playwright specs in `e2e/` |
 | docker compose and Helm chart | `deploy/` |
 | Cases and suites | `cases/` and `suites/` |

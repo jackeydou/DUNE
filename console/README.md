@@ -29,7 +29,12 @@ origin only. `SWARM_EDGE` names an edge other than `http://127.0.0.1:7443`.
 - Components in `src/components/ui/` come from shadcn/ui through its CLI
   (`pnpm dlx shadcn@latest add <name>`); change them there, not by hand-writing new ones.
 - No state outside the server: the session is edge's cookie, and nothing is kept in
-  `localStorage`.
+  `localStorage` or a cookie of the app's own. The sidebar opens expanded on every load.
+- The theme is tweakcn's "Claude", installed with
+  `pnpm dlx shadcn@latest add https://tweakcn.com/r/themes/claude.json`, which rewrites the
+  tokens in `src/index.css`. The `--success`, `--warning`, `--info`, and `--danger` tokens there
+  (run and job states, errors) are the app's own; keep them when changing the theme. Fonts are
+  the system's: the page's Content-Security-Policy loads none from elsewhere.
 
 ## Limits
 
