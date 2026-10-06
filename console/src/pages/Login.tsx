@@ -1,3 +1,4 @@
+import { Hexagon } from "lucide-react"
 import { useState, type FormEvent } from "react"
 
 import { auth } from "@/api"
@@ -30,10 +31,16 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center p-6">
-      <Card className="w-full max-w-sm">
+    <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-sidebar p-6">
+      <div className="flex items-center gap-3">
+        <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+          <Hexagon className="size-5" />
+        </div>
+        <span className="font-heading text-3xl">SwarmEval</span>
+      </div>
+      <Card className="w-full max-w-sm shadow-md">
         <CardHeader>
-          <CardTitle>SwarmEval</CardTitle>
+          <CardTitle className="text-lg">Sign in</CardTitle>
           <CardDescription>Sign in with the account your administrator made.</CardDescription>
         </CardHeader>
         <CardContent>

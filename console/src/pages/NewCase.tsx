@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 
 import { cases } from "@/api"
@@ -73,9 +73,9 @@ export function NewCase() {
     onSuccess: () => void navigate({ to: "/cases/$workspace/$caseId", params: { workspace, caseId } }),
   })
   return (
-    <Page title="New case">
+    <Page title="New case" crumbs={[<Link to="/cases">Cases</Link>]} description="Name it, start from a template that loads and scores, then edit the files.">
       <form
-        className="flex flex-wrap items-end gap-3"
+        className="flex flex-wrap items-start gap-3 rounded-xl border bg-card p-4 shadow-xs"
         onSubmit={(e) => {
           e.preventDefault()
           setChanges(starter(workspace, caseId))
@@ -91,7 +91,7 @@ export function NewCase() {
           <Input id="new-case-id" value={caseId} onChange={(e) => setCaseId(e.target.value)} pattern="[a-z][a-z0-9_]*" required disabled={!!changes} />
           <FieldDescription>Lowercase letters, digits, and _.</FieldDescription>
         </Field>
-        {!changes && <Button type="submit" className="mb-6">Start from a template</Button>}
+        {!changes && <Button type="submit" className="mt-6">Start from a template</Button>}
       </form>
       {changes && (
         <>

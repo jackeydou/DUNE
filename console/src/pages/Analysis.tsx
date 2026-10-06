@@ -6,7 +6,7 @@ import { toJson } from "@bufbuild/protobuf"
 import { ListValueSchema } from "@bufbuild/protobuf/wkt"
 
 import { analysis, when } from "@/api"
-import { ErrorAlert, Page, StatusBadge, Verbatim } from "@/components/common"
+import { ErrorAlert, Page, StatusBadge, TableCard, Verbatim } from "@/components/common"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
@@ -59,6 +59,7 @@ function Sql() {
               <AlertDescription>Aggregate or filter in the statement to see the rest.</AlertDescription>
             </Alert>
           )}
+          <TableCard>
           <Table data-testid="query-result">
             <TableHeader>
               <TableRow>
@@ -79,6 +80,7 @@ function Sql() {
               ))}
             </TableBody>
           </Table>
+          </TableCard>
         </>
       )}
     </FieldGroup>
@@ -127,6 +129,7 @@ function ToolCalls() {
       {search.data && (
         <>
           {search.data.truncated && <p className="text-sm text-muted-foreground">More calls matched; narrow the filters.</p>}
+          <TableCard>
           <Table data-testid="tool-calls">
             <TableHeader>
               <TableRow>
@@ -142,7 +145,7 @@ function ToolCalls() {
               {search.data.calls.map((c) => (
                 <TableRow key={`${c.runId}:${c.eventId}`}>
                   <TableCell>
-                    <Link to="/runs/$runId" params={{ runId: c.runId }} className="font-mono text-xs underline">
+                    <Link to="/runs/$runId" params={{ runId: c.runId }} className="font-mono text-xs text-primary hover:underline">
                       {c.runId}
                     </Link>
                   </TableCell>
@@ -155,6 +158,7 @@ function ToolCalls() {
               ))}
             </TableBody>
           </Table>
+          </TableCard>
         </>
       )}
     </FieldGroup>
@@ -218,6 +222,7 @@ function RuleScan() {
             {scan.totalMatches} match(es) in {scan.runs.length} run(s).
             {scan.matches.length < scan.totalMatches && ` The first ${scan.matches.length} are shown.`}
           </p>
+          <TableCard>
           <Table data-testid="matches">
             <TableHeader>
               <TableRow>
@@ -233,7 +238,7 @@ function RuleScan() {
               {scan.matches.map((m) => (
                 <TableRow key={`${m.runId}:${m.eventId}:${m.ruleId}`}>
                   <TableCell>
-                    <Link to="/runs/$runId" params={{ runId: m.runId }} className="font-mono text-xs underline">
+                    <Link to="/runs/$runId" params={{ runId: m.runId }} className="font-mono text-xs text-primary hover:underline">
                       {m.runId}
                     </Link>
                   </TableCell>
@@ -246,6 +251,7 @@ function RuleScan() {
               ))}
             </TableBody>
           </Table>
+          </TableCard>
         </>
       )}
     </FieldGroup>
@@ -301,15 +307,16 @@ function Judge() {
 
 export function Analysis() {
   return (
-    <Page title="Analysis">
-      <p className="text-sm text-muted-foreground">Over runs that have finished and been exported.</p>
-      <Tabs defaultValue="sql">
-        <TabsList>
+    <Page title="Analysis" description="Questions over runs that have finished and been exported: SQL, tool calls, rule scans, and a judge.">
+      <Tabs defaultValue="sql" className="gap-4">
+        <div className="border-b">
+        <TabsList variant="line">
           <TabsTrigger value="sql">SQL</TabsTrigger>
           <TabsTrigger value="tools">Tool calls</TabsTrigger>
           <TabsTrigger value="scan">Rule scan</TabsTrigger>
           <TabsTrigger value="judge">Judge</TabsTrigger>
         </TabsList>
+        </div>
         <TabsContent value="sql"><Sql /></TabsContent>
         <TabsContent value="tools"><ToolCalls /></TabsContent>
         <TabsContent value="scan"><RuleScan /></TabsContent>

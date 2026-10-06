@@ -16,6 +16,11 @@ async function retype(page: Page, text: string) {
   await page.keyboard.insertText(text)
 }
 
+/** A page's link in the sidebar; breadcrumbs link to some of the same pages. */
+function nav(page: Page, name: string) {
+  return page.getByTestId("nav").getByRole("link", { name, exact: true })
+}
+
 test("create a case, run it, read the result and the replay, and fork it", async ({ page }) => {
   // No page before sign-in shows anything of the platform.
   await page.goto("/cases")
@@ -69,7 +74,7 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await expect(page).toHaveURL(/\/runs\?submission=/)
   await expect(page.getByTestId("submission")).toHaveCount(1)
   await expect(page.getByTestId("submission")).toContainText(`${WORKSPACE}/${CASE}@2`)
-  await page.getByTestId("submission").getByRole("link").first().click()
+  await page.getByTestId("submission").getByTestId("run-link").first().click()
   await expect(page.locator("h1 [data-status]")).toHaveAttribute("data-status", "done", { timeout: 120_000 })
 
   // Scores, and the replay with a lane per agent.
@@ -99,7 +104,7 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await expect(page.locator("h1 [data-status]")).toHaveAttribute("data-status", "done", { timeout: 120_000 })
 
   // The submission's rates, from the analysis service.
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await nav(page, "Runs").click()
   // The workspace filter lists the library's workspaces and is applied by the server.
   await page.getByLabel("Workspace").selectOption(WORKSPACE)
   await expect(page).toHaveURL(new RegExp(`workspace=${WORKSPACE}`))
@@ -110,7 +115,7 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await expect(page.getByTestId("rates")).toContainText("wrote_output")
 
   // Analysis: a query over the exported runs.
-  await page.getByRole("link", { name: "Analysis" }).click()
+  await nav(page, "Analysis").click()
   await page.getByLabel("One SELECT").fill(`SELECT run_id, status FROM runs WHERE case_id = '${CASE}' AND forked_from IS NULL`)
   await page.getByRole("button", { name: "Run query" }).click()
   await expect(page.getByTestId("query-result")).toContainText(source)
@@ -119,7 +124,8 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await expect(page.getByRole("alert")).toContainText("The query did not run")
 
   // Signing out ends the session for the next page load too.
-  await page.getByRole("button", { name: "Sign out" }).click()
+  await page.getByTestId("whoami").click()
+  await page.getByRole("menuitem", { name: "Sign out" }).click()
   await expect(page.getByLabel("Username")).toBeVisible()
   await page.goto("/runs")
   await expect(page.getByLabel("Username")).toBeVisible()
@@ -131,7 +137,7 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await page.getByRole("button", { name: "Sign in" }).click()
   await expect(page.getByTestId("whoami")).toHaveText(USER)
   await page.context().clearCookies()
-  await page.getByRole("link", { name: "Cases", exact: true }).click()
+  await nav(page, "Cases").click()
   await expect(page.getByLabel("Username")).toBeVisible()
   await expect(page.getByTestId("whoami")).toHaveCount(0)
 })

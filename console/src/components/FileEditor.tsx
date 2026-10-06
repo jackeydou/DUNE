@@ -1,3 +1,4 @@
+import { Upload } from "lucide-react"
 import { useState } from "react"
 
 import { CodeEditor } from "@/components/CodeEditor"
@@ -34,15 +35,16 @@ export function FileEditor({ files, changes, readOnly, onChange }: { files: read
   const text = current && !link ? textOf(contentOf(current)) : undefined
 
   return (
-    <div className="grid grid-cols-[16rem_1fr] gap-4">
-      <div className="flex flex-col gap-2">
+    <div className="grid grid-cols-[16rem_1fr] overflow-hidden rounded-xl border bg-card shadow-xs">
+      <div className="flex flex-col gap-2 border-r bg-muted/30 p-2">
+        <div className="px-2 pt-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Files</div>
         <ul className="flex flex-col text-sm" data-testid="files">
           {paths.map((path) => (
             <li key={path}>
               <button
                 type="button"
                 onClick={() => setSelected(path)}
-                className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left font-mono text-xs hover:bg-muted ${path === current ? "bg-muted" : ""}`}
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left font-mono text-xs hover:bg-accent ${path === current ? "bg-accent font-medium text-foreground" : "text-muted-foreground"}`}
               >
                 <span className="truncate">{path}</span>
                 {changes.has(path) && <Badge variant="secondary">{stored.has(path) ? "edited" : "new"}</Badge>}
@@ -60,7 +62,7 @@ export function FileEditor({ files, changes, readOnly, onChange }: { files: read
         </ul>
         {!readOnly && (
           <form
-            className="flex flex-col gap-2"
+            className="mt-2 flex flex-col gap-2 border-t pt-3"
             onSubmit={(e) => {
               e.preventDefault()
               const found = pathProblem(newPath, paths)
@@ -77,20 +79,21 @@ export function FileEditor({ files, changes, readOnly, onChange }: { files: read
           </form>
         )}
       </div>
-      <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 flex-col">
         {current === undefined ? (
-          <p className="text-sm text-muted-foreground">This case has no files. Add `case.yaml` first.</p>
+          <p className="p-4 text-sm text-muted-foreground">This case has no files. Add `case.yaml` first.</p>
         ) : (
           <>
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-sm" data-testid="current-file">{current}</span>
+            <div className="flex min-h-11 items-center justify-between gap-2 border-b px-3 py-1.5">
+              <span className="font-mono text-sm font-medium" data-testid="current-file">{current}</span>
               {!readOnly && (
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-muted-foreground">
-                    Replace with a file{" "}
+                  <Button asChild variant="ghost" size="sm">
+                    <label className="cursor-pointer">
+                    <Upload /> Replace with a file
                     <input
                       type="file"
-                      className="text-xs"
+                      className="sr-only"
                       onChange={async (e) => {
                         const file = e.target.files?.[0]
                         if (file) {
@@ -100,15 +103,16 @@ export function FileEditor({ files, changes, readOnly, onChange }: { files: read
                         e.target.value = ""
                       }}
                     />
-                  </label>
-                  <Button variant="destructive" size="sm" onClick={() => set(current, null)}>Delete file</Button>
+                    </label>
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-danger hover:bg-danger/10 hover:text-danger" onClick={() => set(current, null)}>Delete file</Button>
                 </div>
               )}
             </div>
             {link ? (
-              <p className="text-sm text-muted-foreground">A symbolic link to <span className="font-mono">{link}</span>. Replace it with a file, or delete it.</p>
+              <p className="p-4 text-sm text-muted-foreground">A symbolic link to <span className="font-mono">{link}</span>. Replace it with a file, or delete it.</p>
             ) : text === undefined ? (
-              <p className="text-sm text-muted-foreground">A binary file of {contentOf(current).length} bytes. Replace it with an upload, or delete it.</p>
+              <p className="p-4 text-sm text-muted-foreground">A binary file of {contentOf(current).length} bytes. Replace it with an upload, or delete it.</p>
             ) : (
               <CodeEditor key={`${current}:${replaced}`} path={current} value={text} readOnly={readOnly} onChange={(next) => set(current, encoder.encode(next))} />
             )}
