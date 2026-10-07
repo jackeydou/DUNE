@@ -45,6 +45,13 @@ mise run sync
 | `mise run proto:lint:console` | The same check for the console's generated client |
 | `mise run proto:breaking` | `buf breaking` against the local `main` branch. Only the public API, `proto/swarmeval/api/`, is checked; `buf.yaml` lists the internal packages it ignores, and a new internal package goes on that list |
 
+## CI
+
+[`.github/workflows/check.yml`](../.github/workflows/check.yml) runs `mise run check` on every
+pull request and every push to `main`, with the tools `mise.toml` pins. The tasks that need
+docker or a browser (`test:docker`, `go:test-integration`, `console:e2e`, `deploy:smoke`) are
+not part of it: run the ones the "Run it before…" notes above name for your change yourself.
+
 ## Running a case
 
 Every service on one machine, against a real model. Nothing here is needed for `mise run check`.
