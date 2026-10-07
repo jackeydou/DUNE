@@ -22,7 +22,7 @@ control plane and one worker, `analysis`, `model-gateway`, `sandboxd`, Postgres,
 ```bash
 cd deploy/compose
 cp .env.example .env                    # fill in the three secrets
-cp gateway.example.yaml gateway.yaml    # your backends and model names
+cp gateway.example.yaml gateway.yaml    # your backends, and the model names runs may choose
 docker compose up -d --build --wait
 docker compose exec -T edge edge user create root --admin <<<'a long passphrase'
 ```
@@ -74,7 +74,7 @@ Commands: [edge.md](services/edge.md#swarm-cli).
 | `postgres` | `postgres:18-alpine` | platform | Volume `postgres` |
 | `rustfs` | `rustfs/rustfs` | platform | Volume `objects` |
 | `bucket` | python | platform | Creates the bucket if it is missing, then exits |
-| `control` | python | platform | `swarmeval-control`; migrates the `control` and `runs` schemas at start |
+| `control` | python | platform | `swarmeval-control`; migrates the `control` and `runs` schemas at start. Asks model-gateway over `platform` which models submissions may name |
 | `model-gateway` | python | platform, egress | Reaches the model backend through `egress` |
 | `analysis` | python | platform | `swarmeval-analysis`: queries, reports, exports, rule scans, the judge. Reaches model-gateway over `platform` |
 | `sandboxd` | go | platform | Root, with the docker socket and the state directory |

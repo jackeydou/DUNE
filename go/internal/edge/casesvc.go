@@ -109,8 +109,10 @@ func (s *CaseService) GetCaseRevision(ctx context.Context, req *connect.Request[
 		return nil, upstream(s.log, "GetCaseRevision", err)
 	}
 	out := &apiv1.GetCaseRevisionResponse{
-		Revision: caseRevisionProto(res.Msg.GetRevision()),
-		Files:    make([]*apiv1.CaseFile, len(res.Msg.GetFiles())),
+		Revision:   caseRevisionProto(res.Msg.GetRevision()),
+		Files:      make([]*apiv1.CaseFile, len(res.Msg.GetFiles())),
+		ModelSlots: res.Msg.GetModelSlots(),
+		LoadError:  res.Msg.GetLoadError(),
 	}
 	for i, f := range res.Msg.GetFiles() {
 		out.Files[i] = &apiv1.CaseFile{

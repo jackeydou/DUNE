@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { fromJson } from "@bufbuild/protobuf"
@@ -27,6 +28,7 @@ import {
   typesOf,
   type RunEvent,
 } from "@/lib/events"
+import { modelsOf } from "@/lib/models"
 import { useRunEvents, type RunEvents } from "@/lib/useRunEvents"
 import { cn } from "@/lib/utils"
 
@@ -97,6 +99,61 @@ function Trace({ runId, eventId }: { runId: string; eventId: string }) {
   )
 }
 
+/** One select per model slot of the source run: keep its model, or run the slot on another
+ * from the fork point. */
+function ModelSwaps({
+  runId,
+  swaps,
+  onChange,
+}: {
+  runId: string
+  swaps: Record<string, string>
+  onChange: (swaps: Record<string, string>) => void
+}) {
+  const source = useQuery({
+    queryKey: ["run", runId],
+    queryFn: () => runs.getRun({ runId }),
+  })
+  const served = useQuery({
+    queryKey: ["models"],
+    queryFn: () => runs.listModels({}),
+  })
+  if (source.error ?? served.error)
+    return (
+      <ErrorAlert
+        title="The models did not load"
+        error={source.error ?? served.error}
+      />
+    )
+  if (!source.data || !served.data) return <Loading what="the run's models" />
+  const current = modelsOf(source.data.run?.variantValues)
+  return (
+    <>
+      {Object.entries(current).map(([slot, model]) => (
+        <Field key={slot}>
+          <FieldLabel htmlFor={`fork-model-${slot}`}>
+            Model for slot <span className="font-mono">{slot}</span>
+          </FieldLabel>
+          <NativeSelect
+            id={`fork-model-${slot}`}
+            value={swaps[slot] ?? ""}
+            onChange={(e) => onChange({ ...swaps, [slot]: e.target.value })}
+          >
+            <NativeSelectOption value="">keep {model}</NativeSelectOption>
+            {served.data.models
+              .filter((m) => m !== model)
+              .map((m) => (
+                <NativeSelectOption key={m} value={m}>
+                  {m}
+                </NativeSelectOption>
+              ))}
+          </NativeSelect>
+        </Field>
+      ))}
+    </>
+  )
+}
+
 function ForkDialog({
   runId,
   event,
@@ -108,15 +165,24 @@ function ForkDialog({
 }) {
   const navigate = useNavigate()
   const [edits, setEdits] = useState("[]")
+  const [swaps, setSwaps] = useState<Record<string, string>>({})
   const fork = useMutation({
     mutationFn: async () => {
       const parsed: unknown = JSON.parse(edits)
       if (!Array.isArray(parsed))
         throw new Error("The edits must be a JSON list.")
+      const replacements = Object.entries(swaps)
+        .filter(([, model]) => model)
+        .map(([slot, model]) => ({
+          edit: { case: "replaceModel" as const, value: { slot, model } },
+        }))
       return runs.forkRun({
         runId,
         atEventId: event.eventId,
-        edits: parsed.map((edit) => fromJson(ForkEditSchema, edit)),
+        edits: [
+          ...parsed.map((edit) => fromJson(ForkEditSchema, edit)),
+          ...replacements,
+        ],
       })
     },
     onSuccess: (res) => {
@@ -151,6 +217,7 @@ function ForkDialog({
             empty list reruns from here unchanged.
           </FieldDescription>
         </Field>
+        <ModelSwaps runId={runId} swaps={swaps} onChange={setSwaps} />
         <ErrorAlert title="The run was not forked" error={fork.error} />
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

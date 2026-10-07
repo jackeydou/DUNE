@@ -18,6 +18,7 @@ import { FileEditor } from "@/components/FileEditor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Field,
   FieldDescription,
@@ -38,6 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { diffRevisions, parseOverrides, type Changes } from "@/lib/files"
 import { ago } from "@/lib/time"
+import { toggled } from "@/lib/models"
 
 function useRevision(workspace: string, caseId: string, revision: number) {
   return useQuery({
@@ -238,20 +240,92 @@ function Submit({
   revision: number
 }) {
   const navigate = useNavigate()
+  const loaded = useRevision(workspace, caseId, revision)
+  const served = useQuery({
+    queryKey: ["models"],
+    queryFn: () => runs.listModels({}),
+  })
+  const [chosen, setChosen] = useState<Record<string, string[]>>({})
   const [overrides, setOverrides] = useState("")
   const [epochs, setEpochs] = useState("")
+  const slots = loaded.data?.modelSlots ?? []
   const submit = useMutation({
     mutationFn: () =>
       runs.submitRuns({
         case: { workspace, caseId, revision },
+        models: Object.fromEntries(
+          slots.map((slot) => [slot, { names: chosen[slot] ?? [] }])
+        ),
         overrides: parseOverrides(overrides),
         epochs: epochs ? Number(epochs) : 0,
       }),
     onSuccess: (res) =>
       void navigate({ to: "/runs", search: { submission: res.submissionId } }),
   })
+  if (loaded.error ?? served.error)
+    return (
+      <ErrorAlert
+        title="The run form did not load"
+        error={loaded.error ?? served.error}
+      />
+    )
+  if (!loaded.data || !served.data)
+    return <Loading what="the case's model slots" />
+  if (loaded.data.loadError)
+    return (
+      <Alert variant="destructive" role="alert">
+        <AlertTitle>Revision {revision} cannot run</AlertTitle>
+        <AlertDescription className="whitespace-pre-wrap">
+          {loaded.data.loadError}
+        </AlertDescription>
+      </Alert>
+    )
+  const models = served.data.models
+  if (models.length === 0)
+    return (
+      <Alert variant="destructive" role="alert">
+        <AlertTitle>No models to run on</AlertTitle>
+        <AlertDescription>
+          model-gateway serves no models. Add them to its config.
+        </AlertDescription>
+      </Alert>
+    )
+  const ready = slots.every((slot) => (chosen[slot] ?? []).length > 0)
   return (
     <FieldGroup className="max-w-xl rounded-xl border bg-card p-6 shadow-xs">
+      {slots.map((slot) => (
+        <Field key={slot}>
+          <FieldLabel>
+            Models for slot <span className="font-mono">{slot}</span>
+          </FieldLabel>
+          <div
+            className="flex flex-wrap gap-x-4 gap-y-2"
+            role="group"
+            aria-label={`Models for slot ${slot}`}
+          >
+            {models.map((model) => (
+              <label
+                key={model}
+                className="flex items-center gap-1.5 font-mono text-sm"
+              >
+                <Checkbox
+                  checked={(chosen[slot] ?? []).includes(model)}
+                  onCheckedChange={(on) =>
+                    setChosen(toggled(chosen, slot, model, on === true, models))
+                  }
+                />
+                {model}
+              </label>
+            ))}
+          </div>
+          <FieldDescription>
+            {slot === "default"
+              ? "Every agent that names no model slot runs on these."
+              : `The agents with model_slot: ${slot} run on these.`}{" "}
+            Each model is one more variant.
+          </FieldDescription>
+        </Field>
+      ))}
       <Field>
         <FieldLabel htmlFor="submit-overrides">Variant overrides</FieldLabel>
         <Textarea
@@ -260,7 +334,7 @@ function Submit({
           rows={4}
           value={overrides}
           onChange={(e) => setOverrides(e.target.value)}
-          placeholder={'model=qwen3-8b,glm-5\nparaphrased=[],["dm_ab"]'}
+          placeholder={'framing=neutral,pressure\nparaphrased=[],["dm_ab"]'}
         />
         <FieldDescription>
           One axis per line, axis=value,value. Each replaces that axis's values
@@ -282,10 +356,15 @@ function Submit({
       <Button
         className="self-start"
         onClick={() => submit.mutate()}
-        disabled={submit.isPending}
+        disabled={!ready || submit.isPending}
       >
         Run revision {revision}
       </Button>
+      {!ready && (
+        <FieldDescription>
+          Choose at least one model for each slot.
+        </FieldDescription>
+      )}
     </FieldGroup>
   )
 }
@@ -464,7 +543,12 @@ export function CaseDetail() {
               An archived case takes no runs. Unarchive it first.
             </p>
           ) : (
-            <Submit workspace={workspace} caseId={caseId} revision={revision} />
+            <Submit
+              key={revision}
+              workspace={workspace}
+              caseId={caseId}
+              revision={revision}
+            />
           )}
         </TabsContent>
       </Tabs>

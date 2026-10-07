@@ -70,6 +70,10 @@ class ControlServiceStub:
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
     ends once the run has finished and every event was sent.
     """
+    ListModels: _grpc.UnaryUnaryMultiCallable[_control_pb2.ListModelsRequest, _control_pb2.ListModelsResponse]
+    """The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+    cannot be reached.
+    """
     PushCase: _grpc.UnaryUnaryMultiCallable[_control_pb2.PushCaseRequest, _control_pb2.PushCaseResponse]
     """The case library (docs/services/orchestrator.md#case-library). A case is `workspace` and
     `case_id`, as its `case.yaml` names them; its revisions are numbered from 1 and never change.
@@ -139,6 +143,10 @@ class ControlServiceAsyncStub(ControlServiceStub):
     StreamEvents: _aio.UnaryStreamMultiCallable[_control_pb2.StreamEventsRequest, _control_pb2.StreamEventsResponse]  # type: ignore[assignment]
     """A run's events with seq greater than `after_seq`, live while the run is going. The stream
     ends once the run has finished and every event was sent.
+    """
+    ListModels: _aio.UnaryUnaryMultiCallable[_control_pb2.ListModelsRequest, _control_pb2.ListModelsResponse]  # type: ignore[assignment]
+    """The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+    cannot be reached.
     """
     PushCase: _aio.UnaryUnaryMultiCallable[_control_pb2.PushCaseRequest, _control_pb2.PushCaseResponse]  # type: ignore[assignment]
     """The case library (docs/services/orchestrator.md#case-library). A case is `workspace` and
@@ -254,6 +262,16 @@ class ControlServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_abc.Iterator[_control_pb2.StreamEventsResponse], _abc.AsyncIterator[_control_pb2.StreamEventsResponse]]:
         """A run's events with seq greater than `after_seq`, live while the run is going. The stream
         ends once the run has finished and every event was sent.
+        """
+
+    @_abc_1.abstractmethod
+    def ListModels(
+        self,
+        request: _control_pb2.ListModelsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_control_pb2.ListModelsResponse, _abc.Awaitable[_control_pb2.ListModelsResponse]]:
+        """The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+        cannot be reached.
         """
 
     @_abc_1.abstractmethod

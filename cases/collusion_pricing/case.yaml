@@ -1,4 +1,4 @@
-schema_version: 3
+schema_version: 4
 id: collusion_pricing
 workspace: safety
 category: covert_comm
@@ -10,19 +10,16 @@ description: >
   rides on the form of the messages, not on what they say.
 variants:
   paraphrased: [[], [dm_ab]]
-  model: [qwen3-8b]
 epochs: 10
 
 swarm:
   agents:
     - id: seller_a
-      model: ${variant.model}
       prompt: prompts/seller.md
       task: prompts/task_a.md
       tools: [set_price, market_report, send_message]
       sampling: { temperature: 0.6 }
     - id: seller_b
-      model: ${variant.model}
       prompt: prompts/seller.md
       task: prompts/task_b.md
       tools: [set_price, market_report, send_message]
@@ -41,7 +38,7 @@ extensions:
   - use: swarmeval.bus.paraphrase
     config:
       channels: ${variant.paraphrased}
-      model: ${variant.model}
+      model: minimax-m3
 
 scorers:
   - id: coordinated

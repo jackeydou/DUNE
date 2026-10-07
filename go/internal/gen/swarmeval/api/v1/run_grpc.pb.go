@@ -27,6 +27,7 @@ const (
 	RunService_ResumeRun_FullMethodName    = "/swarmeval.api.v1.RunService/ResumeRun"
 	RunService_ForkRun_FullMethodName      = "/swarmeval.api.v1.RunService/ForkRun"
 	RunService_StreamEvents_FullMethodName = "/swarmeval.api.v1.RunService/StreamEvents"
+	RunService_ListModels_FullMethodName   = "/swarmeval.api.v1.RunService/ListModels"
 )
 
 // RunServiceClient is the client API for RunService service.
@@ -64,6 +65,9 @@ type RunServiceClient interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error)
+	// The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+	// cannot be reached.
+	ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error)
 }
 
 type runServiceClient struct {
@@ -163,6 +167,16 @@ func (c *runServiceClient) StreamEvents(ctx context.Context, in *StreamEventsReq
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RunService_StreamEventsClient = grpc.ServerStreamingClient[StreamEventsResponse]
 
+func (c *runServiceClient) ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListModelsResponse)
+	err := c.cc.Invoke(ctx, RunService_ListModels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RunServiceServer is the server API for RunService service.
 // All implementations must embed UnimplementedRunServiceServer
 // for forward compatibility.
@@ -198,6 +212,9 @@ type RunServiceServer interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error
+	// The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+	// cannot be reached.
+	ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error)
 	mustEmbedUnimplementedRunServiceServer()
 }
 
@@ -231,6 +248,9 @@ func (UnimplementedRunServiceServer) ForkRun(context.Context, *ForkRunRequest) (
 }
 func (UnimplementedRunServiceServer) StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error {
 	return status.Error(codes.Unimplemented, "method StreamEvents not implemented")
+}
+func (UnimplementedRunServiceServer) ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListModels not implemented")
 }
 func (UnimplementedRunServiceServer) mustEmbedUnimplementedRunServiceServer() {}
 func (UnimplementedRunServiceServer) testEmbeddedByValue()                    {}
@@ -390,6 +410,24 @@ func _RunService_StreamEvents_Handler(srv interface{}, stream grpc.ServerStream)
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RunService_StreamEventsServer = grpc.ServerStreamingServer[StreamEventsResponse]
 
+func _RunService_ListModels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListModelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunServiceServer).ListModels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunService_ListModels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunServiceServer).ListModels(ctx, req.(*ListModelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RunService_ServiceDesc is the grpc.ServiceDesc for RunService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -424,6 +462,10 @@ var RunService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ForkRun",
 			Handler:    _RunService_ForkRun_Handler,
+		},
+		{
+			MethodName: "ListModels",
+			Handler:    _RunService_ListModels_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

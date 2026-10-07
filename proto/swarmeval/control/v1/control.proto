@@ -39,6 +39,9 @@ service ControlService {
   // A run's events with seq greater than `after_seq`, live while the run is going. The stream
   // ends once the run has finished and every event was sent.
   rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
+  // The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+  // cannot be reached.
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
 
   // The case library (docs/services/orchestrator.md#case-library). A case is `workspace` and
   // `case_id`, as its `case.yaml` names them; its revisions are numbered from 1 and never change.
@@ -81,6 +84,14 @@ message SubmitRunsRequest {
   string suite = 4;
   // Who asks, as edge authenticated them; empty for internal tooling. Recorded on the runs.
   string actor = 5;
+  // Model slot → the models to run it on, for every slot of the case and no other. Each
+  // slot's models are one more dimension of the run matrix. A name model-gateway does not serve
+  // is INVALID_ARGUMENT; model-gateway out of reach is UNAVAILABLE.
+  map<string, ModelChoice> models = 7;
+}
+
+message ModelChoice {
+  repeated string names = 1;
 }
 
 // One revision of a case in the library.
@@ -219,7 +230,15 @@ message ForkEdit {
     ReplaceMessage replace_message = 1;
     DeleteMessage delete_message = 2;
     ReplaceDelivery replace_delivery = 3;
+    ReplaceModel replace_model = 4;
   }
+}
+
+// Runs the agents of model slot `slot` on `model` from the fork point. The fork's `task_args`
+// name the new model.
+message ReplaceModel {
+  string slot = 1;
+  string model = 2;
 }
 
 // The text of message `index` in an agent's context at the fork point.
@@ -375,6 +394,12 @@ message GetCaseRevisionResponse {
   CaseRevision revision = 1;
   // By path.
   repeated CaseFile files = 2;
+  // The case's model slots, in the order its agents first name them: what a submission chooses
+  // models for. Empty when the revision does not load, as `load_error` says.
+  repeated string model_slots = 3;
+  // Why the revision does not load in this SwarmEval, such as a `case.yaml` of a retired schema
+  // version; it cannot run. Empty when it loads.
+  string load_error = 4;
 }
 
 message ArchiveCaseRequest {
@@ -395,4 +420,11 @@ message UnarchiveCaseRequest {
 
 message UnarchiveCaseResponse {
   Case case = 1;
+}
+
+message ListModelsRequest {}
+
+message ListModelsResponse {
+  // Sorted.
+  repeated string models = 1;
 }

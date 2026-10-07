@@ -96,6 +96,11 @@ func forkEditProto(e *apiv1.ForkEdit) *controlv1.ForkEdit {
 		return &controlv1.ForkEdit{Edit: &controlv1.ForkEdit_ReplaceDelivery{ReplaceDelivery: &controlv1.ReplaceDelivery{
 			SendEventId: d.GetSendEventId(), Recipient: d.GetRecipient(), Content: d.GetContent(),
 		}}}
+	case *apiv1.ForkEdit_ReplaceModel:
+		m := edit.ReplaceModel
+		return &controlv1.ForkEdit{Edit: &controlv1.ForkEdit_ReplaceModel{ReplaceModel: &controlv1.ReplaceModel{
+			Slot: m.GetSlot(), Model: m.GetModel(),
+		}}}
 	}
 	// An empty edit: the Control API refuses it as INVALID_ARGUMENT with its own message.
 	return &controlv1.ForkEdit{}

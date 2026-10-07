@@ -34,6 +34,7 @@ from swarmeval.control.cases import (
     conflict,
     refuse_archived,
 )
+from swarmeval.control.models import GatewayUnavailable, ModelCatalog, UnknownModel, check_served
 from swarmeval.core import CaseError, LoadedCase, load_case
 from swarmeval.core.models import AxisValue
 from swarmeval.events import ObjectStore
@@ -50,13 +51,15 @@ _log = logging.getLogger(__name__)
 
 
 def load_bundle(
-    bundle: bytes, overrides: Mapping[str, Sequence[AxisValue]]
+    bundle: bytes,
+    overrides: Mapping[str, Sequence[AxisValue]],
+    models: Mapping[str, Sequence[str]] | None = None,
 ) -> tuple[LoadedCase, bytes]:
     """The case in `bundle`, and the bundle's canonical bytes (`bundles.pack`), which are what
     the library hashes and stores."""
     with tempfile.TemporaryDirectory(prefix="swarmeval-case-") as scratch:
         case_dir = unpack(bundle, Path(scratch))
-        return load_case(case_dir, overrides), pack(case_dir)
+        return load_case(case_dir, overrides, models), pack(case_dir)
 
 
 def timestamp(value: datetime | None) -> Timestamp | None:
@@ -96,13 +99,19 @@ class CaseRpcs:
     _store: ObjectStore
     _library: CaseLibrary
     _allow_case_code: bool
+    _models: ModelCatalog
 
     async def _accept(
-        self, bundle: bytes, overrides: Mapping[str, Sequence[AxisValue]], context: Context
+        self,
+        bundle: bytes,
+        overrides: Mapping[str, Sequence[AxisValue]],
+        context: Context,
+        models: Mapping[str, Sequence[str]] | None = None,
     ) -> tuple[LoadedCase, bytes]:
         """The case in `bundle`, loaded as a worker will load it, and the bundle's canonical
         bytes. Aborts for a bundle over the limit, a case that does not load, and one with case
-        code where the deployment runs none."""
+        code where the deployment runs none. With `models`, the case is loaded to run, and
+        each model must be one model-gateway serves."""
         if len(bundle) > MAX_BUNDLE_BYTES:
             await context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT,
@@ -110,11 +119,28 @@ class CaseRpcs:
                 "(64 MiB). Move large data out of the case directory.",
             )
         try:
-            loaded, canonical = await asyncio.to_thread(load_bundle, bundle, overrides)
+            loaded, canonical = await asyncio.to_thread(load_bundle, bundle, overrides, models)
         except CaseError as err:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err))
         await self._refuse_case_code(loaded, context)
+        if models is not None:
+            await self._check_served([loaded], context)
         return loaded, canonical
+
+    async def _served(self, context: Context) -> tuple[str, ...]:
+        try:
+            return await self._models.served()
+        except GatewayUnavailable as err:
+            await context.abort(grpc.StatusCode.UNAVAILABLE, str(err))
+
+    async def _check_served(self, cases: Sequence[LoadedCase], context: Context) -> None:
+        """Aborts unless model-gateway serves every model the cases run."""
+        served = await self._served(context)
+        try:
+            for loaded in cases:
+                check_served(served, loaded)
+        except UnknownModel as err:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err))
 
     async def _refuse_archived(self, workspace: str, case_id: str, context: Context) -> None:
         """Aborts for an archived case, before anything of a write to it is stored. The write
@@ -306,12 +332,22 @@ class CaseRpcs:
         )
         bundle = await asyncio.to_thread(self._store.get, bundle_key(revision.bundle_sha256))
         files = await asyncio.to_thread(files_of, bundle)
+        slots: tuple[str, ...] = ()
+        load_error = ""
+        try:
+            slots = (await asyncio.to_thread(load_bundle, bundle, {}))[0].slots
+        except CaseError as err:
+            # Stored revisions loaded when they were stored; one that no longer does, such as a
+            # case of a retired schema version, is still shown, with why it cannot run.
+            load_error = str(err)
         return pb.GetCaseRevisionResponse(
             revision=revision_proto(revision),
             files=[
                 pb.CaseFile(path=f.path, content=f.content, mode=f.mode, link_target=f.link_target)
                 for f in files
             ],
+            model_slots=slots,
+            load_error=load_error,
         )
 
     async def ArchiveCase(

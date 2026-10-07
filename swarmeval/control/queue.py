@@ -21,6 +21,7 @@ from pydantic import JsonValue
 from sqlalchemy import ColumnElement, Row, Select, case, func, insert, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+from swarmeval.core.loader import MODEL_ARG
 from swarmeval.db import case_revisions, control_runs, run_specs
 from swarmeval.events.store import FencedError
 
@@ -67,6 +68,8 @@ class NewRun:
     task_args: dict[str, JsonValue]
     epoch: int
     epochs: int
+    models: dict[str, str]
+    """The run's model for each of its case's model slots."""
     replaces: str | None = None
     suite: str | None = None
     submitted_by: str | None = None
@@ -94,6 +97,8 @@ class RunRow:
     fork_seq: int | None
     fork_edits: list[JsonValue] | None
     submitted_by: str | None
+    models: dict[str, str] | None
+    """Model slot → model. None for a run queued before cases had model slots."""
     cancelled_by: str | None
     resumed_by: str | None
     owner_id: str | None
@@ -130,6 +135,7 @@ def _joined() -> Select[*tuple[Any, ...]]:
         s.fork_seq,
         s.fork_edits,
         s.submitted_by,
+        s.models,
         r.cancelled_by,
         r.resumed_by,
         r.owner_id,
@@ -199,6 +205,7 @@ async def insert_runs(conn: AsyncConnection, runs: Sequence[NewRun]) -> None:
                 "replaces": r.replaces,
                 "suite": r.suite,
                 "submitted_by": r.submitted_by,
+                "models": r.models,
             }
             for r in runs
         ],
@@ -421,10 +428,19 @@ class Queue:
         fork_seq: int,
         edits: list[JsonValue],
         actor: str | None = None,
+        models: Mapping[str, str] | None = None,
     ) -> RunRow:
         """Queues a fork of `source`, which goes on after its event `fork_seq` with `edits`:
         the same case revision, variant, and epoch (so the same seed), as run
-        `<source>.f<n>`. Its reports keep it apart from the epochs."""
+        `<source>.f<n>`. Its reports keep it apart from the epochs. `models` replaces the
+        source's model for each slot it names, in the fork's `models` and `task_args`; the
+        caller records each replacement among `edits`."""
+        replaced = dict(models or {})
+        fork_models = {**(source.models or {}), **replaced}
+        task_args = {
+            **source.task_args,
+            **{f"{MODEL_ARG}{slot}": model for slot, model in replaced.items()},
+        }
         async with self._engine.begin() as conn:
             # Serializes the forks of one run, so two take different numbers.
             lock = f"swarmeval.fork:{source.run_id}"
@@ -449,7 +465,7 @@ class Queue:
                     case_revision_id=source.case_revision_id,
                     overrides=source.overrides,
                     variant=source.variant,
-                    task_args=source.task_args,
+                    task_args=task_args,
                     epoch=source.epoch,
                     epochs=source.epochs,
                     suite=source.suite,
@@ -457,6 +473,7 @@ class Queue:
                     fork_seq=fork_seq,
                     fork_edits=edits,
                     submitted_by=actor,
+                    models=fork_models,
                 )
             )
         return await self.get(run_id)
@@ -596,6 +613,7 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
                     s.suite,
                     s.forked_from,
                     s.submitted_by,
+                    s.models,
                     control_runs.c.workspace,
                 )
                 .join_from(run_specs, control_runs, s.run_id == control_runs.c.run_id)
@@ -639,6 +657,7 @@ async def _rerun(conn: AsyncConnection, run_id: str) -> str | None:
             replaces=run_id,
             suite=spec["suite"],
             submitted_by=spec["submitted_by"],
+            models=spec["models"],
         )
     )
     return rerun_id

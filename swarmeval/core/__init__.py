@@ -11,6 +11,7 @@ from swarmeval.core.loader import (
     LoadedCase,
     SandboxPlan,
     Variant,
+    choose_models,
     load_case,
 )
 from swarmeval.core.models import CaseFile, EnvFile
@@ -35,6 +36,7 @@ __all__ = [
     "SuiteEntry",
     "SuiteError",
     "Variant",
+    "choose_models",
     "load_case",
     "load_suite",
     "load_suite_text",

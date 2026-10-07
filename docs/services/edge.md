@@ -151,16 +151,17 @@ HTTP/1.1 and through any proxy, with the API token on every request.
 
 ```bash
 swarm login --endpoint https://swarm.example.com     # asks username and password; saves a token
-swarm run cases/collusion_pricing -V model=qwen3-8b,glm-5 --epochs 20 --follow
+swarm models                                         # what runs may use
+swarm run cases/collusion_pricing -m qwen3-8b,glm-5 --epochs 20 --follow
 swarm run suites/m1_core.yaml
 swarm runs list --suite m1_core.3fa1b2c4
 swarm events collusion_pricing.fb47ae64.v0.e1        # one line per event, until the run ends
 swarm case push cases/collusion_pricing -m "tighter threshold"
-swarm run --case safety/collusion_pricing@3          # a revision in the library
+swarm run --case safety/collusion_pricing@3 -m glm-5 # a revision in the library
 swarm query "SELECT status, count(*) FROM runs GROUP BY ALL"
 swarm report --suite m1_core.3fa1b2c4 --compare 'paraphrased=[],[dm_ab]'
 swarm export collusion_pricing.fb47ae64.v0.e1       # the .eval, for `inspect view`
-swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
+swarm replay RUN --fork-at EVENT --edit edits.yaml -m glm-5 --follow
 ```
 
 | Command | Does |
@@ -168,12 +169,13 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
 | `login` | Signs in with a username and password (asked on a terminal, otherwise the first line of stdin) and saves a new API token named `swarm CLI on <hostname>`; or `--token` saves one you have, after checking it. `--ca-file` saves a certificate to trust for edge |
 | `logout` | Revokes the token `login` made and forgets it. A token given with `--token` is only forgotten |
 | `whoami` | Who the token signs in as |
-| `run CASE_DIR` | Packs the directory and submits it, with `-V axis=values` (repeatable), `--epochs`, and `--suite`. The directory is stored in the case library as `case push` stores it. Prints the submission, the revision its runs use, and the run ids |
+| `models` | The model names runs may use: what model-gateway serves (`ListModels`) |
+| `run CASE_DIR` | Packs the directory and submits it, with `-m` choosing the models (required, repeatable: `-m MODEL[,MODEL…]` for the `default` [slot](../case-format.md#model-slots), `-m SLOT=MODEL[,MODEL…]` for a named one), `-V axis=values` (repeatable), `--epochs`, and `--suite`. The directory is stored in the case library as `case push` stores it. Prints the submission, the revision its runs use, and the run ids |
 | `run --case WORKSPACE/CASE[@REVISION]` | Submits a revision already in the library, the newest without `@REVISION`, with the same flags |
-| `run SUITE_FILE` | Packs every case directory the suite's `cases[].path` names, relative to the file, and submits the suite whole (`SubmitSuite`). Prints each submission and the suite label |
+| `run SUITE_FILE` | Packs every case directory the suite's `cases[].path` names, relative to the file, and submits the suite whole (`SubmitSuite`); the suite chooses its models. Prints each submission and the suite label |
 | `runs list`, `get`, `cancel`, `resume` | `list` filters by `--submission`, `--case`, `--workspace`, `--status`, `--suite`, `--limit`. `get` also shows what a run reruns, what it was forked from and with what fidelity, and how often it was taken over from a worker whose lease ran out |
 | `events RUN` | Prints `[event_id] #seq agent line` per event, as the judge reads them, until the run finishes; `--after SEQ` skips earlier ones |
-| `replay RUN --fork-at EVENT` | `ForkRun`, with `--edit FILE`: a YAML or JSON list of edits in protobuf's JSON form (`replace_message`, `delete_message`, `replace_delivery`) |
+| `replay RUN --fork-at EVENT` | `ForkRun`, with `--edit FILE`: a YAML or JSON list of edits in protobuf's JSON form (`replace_message`, `delete_message`, `replace_delivery`), and `-m [SLOT=]MODEL` (repeatable) to run a slot on another model from the fork point |
 | `case list` | The library's cases as `WORKSPACE/CASE`, each with its newest revision; `--workspace`, and `--archived` to include archived ones |
 | `case push CASE_DIR` | Stores the directory as the next revision of the case its `case.yaml` names, `-m NOTE` for the revision list. Prints `WORKSPACE/CASE@N pushed`, or `unchanged, already` when the directory is the newest revision. Runs nothing |
 | `case pull WORKSPACE/CASE[@REVISION] [DIR]` | Writes the revision's files, with their modes and links, to `DIR` (default `./CASE`), which must be empty or new |
@@ -191,7 +193,7 @@ swarm replay RUN --fork-at EVENT --edit edits.yaml --follow
   it prints their statuses and exits 1 if any did not end `done`. Ctrl-C stops following, not
   the runs.
 - **`-V`** values are read as a YAML flow sequence, as `report --compare` reads them:
-  `-V model=a,b` is `["a", "b"]`, `-V paraphrased=[],[dm_ab]` is `[[], ["dm_ab"]]`. The control
+  `-V framing=a,b` is `["a", "b"]`, `-V paraphrased=[],[dm_ab]` is `[[], ["dm_ab"]]`. The control
   plane checks them against the case.
 - **Packing** follows `swarmeval.control.bundles.pack`: every regular file, sorted,
   `__pycache__` left out, times and owners zeroed, so the same files always give the same bytes.
@@ -256,9 +258,9 @@ stubs), with Connect's JSON protocol and the session cookie.
 | Sign-in | Username and password |
 | Runs | The newest 500 runs that match, counted by status (a count filters to its status), grouped by submission, each with its duration and how long ago it finished; filtered by workspace, case, suite, submission, and status, all on the server, so a filter reaches runs that are not among the newest overall; the workspace list comes from the case library; refreshed every 5 seconds; each submission's trigger rates on demand (`Report`) |
 | Run | Status, case revision, variant values, isolation, times, who submitted, cancelled, and resumed; cancel and resume; each scorer's last score, from the run's `score` events; the replay |
-| Replay | The run's events from `StreamEvents`, in order, one lane per agent and one for events no agent caused, appended live while the run goes on, in a panel of fixed height beside the chosen event's detail; each event is tagged with its type's colour and shows its first four lines. Types can be hidden. Clicking an event shows its stored payload and its causal chain (`GetTrace`, so only once the run is exported; a fork's chain goes on into its source), and, for a run that ended `done` or `cancelled`, forks from it with edits given as JSON |
+| Replay | The run's events from `StreamEvents`, in order, one lane per agent and one for events no agent caused, appended live while the run goes on, in a panel of fixed height beside the chosen event's detail; each event is tagged with its type's colour and shows its first four lines. Types can be hidden. Clicking an event shows its stored payload and its causal chain (`GetTrace`, so only once the run is exported; a fork's chain goes on into its source), and, for a run that ended `done` or `cancelled`, forks from it with edits given as JSON and, per model slot, another model to run from there |
 | Compare | Two runs' replays side by side |
-| Cases | The library by workspace; a new case from a template that loads and scores; a case's files in an editor (text files edited in place, binary files and links replaced by upload or deleted), saved as the next revision with a note; a save against a revision someone else has replaced says so and keeps the edits on screen; the revision history; the diff between two revisions, computed in the browser; submitting a revision with variant overrides and epochs; archive and unarchive |
+| Cases | The library by workspace; a new case from a template that loads and scores; a case's files in an editor (text files edited in place, binary files and links replaced by upload or deleted), saved as the next revision with a note; a save against a revision someone else has replaced says so and keeps the edits on screen; the revision history; the diff between two revisions, computed in the browser; submitting a revision with its models (a choice per model slot, from what model-gateway serves), variant overrides, and epochs; a revision that no longer loads says why instead; archive and unarchive |
 | Analysis | SQL (`Query`, up to 1,000 rows), tool call search, rule scans (started as a job and polled), and the judge |
 | Account | Change password; create, list, and revoke API tokens |
 | Users | Admins: create, disable, enable, reset password |

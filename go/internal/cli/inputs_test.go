@@ -142,7 +142,7 @@ func TestPackRefusesAFileOrAMissingDirectory(t *testing.T) {
 }
 
 func TestOverridesAreYAMLFlowSequences(t *testing.T) {
-	got, err := parseOverrides([]string{"model=qwen3-8b,glm-5", "n=1,2.5", "paraphrased=[],[dm_ab]", "flag=true"})
+	got, err := parseOverrides([]string{"framing=neutral,pressure", "n=1,2.5", "paraphrased=[],[dm_ab]", "flag=true"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,13 +150,44 @@ func TestOverridesAreYAMLFlowSequences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"flag":[true],"model":["qwen3-8b","glm-5"],"n":[1,2.5],"paraphrased":[[],["dm_ab"]]}`
+	want := `{"flag":[true],"framing":["neutral","pressure"],"n":[1,2.5],"paraphrased":[[],["dm_ab"]]}`
 	if strings.ReplaceAll(string(b), " ", "") != want {
 		t.Fatalf("got %s, want %s", b, want)
 	}
-	for _, bad := range [][]string{{"model"}, {"=a"}, {"model="}, {"m=a", "m=b"}, {"m=[a"}} {
+	for _, bad := range [][]string{{"framing"}, {"=a"}, {"framing="}, {"m=a", "m=b"}, {"m=[a"}} {
 		if _, err := parseOverrides(bad); err == nil {
 			t.Errorf("%v was accepted", bad)
+		}
+	}
+}
+
+func TestModelsFillTheDefaultSlotOrANamedOne(t *testing.T) {
+	got, err := parseModels([]string{"qwen3-8b,glm-5", "attacker=org/model-x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || strings.Join(got["default"].GetNames(), ",") != "qwen3-8b,glm-5" || strings.Join(got["attacker"].GetNames(), ",") != "org/model-x" {
+		t.Fatalf("got %v", got)
+	}
+	for _, bad := range [][]string{{""}, {"=m"}, {"a="}, {"m1,,m2"}, {"m1", "default=m2"}} {
+		if _, err := parseModels(bad); err == nil {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
+}
+
+func TestReplayModelsAreOneModelPerSlot(t *testing.T) {
+	edits, err := modelEdits([]string{"glm-5", "attacker=m2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, second := edits[0].GetReplaceModel(), edits[1].GetReplaceModel()
+	if len(edits) != 2 || first.GetSlot() != "default" || first.GetModel() != "glm-5" || second.GetSlot() != "attacker" || second.GetModel() != "m2" {
+		t.Fatalf("edits %v", edits)
+	}
+	for _, bad := range [][]string{{"a,b"}, {"x="}, {"m1", "m2"}} {
+		if _, err := modelEdits(bad); err == nil {
+			t.Errorf("%q was accepted", bad)
 		}
 	}
 }

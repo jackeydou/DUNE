@@ -55,8 +55,8 @@ test("binary files of one length and different bytes are a change", () => {
 })
 
 test("overrides are one axis per line, values as JSON when they parse", () => {
-  expect(parseOverrides('model=a,b\n\nn=1,2\nparaphrased=[],["dm_ab"]\n')).toEqual({
-    model: ["a", "b"],
+  expect(parseOverrides('framing=a,b\n\nn=1,2\nparaphrased=[],["dm_ab"]\n')).toEqual({
+    framing: ["a", "b"],
     n: [1, 2],
     paraphrased: [[], ["dm_ab"]],
   })

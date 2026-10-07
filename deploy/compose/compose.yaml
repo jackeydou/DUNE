@@ -106,6 +106,7 @@ services:
       - swarmeval-control
       - --listen=0.0.0.0:7090
       - --s3-scheme=http
+      - --gateway-http=https://model-gateway:7080
       - --mtls-cert=/certs/tls.crt
       - --mtls-key=/certs/tls.key
       - --mtls-ca=/certs/ca.crt

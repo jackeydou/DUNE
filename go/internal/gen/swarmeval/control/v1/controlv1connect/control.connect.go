@@ -54,6 +54,9 @@ const (
 	// ControlServiceStreamEventsProcedure is the fully-qualified name of the ControlService's
 	// StreamEvents RPC.
 	ControlServiceStreamEventsProcedure = "/swarmeval.control.v1.ControlService/StreamEvents"
+	// ControlServiceListModelsProcedure is the fully-qualified name of the ControlService's ListModels
+	// RPC.
+	ControlServiceListModelsProcedure = "/swarmeval.control.v1.ControlService/ListModels"
 	// ControlServicePushCaseProcedure is the fully-qualified name of the ControlService's PushCase RPC.
 	ControlServicePushCaseProcedure = "/swarmeval.control.v1.ControlService/PushCase"
 	// ControlServiceUpdateCaseFilesProcedure is the fully-qualified name of the ControlService's
@@ -109,6 +112,9 @@ type ControlServiceClient interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(context.Context, *connect.Request[v1.StreamEventsRequest]) (*connect.ServerStreamForClient[v1.StreamEventsResponse], error)
+	// The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+	// cannot be reached.
+	ListModels(context.Context, *connect.Request[v1.ListModelsRequest]) (*connect.Response[v1.ListModelsResponse], error)
 	// Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
 	// names, creating the case on its first push. A bundle with the same bytes as the newest
 	// revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
@@ -191,6 +197,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("StreamEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		listModels: connect.NewClient[v1.ListModelsRequest, v1.ListModelsResponse](
+			httpClient,
+			baseURL+ControlServiceListModelsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListModels")),
+			connect.WithClientOptions(opts...),
+		),
 		pushCase: connect.NewClient[v1.PushCaseRequest, v1.PushCaseResponse](
 			httpClient,
 			baseURL+ControlServicePushCaseProcedure,
@@ -252,6 +264,7 @@ type controlServiceClient struct {
 	resumeRun         *connect.Client[v1.ResumeRunRequest, v1.ResumeRunResponse]
 	forkRun           *connect.Client[v1.ForkRunRequest, v1.ForkRunResponse]
 	streamEvents      *connect.Client[v1.StreamEventsRequest, v1.StreamEventsResponse]
+	listModels        *connect.Client[v1.ListModelsRequest, v1.ListModelsResponse]
 	pushCase          *connect.Client[v1.PushCaseRequest, v1.PushCaseResponse]
 	updateCaseFiles   *connect.Client[v1.UpdateCaseFilesRequest, v1.UpdateCaseFilesResponse]
 	getCase           *connect.Client[v1.GetCaseRequest, v1.GetCaseResponse]
@@ -300,6 +313,11 @@ func (c *controlServiceClient) ForkRun(ctx context.Context, req *connect.Request
 // StreamEvents calls swarmeval.control.v1.ControlService.StreamEvents.
 func (c *controlServiceClient) StreamEvents(ctx context.Context, req *connect.Request[v1.StreamEventsRequest]) (*connect.ServerStreamForClient[v1.StreamEventsResponse], error) {
 	return c.streamEvents.CallServerStream(ctx, req)
+}
+
+// ListModels calls swarmeval.control.v1.ControlService.ListModels.
+func (c *controlServiceClient) ListModels(ctx context.Context, req *connect.Request[v1.ListModelsRequest]) (*connect.Response[v1.ListModelsResponse], error) {
+	return c.listModels.CallUnary(ctx, req)
 }
 
 // PushCase calls swarmeval.control.v1.ControlService.PushCase.
@@ -373,6 +391,9 @@ type ControlServiceHandler interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(context.Context, *connect.Request[v1.StreamEventsRequest], *connect.ServerStream[v1.StreamEventsResponse]) error
+	// The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+	// cannot be reached.
+	ListModels(context.Context, *connect.Request[v1.ListModelsRequest]) (*connect.Response[v1.ListModelsResponse], error)
 	// Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
 	// names, creating the case on its first push. A bundle with the same bytes as the newest
 	// revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
@@ -451,6 +472,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("StreamEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceListModelsHandler := connect.NewUnaryHandler(
+		ControlServiceListModelsProcedure,
+		svc.ListModels,
+		connect.WithSchema(controlServiceMethods.ByName("ListModels")),
+		connect.WithHandlerOptions(opts...),
+	)
 	controlServicePushCaseHandler := connect.NewUnaryHandler(
 		ControlServicePushCaseProcedure,
 		svc.PushCase,
@@ -517,6 +544,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceForkRunHandler.ServeHTTP(w, r)
 		case ControlServiceStreamEventsProcedure:
 			controlServiceStreamEventsHandler.ServeHTTP(w, r)
+		case ControlServiceListModelsProcedure:
+			controlServiceListModelsHandler.ServeHTTP(w, r)
 		case ControlServicePushCaseProcedure:
 			controlServicePushCaseHandler.ServeHTTP(w, r)
 		case ControlServiceUpdateCaseFilesProcedure:
@@ -572,6 +601,10 @@ func (UnimplementedControlServiceHandler) ForkRun(context.Context, *connect.Requ
 
 func (UnimplementedControlServiceHandler) StreamEvents(context.Context, *connect.Request[v1.StreamEventsRequest], *connect.ServerStream[v1.StreamEventsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.StreamEvents is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListModels(context.Context, *connect.Request[v1.ListModelsRequest]) (*connect.Response[v1.ListModelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.control.v1.ControlService.ListModels is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) PushCase(context.Context, *connect.Request[v1.PushCaseRequest]) (*connect.Response[v1.PushCaseResponse], error) {

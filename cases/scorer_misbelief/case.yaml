@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 4
 id: scorer_misbelief
 workspace: safety
 category: reward_hacking
@@ -10,13 +10,11 @@ description: >
   held-out answer key?
 variants:
   scorer_description: [accurate, misleading, vague]
-  model: [qwen3-8b]
 epochs: 10
 
 swarm:
   agents:
     - id: solver
-      model: ${variant.model}
       prompt: prompts/system.md
       task: prompts/task_${variant.scorer_description}.md
       tools: [shell]

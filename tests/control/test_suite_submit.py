@@ -18,7 +18,8 @@ from swarmeval.core import load_suite
 from swarmeval.events import ObjectStore
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.core.test_loader import write
-from tests.core.test_suite import model_case, write_suite
+from tests.core.test_suite import framed_case, write_suite
+from tests.models import chosen
 from tests.queueing import enqueue, start
 
 if TYPE_CHECKING:
@@ -30,14 +31,14 @@ pytestmark = pytest.mark.docker
 async def test_a_suite_is_one_submission_per_case_under_one_label(
     control: "ControlServiceAsyncStub", object_store: ObjectStore, tmp_path: Path
 ) -> None:
-    write(tmp_path / "a", model_case())
-    other = model_case()
+    write(tmp_path / "a", framed_case())
+    other = framed_case()
     other["id"] = "other"
     write(tmp_path / "b", other)
     path = write_suite(
         tmp_path,
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "id": "core",
             "models": ["m1", "m2"],
             "epochs": 2,
@@ -56,7 +57,9 @@ async def test_a_suite_is_one_submission_per_case_under_one_label(
     assert len(listed) == 10
     assert {r.suite for r in listed} == {label}
     assert {r.submission_id for r in listed} == {s.submission_id for s in submitted}
-    models = {r.task_args.fields["model"].string_value for r in listed if r.case_id == "other"}
+    models = {
+        r.task_args.fields["model.default"].string_value for r in listed if r.case_id == "other"
+    }
     assert models == {"m1", "m2"}
 
     for run in listed:
@@ -71,7 +74,9 @@ async def test_a_suite_label_outside_the_alphabet_is_refused(
 ) -> None:
     with pytest.raises(grpc.aio.AioRpcError) as info:
         await control.SubmitRuns(
-            pb.SubmitRunsRequest(case_bundle=pack(write(tmp_path)), suite="Core Suite")
+            pb.SubmitRunsRequest(
+                case_bundle=pack(write(tmp_path)), models=chosen(), suite="Core Suite"
+            )
         )
 
     assert info.value.code() == grpc.StatusCode.INVALID_ARGUMENT
@@ -99,10 +104,11 @@ async def _refused(control: "ControlServiceAsyncStub", request: pb.SubmitSuiteRe
 async def test_a_suite_with_a_broken_case_queues_nothing(
     control: "ControlServiceAsyncStub", tmp_path: Path
 ) -> None:
-    write(tmp_path / "a", model_case())
+    write(tmp_path / "a", framed_case())
     suite = {
-        "schema_version": 1,
+        "schema_version": 2,
         "id": "broken",
+        "models": ["m1"],
         "cases": [{"path": "../a/case"}, {"path": "../a/case", "variants": {"nope": [1]}}],
     }
     bundle = pack(tmp_path / "a" / "case")
@@ -121,9 +127,11 @@ async def test_a_suite_with_a_broken_case_queues_nothing(
 async def test_a_suite_needs_exactly_the_bundles_it_names(
     control: "ControlServiceAsyncStub", tmp_path: Path
 ) -> None:
-    write(tmp_path / "a", model_case())
+    write(tmp_path / "a", framed_case())
     bundle = pack(tmp_path / "a" / "case")
-    suite = yaml.safe_dump({"schema_version": 1, "id": "s", "cases": [{"path": "../a/case"}]})
+    suite = yaml.safe_dump(
+        {"schema_version": 2, "id": "s", "models": ["m1"], "cases": [{"path": "../a/case"}]}
+    )
 
     missing = await _refused(control, pb.SubmitSuiteRequest(suite_yaml=suite))
     extra = await _refused(
@@ -144,10 +152,11 @@ async def test_a_suite_needs_exactly_the_bundles_it_names(
 async def test_one_case_twice_is_two_submissions_from_one_bundle(
     control: "ControlServiceAsyncStub", tmp_path: Path
 ) -> None:
-    write(tmp_path / "a", model_case())
+    write(tmp_path / "a", framed_case())
     suite = {
-        "schema_version": 1,
+        "schema_version": 2,
         "id": "twice",
+        "models": ["m1"],
         "epochs": 1,
         "cases": [
             {"path": "../a/case", "variants": {"framing": ["a"]}},

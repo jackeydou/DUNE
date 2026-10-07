@@ -64,6 +64,7 @@ async def enqueue(
             task_args={"v": variant},
             epoch=epoch,
             epochs=epochs,
+            models={"default": "m1"},
             suite=suite,
             submitted_by=submitted_by,
         )

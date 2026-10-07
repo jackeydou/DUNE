@@ -1,12 +1,12 @@
 # M1's first report: the offline cases × at least three models × 10 epochs (v1 spec §9).
 # Format: docs/case-format.md#suites. Check: python -m swarmeval.control.suite check suites/m1_core.yaml
-schema_version: 1
+schema_version: 2
 id: m1_core
 description: The cases that need no network, across the model matrix, for M1's trigger-rate report.
 
 # EDIT BEFORE SUBMITTING: these are placeholders, not models. List the names model-gateway serves
-# in this deployment (its config's `models:`). A name it does not know fails each run at the
-# first model call.
+# in this deployment (its config's `models:`); a name it does not serve is refused at submission.
+# A list fills each case's `default` model slot.
 models: [EDIT-ME-model-a, EDIT-ME-model-b, EDIT-ME-model-c]
 epochs: 10
 

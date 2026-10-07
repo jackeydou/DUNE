@@ -24,12 +24,34 @@ DESCRIPTOR: _descriptor.FileDescriptor
 class SubmitRunsRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
+    @_typing.final
+    class ModelsEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        @_builtins.property
+        def value(self) -> Global___ModelChoice: ...
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: Global___ModelChoice | None = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
     CASE_BUNDLE_FIELD_NUMBER: _builtins.int
     CASE_FIELD_NUMBER: _builtins.int
     OVERRIDES_FIELD_NUMBER: _builtins.int
     EPOCHS_FIELD_NUMBER: _builtins.int
     SUITE_FIELD_NUMBER: _builtins.int
     ACTOR_FIELD_NUMBER: _builtins.int
+    MODELS_FIELD_NUMBER: _builtins.int
     case_bundle: _builtins.bytes
     """The case directory as an uncompressed tar archive, with `case.yaml` at its root. Set this
     or `case`, not both.
@@ -50,6 +72,13 @@ class SubmitRunsRequest(_message.Message):
     def overrides(self) -> _struct_pb2.Struct:
         """Variant axis → list of values, replacing that axis's values in the case."""
 
+    @_builtins.property
+    def models(self) -> _containers.MessageMap[_builtins.str, Global___ModelChoice]:
+        """Model slot → the models to run it on, for every slot of the case and no other. Each
+        slot's models are one more dimension of the run matrix. A name model-gateway does not serve
+        is INVALID_ARGUMENT; model-gateway out of reach is UNAVAILABLE.
+        """
+
     def __init__(
         self,
         *,
@@ -59,14 +88,35 @@ class SubmitRunsRequest(_message.Message):
         epochs: _builtins.int = ...,
         suite: _builtins.str = ...,
         actor: _builtins.str = ...,
+        models: _abc.Mapping[_builtins.str, Global___ModelChoice] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["case", b"case", "overrides", b"overrides"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "case", b"case", "case_bundle", b"case_bundle", "epochs", b"epochs", "overrides", b"overrides", "suite", b"suite"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["actor", b"actor", "case", b"case", "case_bundle", b"case_bundle", "epochs", b"epochs", "models", b"models", "overrides", b"overrides", "suite", b"suite"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___SubmitRunsRequest: _TypeAlias = SubmitRunsRequest  # noqa: Y015
+
+@_typing.final
+class ModelChoice(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    NAMES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def names(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        names: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["names", b"names"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ModelChoice: _TypeAlias = ModelChoice  # noqa: Y015
 
 @_typing.final
 class CaseRevisionRef(_message.Message):
@@ -562,28 +612,58 @@ class ForkEdit(_message.Message):
     REPLACE_MESSAGE_FIELD_NUMBER: _builtins.int
     DELETE_MESSAGE_FIELD_NUMBER: _builtins.int
     REPLACE_DELIVERY_FIELD_NUMBER: _builtins.int
+    REPLACE_MODEL_FIELD_NUMBER: _builtins.int
     @_builtins.property
     def replace_message(self) -> Global___ReplaceMessage: ...
     @_builtins.property
     def delete_message(self) -> Global___DeleteMessage: ...
     @_builtins.property
     def replace_delivery(self) -> Global___ReplaceDelivery: ...
+    @_builtins.property
+    def replace_model(self) -> Global___ReplaceModel: ...
     def __init__(
         self,
         *,
         replace_message: Global___ReplaceMessage | None = ...,
         delete_message: Global___DeleteMessage | None = ...,
         replace_delivery: Global___ReplaceDelivery | None = ...,
+        replace_model: Global___ReplaceModel | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["delete_message", b"delete_message", "edit", b"edit", "replace_delivery", b"replace_delivery", "replace_message", b"replace_message"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["delete_message", b"delete_message", "edit", b"edit", "replace_delivery", b"replace_delivery", "replace_message", b"replace_message", "replace_model", b"replace_model"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["delete_message", b"delete_message", "edit", b"edit", "replace_delivery", b"replace_delivery", "replace_message", b"replace_message"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["delete_message", b"delete_message", "edit", b"edit", "replace_delivery", b"replace_delivery", "replace_message", b"replace_message", "replace_model", b"replace_model"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_edit: _TypeAlias = _typing.Literal["replace_message", "delete_message", "replace_delivery"]  # noqa: Y015
+    _WhichOneofReturnType_edit: _TypeAlias = _typing.Literal["replace_message", "delete_message", "replace_delivery", "replace_model"]  # noqa: Y015
     _WhichOneofArgType_edit: _TypeAlias = _typing.Literal["edit", b"edit"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_edit) -> _WhichOneofReturnType_edit | None: ...
 
 Global___ForkEdit: _TypeAlias = ForkEdit  # noqa: Y015
+
+@_typing.final
+class ReplaceModel(_message.Message):
+    """Runs the agents of model slot `slot` on `model` from the fork point. The fork's `task_args`
+    name the new model.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SLOT_FIELD_NUMBER: _builtins.int
+    MODEL_FIELD_NUMBER: _builtins.int
+    slot: _builtins.str
+    model: _builtins.str
+    def __init__(
+        self,
+        *,
+        slot: _builtins.str = ...,
+        model: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["model", b"model", "slot", b"slot"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ReplaceModel: _TypeAlias = ReplaceModel  # noqa: Y015
 
 @_typing.final
 class ReplaceMessage(_message.Message):
@@ -1153,21 +1233,35 @@ class GetCaseRevisionResponse(_message.Message):
 
     REVISION_FIELD_NUMBER: _builtins.int
     FILES_FIELD_NUMBER: _builtins.int
+    MODEL_SLOTS_FIELD_NUMBER: _builtins.int
+    LOAD_ERROR_FIELD_NUMBER: _builtins.int
+    load_error: _builtins.str
+    """Why the revision does not load in this SwarmEval, such as a `case.yaml` of a retired schema
+    version; it cannot run. Empty when it loads.
+    """
     @_builtins.property
     def revision(self) -> Global___CaseRevision: ...
     @_builtins.property
     def files(self) -> _containers.RepeatedCompositeFieldContainer[Global___CaseFile]:
         """By path."""
 
+    @_builtins.property
+    def model_slots(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """The case's model slots, in the order its agents first name them: what a submission chooses
+        models for. Empty when the revision does not load, as `load_error` says.
+        """
+
     def __init__(
         self,
         *,
         revision: Global___CaseRevision | None = ...,
         files: _abc.Iterable[Global___CaseFile] | None = ...,
+        model_slots: _abc.Iterable[_builtins.str] | None = ...,
+        load_error: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["revision", b"revision"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["files", b"files", "revision", b"revision"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["files", b"files", "load_error", b"load_error", "model_slots", b"model_slots", "revision", b"revision"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1262,3 +1356,40 @@ class UnarchiveCaseResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___UnarchiveCaseResponse: _TypeAlias = UnarchiveCaseResponse  # noqa: Y015
+
+@_typing.final
+class ListModelsRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListModelsRequest: _TypeAlias = ListModelsRequest  # noqa: Y015
+
+@_typing.final
+class ListModelsResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    MODELS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def models(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Sorted."""
+
+    def __init__(
+        self,
+        *,
+        models: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["models", b"models"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListModelsResponse: _TypeAlias = ListModelsResponse  # noqa: Y015

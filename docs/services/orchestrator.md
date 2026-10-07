@@ -69,20 +69,22 @@ on the internal network *(RPC names proposed)*. With `--mtls-cert`, `--mtls-key`
 it accepts only `edge` and `operator` certificates
 ([service identity](../architecture.md#service-identity)); without them `--listen` must be a
 loopback address. The worker takes the same three flags to call sandboxd and model-gateway,
-and then `--gateway-http` must be an `https` URL. A case bundle may be up to 64 MiB, and a
+and then `--gateway-http` must be an `https` URL. The control plane calls model-gateway too, only
+for the models it serves ([models](#models)): its `--gateway-http` follows the same rule. A case bundle may be up to 64 MiB, and a
 message 1 MiB more, so that a bundle of exactly the limit still fits with the rest of its
 request.
 
 | RPC | Does | From |
 |---|---|---|
-| `SubmitRuns` | Takes a case, as a bundle or as a [library](#case-library) revision (`case`: workspace, case id, revision, 0 = newest), exactly one of the two; variant overrides (axis → list of values), epochs (0 = the case's), and an optional [suite](#suites) label. A bundle is validated and pushed to the library as `PushCase` pushes it, in the transaction that queues the runs. Enqueues one run per variant and epoch; returns the submission id, the run ids, and the revision they use. A case that does not load is `INVALID_ARGUMENT` with the loader's message; an unknown case or revision is `NOT_FOUND`; an archived case is `FAILED_PRECONDITION` | Built |
+| `SubmitRuns` | Takes a case, as a bundle or as a [library](#case-library) revision (`case`: workspace, case id, revision, 0 = newest), exactly one of the two; the models, slot → list of names, for every [model slot](../case-format.md#model-slots) of the case; variant overrides (axis → list of values), epochs (0 = the case's), and an optional [suite](#suites) label. A bundle is validated and pushed to the library as `PushCase` pushes it, in the transaction that queues the runs. Enqueues one run per variant and epoch; returns the submission id, the run ids, and the revision they use. A case that does not load, a slot without models or one the case does not have, and a model model-gateway does not serve are `INVALID_ARGUMENT`; model-gateway out of reach is `UNAVAILABLE`; an unknown case or revision is `NOT_FOUND`; an archived case is `FAILED_PRECONDITION` | Built |
 | `GetRun`, `ListRuns` | Status, variant and its values, epoch, the run it [reruns](#reruns), owner, isolation level, error, timestamps. `ListRuns` filters by submission, suite label, case, workspace, and status, newest first; the filters apply before the limit | Built. Fidelity arrives with recovery (M3) |
 | `CancelRun` | Marks cancelled. A queued run never starts; a running one stops at its owner's next hook point, is not scored, and is still exported. A finished run is `FAILED_PRECONDITION` | Built |
 | `ResumeRun` | A run paused for a person (a Monitor's `pause`) goes on from the hook point where it stopped. A run that is not paused is `FAILED_PRECONDITION` | Built |
-| `ForkRun` | A new run that goes on from a finished run's state at the start of the turn an event happened in, with edits: replace a message's text, delete a user message, or replace an undelivered message's content ([forks](#forks)). Returns the fork, `<source>.f<n>`, queued. Only a run that ended `done` or `cancelled` (an exported one) can be forked. An unknown run or event is `NOT_FOUND`; any other source run, an event before the first turn, a turn that began with extension background work (`ctx.spawn`) still running, a run recorded before forks were possible, or an edit that does not fit is `FAILED_PRECONDITION`; a malformed edit is `INVALID_ARGUMENT` | Built |
+| `ForkRun` | A new run that goes on from a finished run's state at the start of the turn an event happened in, with edits: replace a message's text, delete a user message, replace an undelivered message's content, or run a model slot on another model ([forks](#forks)). Returns the fork, `<source>.f<n>`, queued. Only a run that ended `done` or `cancelled` (an exported one) can be forked. An unknown run or event is `NOT_FOUND`; any other source run, an event before the first turn, a turn that began with extension background work (`ctx.spawn`) still running, a run recorded before forks were possible, or an edit that does not fit is `FAILED_PRECONDITION`; a malformed edit is `INVALID_ARGUMENT` | Built |
 | `SubmitSuite` | Takes a [suite](#suites) file and one bundle per `cases[].path` it names, loads the suite, and queues every case's runs in one transaction under one suite label; returns the label and one submission per entry. A suite that does not load, a path with no bundle, or a bundle the suite does not name is `INVALID_ARGUMENT`, and nothing is queued | Built |
+| `ListModels` | The model names runs may use: what model-gateway serves, sorted ([models](#models)). `UNAVAILABLE` when model-gateway is out of reach | Built |
 | `StreamEvents` | Server stream of a run's events after a given `seq`, live while it runs; ends once the run has finished and every event was sent. Each event comes with its stored payload and its `line`, the one-line text the judge reads (`swarmeval.events.render`), cut at 2,000 characters | Built |
-| `PushCase`, `UpdateCaseFiles`, `GetCase`, `ListCases`, `ListCaseRevisions`, `GetCaseRevision`, `ArchiveCase`, `UnarchiveCase` | The [case library](#case-library) | Built |
+| `PushCase`, `UpdateCaseFiles`, `GetCase`, `ListCases`, `ListCaseRevisions`, `GetCaseRevision`, `ArchiveCase`, `UnarchiveCase` | The [case library](#case-library). `GetCaseRevision` also returns the revision's model slots, or, for a revision that no longer loads (a case of a retired schema version), `load_error` saying why it cannot run | Built |
 
 `SubmitRuns`, `CancelRun`, `ResumeRun`, and `ForkRun` take an `actor`: the user [edge](edge.md)
 authenticated, empty for internal tooling. It is recorded on the run, not in its events, and `Run`
@@ -90,6 +92,22 @@ returns it as `submitted_by` (a rerun keeps its predecessor's), `cancelled_by`, 
 (the last resume) ([M4 spec](../../spec/2026-10-03-m4-console/README.md) decision 2). The case
 writes take one too: it is recorded on the revision they make. Who archived or unarchived a case
 is only logged.
+
+### Models
+
+A case names no models ([model slots](../case-format.md#model-slots)); a submission chooses
+them, and the control plane asks model-gateway's `GET /v1/models` for what it serves before it
+stores or queues anything (`swarmeval.control.models`). Every chosen model and every model the
+case itself writes (a `paraphrase` intervention's) must be served. The gateway is asked on each
+submission, fork with a model replacement, and `ListModels`, so a model added to its config is
+usable without restarting the control plane. The gateway lets the control plane's certificate
+call nothing but `GET /v1/models` ([model-gateway](model-gateway.md#api)).
+
+Each run stores its model per slot in `control.run_specs.models` (migration 0013) and in
+`task_args` as `model.<slot>`. The worker loads the case with those models and picks the variant
+whose `task_args` match the run's, so a fork whose models differ from its source's still finds
+its own. A run queued before model slots, whose case named its models, fails to start with an
+error saying to submit the case again.
 
 Run ids are `<case>.<submission>.v<variant>.e<epoch>`. Override numbers travel as protobuf doubles;
 a whole number becomes an int again.
@@ -166,8 +184,8 @@ uv run python -m swarmeval.control.suite submit suites/m1_core.yaml --control 12
 Both send the suite file and one [bundle](#case-bundles) per distinct `cases[].path` to
 `SubmitSuite`. The control plane unpacks each bundle, loads the suite with
 `swarmeval.core.load_suite_text` against them, so the format is checked in one place, and
-queues each entry as its own submission with its overrides (the suite's `models` as the `model`
-axis), its epochs, and the label `<suite id>.<8 hex>`, fresh for each submit *(proposed)*. All
+queues each entry as its own submission with its overrides, its models (the suite's, replaced
+per slot by the entry's), its epochs, and the label `<suite id>.<8 hex>`, fresh for each submit *(proposed)*. All
 of a suite's runs go into the queue in one transaction, together with the
 [library](#case-library) revisions its bundles are pushed as, so a suite with a broken case
 queues nothing and stores no revision. The label is stored as
@@ -210,7 +228,7 @@ have read; sandbox isolation does not cover it.
 ### Queue and claiming
 
 Runs are rows in `control.runs` with `status`, `owner_id`, `lease_until`, and `owner_epoch`;
-`control.run_specs` holds what to run (case hash, overrides, variant, epoch). The
+`control.run_specs` holds what to run (case hash, overrides, models, variant, epoch). The
 control plane only enqueues. Workers claim with `FOR UPDATE SKIP LOCKED`, which sets the owner and
 lease and increments `owner_epoch` in the same statement. "The control plane assigns a run" is
 therefore a claimable row, not a push, and the control plane holds no state of its own. Limits on
@@ -472,7 +490,9 @@ over. The loop commits one at the start of
 every run-wide turn, once the observers have caught up, so no agent is mid-step there. The
 control plane checks the edits against the checkpoint and the contexts it locates, and queues
 `<source>.f<n>` with the source's case revision, overrides, variant, and epoch, so the same seed,
-with `forked_from`, `fork_seq` (the checkpoint's seq), and `fork_edits`.
+with `forked_from`, `fork_seq` (the checkpoint's seq), and `fork_edits`. A `replace_model` edit
+names a slot of the source and a model model-gateway serves; the fork's `models` and `task_args`
+take the new model for that slot, and a fork of the fork keeps it.
 
 The worker then:
 
@@ -494,8 +514,9 @@ The worker then:
 5. Applies the edits, each an `intervention` with `hook: fork` parented to the fork's `started`:
    message edits give the agent a new generation (`edit_context`, like a compaction), and it
    takes a turn again even if it had finished; a delivery edit replaces what a carried message
-   will deliver (`deliver`). Replacements apply before deletions, by the indexes at the fork
-   point. Then `on_resume`
+   will deliver (`deliver`); a model replacement records the slot and both models
+   (`replace_model`), the fork's agents of that slot having been built on the new model.
+   Replacements apply before deletions, by the indexes at the fork point. Then `on_resume`
    runs with `fork: true` and the fidelity.
 
 A fork is scored like any run, on its own events and its final state; what its source did before

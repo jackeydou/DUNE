@@ -21,6 +21,7 @@ from swarmeval.db import case_revisions
 from swarmeval.events import ObjectStore
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.core.test_loader import base_case, write
+from tests.models import chosen
 
 if TYPE_CHECKING:
     from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import ControlServiceAsyncStub
@@ -131,7 +132,9 @@ async def test_the_same_files_archived_by_another_tool_are_the_same_revision(
     back = await control.PushCase(
         pb.PushCaseRequest(case_bundle=repacked(pack(tmp_path / "pulled")))
     )
-    submitted = await control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=other, epochs=1))
+    submitted = await control.SubmitRuns(
+        pb.SubmitRunsRequest(models=chosen(), case_bundle=other, epochs=1)
+    )
 
     assert (pushed.created, again.created) == (True, False)
     assert pushed.revision.bundle_sha256 == bundle_hash(bundle)
@@ -193,8 +196,8 @@ async def test_an_edit_makes_the_next_revision_from_its_base(
                             workspace,
                             swarm={
                                 "agents": [
-                                    {"id": "dev", "model": "m1", "prompt": "prompts/dev.md"},
-                                    {"id": "qa", "model": "m1", "prompt": "prompts/qa2.md"},
+                                    {"id": "dev", "prompt": "prompts/dev.md"},
+                                    {"id": "qa", "prompt": "prompts/qa2.md"},
                                 ]
                             },
                         )
@@ -398,8 +401,8 @@ async def test_an_archived_case_is_hidden_and_takes_nothing_until_unarchived(
                 changes=[write_change("task.md", "x")],
             )
         ),
-        control.SubmitRuns(pb.SubmitRunsRequest(case=ref)),
-        control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=bundle)),
+        control.SubmitRuns(pb.SubmitRunsRequest(models=chosen(), case=ref)),
+        control.SubmitRuns(pb.SubmitRunsRequest(models=chosen(), case_bundle=bundle)),
     ):
         code, details = await refused(call)
         assert code == grpc.StatusCode.FAILED_PRECONDITION and "archived" in details
@@ -411,7 +414,7 @@ async def test_an_archived_case_is_hidden_and_takes_nothing_until_unarchived(
     restored = await control.UnarchiveCase(
         pb.UnarchiveCaseRequest(workspace=workspace, case_id="demo")
     )
-    submitted = await control.SubmitRuns(pb.SubmitRunsRequest(case=ref, epochs=1))
+    submitted = await control.SubmitRuns(pb.SubmitRunsRequest(models=chosen(), case=ref, epochs=1))
 
     assert not restored.case.HasField("archived_at")
     assert submitted.case_revision == 1
@@ -428,10 +431,14 @@ async def test_runs_are_submitted_by_revision_and_name_it(
     await control.PushCase(pb.PushCaseRequest(case_bundle=second))
     ref = pb.CaseRevisionRef(workspace=workspace, case_id="demo")
 
-    newest = await control.SubmitRuns(pb.SubmitRunsRequest(case=ref, epochs=1, actor="ada"))
+    newest = await control.SubmitRuns(
+        pb.SubmitRunsRequest(models=chosen(), case=ref, epochs=1, actor="ada")
+    )
     ref.revision = 1
-    pinned = await control.SubmitRuns(pb.SubmitRunsRequest(case=ref, epochs=2))
-    by_bundle = await control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=first, epochs=1))
+    pinned = await control.SubmitRuns(pb.SubmitRunsRequest(models=chosen(), case=ref, epochs=2))
+    by_bundle = await control.SubmitRuns(
+        pb.SubmitRunsRequest(models=chosen(), case_bundle=first, epochs=1)
+    )
 
     assert (newest.case_revision, pinned.case_revision, by_bundle.case_revision) == (2, 1, 3)
     assert len(pinned.run_ids) == 2
@@ -451,9 +458,13 @@ async def test_runs_are_submitted_by_revision_and_name_it(
         await control.CancelRun(pb.CancelRunRequest(run_id=run_id))
 
     ref.revision = 9
-    code, details = await refused(control.SubmitRuns(pb.SubmitRunsRequest(case=ref)))
+    code, details = await refused(
+        control.SubmitRuns(pb.SubmitRunsRequest(models=chosen(), case=ref))
+    )
     assert code == grpc.StatusCode.NOT_FOUND and "no revision 9" in details
-    code, _ = await refused(control.SubmitRuns(pb.SubmitRunsRequest(case=ref, case_bundle=first)))
+    code, _ = await refused(
+        control.SubmitRuns(pb.SubmitRunsRequest(models=chosen(), case=ref, case_bundle=first))
+    )
     assert code == grpc.StatusCode.INVALID_ARGUMENT
     code, _ = await refused(control.SubmitRuns(pb.SubmitRunsRequest()))
     assert code == grpc.StatusCode.INVALID_ARGUMENT
@@ -465,7 +476,9 @@ async def test_a_refused_submission_leaves_no_revision(
     bundle = bundle_of(tmp_path, workspace)
 
     code, _ = await refused(
-        control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=bundle, suite="Not A Label"))
+        control.SubmitRuns(
+            pb.SubmitRunsRequest(models=chosen(), case_bundle=bundle, suite="Not A Label")
+        )
     )
 
     assert code == grpc.StatusCode.INVALID_ARGUMENT

@@ -16,18 +16,19 @@ from swarmeval.analysis.exports import load_events_table
 from swarmeval.control.bundles import pack
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.gateway.mock_backend import completion, tool_call
+from tests.models import chosen
 from tests.worker.conftest import Platform
 
 pytestmark = pytest.mark.docker
 
 CASE: dict[str, Any] = {
-    "schema_version": 3,
+    "schema_version": 4,
     "id": "monitored",
     "workspace": "ws_e2e",
     "swarm": {
         "agents": [
-            {"id": "a", "model": "mock-model", "prompt": "a.md", "tools": ["send_message"]},
-            {"id": "b", "model": "mock-model", "prompt": "b.md", "tools": []},
+            {"id": "a", "prompt": "a.md", "tools": ["send_message"]},
+            {"id": "b", "prompt": "b.md", "tools": []},
         ],
         "channels": [{"id": "ab", "members": ["a", "b"]}],
         "limits": {"max_turns": 6},
@@ -81,7 +82,9 @@ async def test_an_alert_pauses_the_run_and_traces_back_to_the_message(
 ) -> None:
     script(platform)
     (run_id,) = (
-        await platform.control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=bundle(tmp_path)))
+        await platform.control.SubmitRuns(
+            pb.SubmitRunsRequest(models=chosen("mock-model"), case_bundle=bundle(tmp_path))
+        )
     ).run_ids
     drain = asyncio.create_task(platform.worker.drain())
 
@@ -120,7 +123,9 @@ async def test_an_alert_pauses_the_run_and_traces_back_to_the_message(
 async def test_a_cancel_while_paused_stops_the_run(platform: Platform, tmp_path: Path) -> None:
     script(platform)
     (run_id,) = (
-        await platform.control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=bundle(tmp_path)))
+        await platform.control.SubmitRuns(
+            pb.SubmitRunsRequest(models=chosen("mock-model"), case_bundle=bundle(tmp_path))
+        )
     ).run_ids
     drain = asyncio.create_task(platform.worker.drain())
 

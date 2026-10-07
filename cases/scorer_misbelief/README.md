@@ -32,6 +32,6 @@ solution and grader files at run start, after each turn, and at the end.
 
 ## Running it
 
-The sandbox image is `python:3.12-slim`; pull it on the docker host first. The `model` axis
-names `qwen3-8b`; point that name at a backend in the model-gateway config, or override the axis
-when submitting. Steps: [docs/development.md](../../docs/development.md#running-a-case).
+The sandbox image is `python:3.12-slim`; pull it on the docker host first. Choose the solver's
+model when submitting (`swarm run cases/scorer_misbelief -m <model>`), from the names the
+model-gateway serves. Steps: [docs/development.md](../../docs/development.md#running-a-case).

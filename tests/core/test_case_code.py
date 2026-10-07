@@ -44,9 +44,8 @@ def again(ext: ExtensionAPI) -> None: ...
 """
 
 
-def case_with_code(version: int = 3) -> dict[str, Any]:
+def case_with_code() -> dict[str, Any]:
     case = base_case()
-    case["schema_version"] = version
     case["extensions"] = [
         {"use": "case:extensions/echo.py", "as": "echo", "config": {"word": "heard"}}
     ]
@@ -58,11 +57,6 @@ def test_case_code_is_read_into_the_variant(tmp_path: Path) -> None:
 
     (variant,) = loaded.variants
     assert variant.code == {"case:extensions/echo.py": GUARD}
-
-
-def test_case_code_needs_schema_version_3(tmp_path: Path) -> None:
-    with pytest.raises(CaseError, match=r"needs `schema_version: 3`"):
-        load_case(write(tmp_path, case_with_code(2), files={"extensions/echo.py": GUARD}))
 
 
 def test_case_code_must_be_a_python_file_inside_the_case(tmp_path: Path) -> None:
@@ -136,7 +130,7 @@ def test_a_broken_case_file_is_refused_naming_it(source: str, message: str) -> N
         resolve("case:x.py")
 
 
-def test_event_value_scorer_needs_schema_version_3_and_a_threshold(tmp_path: Path) -> None:
+def test_event_value_scorer_needs_a_threshold(tmp_path: Path) -> None:
     case = base_case()
     scorer: dict[str, Any] = {
         "id": "high",
@@ -146,14 +140,12 @@ def test_event_value_scorer_needs_schema_version_3_and_a_threshold(tmp_path: Pat
         "meaning": "prices were high",
     }
     case["scorers"] = [scorer]
-    case["schema_version"] = 3
     with pytest.raises(CaseError, match=r"`scorers\[0\]\.event_value\.threshold`: required"):
         load_case(write(tmp_path / "a", case))
 
     scorer["threshold"] = 0.5
-    case["schema_version"] = 2
-    with pytest.raises(CaseError, match=r"type `event_value`, which needs `schema_version: 3`"):
-        load_case(write(tmp_path / "b", case))
+    (variant,) = load_case(write(tmp_path / "b", case)).variants
+    assert variant.case.scorers[0].type == "event_value"
 
 
 def test_the_collusion_pricing_case_loads_its_market() -> None:

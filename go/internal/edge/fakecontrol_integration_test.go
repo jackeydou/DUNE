@@ -77,7 +77,7 @@ func (f *fakeControl) SubmitRuns(_ context.Context, req *connect.Request[control
 	id := "c.s1.v0.e1"
 	f.runs[id] = &controlv1.Run{
 		RunId: id, SubmissionId: "s1", CaseId: "c", Workspace: "safety", Status: "queued",
-		TaskArgs: &structpb.Struct{Fields: map[string]*structpb.Value{"model": structpb.NewStringValue("m")}},
+		TaskArgs: &structpb.Struct{Fields: map[string]*structpb.Value{"model.default": structpb.NewStringValue("m")}},
 		Epoch:    1, Epochs: 1, OwnerId: "worker-7", SubmittedBy: req.Msg.GetActor(), CaseRevision: 4,
 	}
 	return connect.NewResponse(&controlv1.SubmitRunsResponse{SubmissionId: "s1", RunIds: []string{id}, CaseRevision: 4}), nil
@@ -161,6 +161,13 @@ func (f *fakeControl) ForkRun(_ context.Context, req *connect.Request[controlv1.
 		SubmittedBy: req.Msg.GetActor(),
 	}
 	return connect.NewResponse(&controlv1.ForkRunResponse{Run: fork}), nil
+}
+
+func (f *fakeControl) ListModels(_ context.Context, req *connect.Request[controlv1.ListModelsRequest]) (*connect.Response[controlv1.ListModelsResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&controlv1.ListModelsResponse{Models: []string{"m1", "m2", "m3"}}), nil
 }
 
 func (f *fakeControl) StreamEvents(_ context.Context, req *connect.Request[controlv1.StreamEventsRequest], out *connect.ServerStream[controlv1.StreamEventsResponse]) error {
@@ -257,6 +264,7 @@ func (f *fakeControl) GetCaseRevision(_ context.Context, req *connect.Request[co
 			{Path: "alias.md", LinkTarget: "task.md", Mode: 0o777},
 			{Path: "task.md", Content: []byte("Fix the bug."), Mode: 0o644},
 		},
+		ModelSlots: []string{"attacker", "default"},
 	}), nil
 }
 

@@ -162,7 +162,11 @@ async def test_a_case_submitted_through_edge_runs_and_streams_back(
     auth = {"Authorization": f"Bearer {signed_in.json()['token']}"}
 
     bundle = base64.b64encode(pack(write_case(tmp_path / "case"))).decode()
-    submitted = await edge.call("RunService/SubmitRuns", {"caseBundle": bundle}, **auth)
+    submitted = await edge.call(
+        "RunService/SubmitRuns",
+        {"caseBundle": bundle, "models": {"default": {"names": ["mock-model"]}}},
+        **auth,
+    )
     assert submitted.status_code == 200, submitted.text
     (run_id,) = submitted.json()["runIds"]
     outcomes = await platform.worker.drain()
@@ -262,7 +266,13 @@ async def test_the_cli_signs_in_runs_a_case_and_follows_it(
     assert f"as {admin}" in out
     assert (await cli.run("whoami"))[1].startswith(f"{admin} (admin) at {edge.url}")
 
-    following = await cli.start("run", str(write_case(tmp_path / "case")), "--follow")
+    code, out, _ = await cli.run("models")
+    assert (code, out.split()) == (0, ["minimax-m3", "mock-model", "qwen3-8b"])
+    code, _, err = await cli.run("run", str(write_case(tmp_path / "unchosen")))
+    assert code == 1 and "choose the models to run with -m" in err, err
+    following = await cli.start(
+        "run", str(write_case(tmp_path / "case")), "-m", "mock-model", "--follow"
+    )
     assert following.stdout is not None
     # Drain only once the run is queued: before that the worker finds nothing to claim.
     submitted = (await asyncio.wait_for(following.stdout.readline(), timeout=60)).decode()
@@ -298,7 +308,8 @@ async def test_the_cli_submits_a_suite_whole_and_reports_mistakes(
     suite = tmp_path / "suites" / "s.yaml"
     suite.parent.mkdir()
     suite.write_text(
-        "schema_version: 1\nid: e2e\nepochs: 1\ncases:\n  - path: ../case\n  - path: ../case\n"
+        "schema_version: 2\nid: e2e\nmodels: [mock-model]\nepochs: 1\n"
+        "cases:\n  - path: ../case\n  - path: ../case\n"
     )
 
     code, out, err = await cli.run("run", str(suite))
@@ -309,7 +320,10 @@ async def test_the_cli_submits_a_suite_whole_and_reports_mistakes(
     code, out, _ = await cli.run("runs", "list", "--suite", label.group(1), "--json")
     assert [r["status"] for r in json.loads(out)["runs"]] == ["done", "done"]
 
-    suite.write_text("schema_version: 1\nid: e2e\ncases:\n  - path: ../case\n    epochs: 0\n")
+    suite.write_text(
+        "schema_version: 2\nid: e2e\nmodels: [mock-model]\ncases:\n  - path: ../case\n"
+        "    epochs: 0\n"
+    )
     code, _, err = await cli.run("run", str(suite))
     assert code == 1
     assert "cases.0.epochs" in err or "cases[0]" in err, err
@@ -318,7 +332,7 @@ async def test_the_cli_submits_a_suite_whole_and_reports_mistakes(
     leaky = write_case(tmp_path / "leaky")
     (tmp_path / "secret.txt").write_text("SECRET")
     (leaky / "prompts" / "leak.md").symlink_to("../../secret.txt")
-    code, _, err = await cli.run("run", str(leaky))
+    code, _, err = await cli.run("run", str(leaky), "-m", "mock-model")
     assert code == 1
     assert "leak.md" in err and "outside the destination" in err, err
 
@@ -372,7 +386,7 @@ async def test_the_cli_keeps_a_case_in_the_library_and_runs_a_revision(
     code, _, err = await cli.run("case", "pull", f"{name}@1", str(pulled))
     assert code == 1 and "not empty" in err
 
-    code, out, err = await cli.run("run", "--case", f"{name}@1")
+    code, out, err = await cli.run("run", "--case", f"{name}@1", "-m", "mock-model")
     assert code == 0, err
     assert re.match(r"submission [0-9a-f]{8}: 1 runs of revision 1\n", out), out
     run_id = out.splitlines()[1]
@@ -403,7 +417,7 @@ async def test_the_cli_keeps_a_case_in_the_library_and_runs_a_revision(
     )
 
     assert (await cli.run("case", "archive", name))[0] == 0
-    code, _, err = await cli.run("run", "--case", name)
+    code, _, err = await cli.run("run", "--case", name, "-m", "mock-model")
     assert code == 1 and "archived" in err, err
     assert json.loads((await cli.run("case", "list", "--workspace", workspace, "--json"))[1]) == {}
     assert (await cli.run("case", "unarchive", name))[0] == 0
@@ -421,7 +435,7 @@ async def test_the_cli_queries_reports_and_exports_a_finished_run(
     backend.reply(completion("all done"))
     backend.reply(completion("ok"))
     await cli.run("login", "--endpoint", edge.url, "-u", admin, stdin=PASSWORD + "\n")
-    code, out, err = await cli.run("run", str(write_case(tmp_path / "case")))
+    code, out, err = await cli.run("run", str(write_case(tmp_path / "case")), "-m", "mock-model")
     assert code == 0, err
     submission = out.split()[1].rstrip(":")
     run_id = out.splitlines()[1]

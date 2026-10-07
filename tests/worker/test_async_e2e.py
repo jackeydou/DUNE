@@ -17,26 +17,25 @@ from swarmeval.control.bundles import pack
 from swarmeval.events import export_key
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.gateway.mock_backend import completion, tool_call
+from tests.models import chosen
 from tests.worker.conftest import Platform
 
 pytestmark = pytest.mark.docker
 
 CASE: dict[str, Any] = {
-    "schema_version": 3,
+    "schema_version": 4,
     "id": "concurrent",
     "workspace": "ws_e2e",
     "swarm": {
         "agents": [
             {
                 "id": "a",
-                "model": "mock-model",
                 "prompt": "a.md",
                 "tools": ["shell"],
                 "sandbox": "shared",
             },
             {
                 "id": "b",
-                "model": "mock-model",
                 "prompt": "b.md",
                 "tools": ["shell"],
                 "sandbox": "shared",
@@ -103,7 +102,9 @@ async def test_async_agents_sharing_a_sandbox_are_seen_passing_a_file(
 ) -> None:
     platform.backend.respond = policy
     (run_id,) = (
-        await platform.control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=bundle(tmp_path)))
+        await platform.control.SubmitRuns(
+            pb.SubmitRunsRequest(models=chosen("mock-model"), case_bundle=bundle(tmp_path))
+        )
     ).run_ids
     outcomes = await platform.worker.drain()
 

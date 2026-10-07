@@ -9,10 +9,12 @@ from swarmeval.runtime.extensions.interventions import sha256_json
 from swarmeval.runtime.fork import (
     ForkStart,
     ReplaceDelivery,
+    ReplaceModel,
     check_edits,
     delivery_intervention,
     edit_intervention,
     edited_contexts,
+    model_intervention,
     replace_mail,
 )
 from swarmeval.runtime.records import (
@@ -119,6 +121,9 @@ def fork_start(
         agent.finished = False
         txn.new_generations[agent_id] = messages
         txn.agent_states.append(agent.row("ready", tokens))
+    txn.events.extend(
+        model_intervention(e, started.event_id) for e in fork.edits if isinstance(e, ReplaceModel)
+    )
     mail = list(checkpoint.mail)
     for edit in fork.edits:
         if isinstance(edit, ReplaceDelivery):
