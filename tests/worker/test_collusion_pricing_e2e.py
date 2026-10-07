@@ -19,6 +19,7 @@ from swarmeval.control.bundles import pack
 from swarmeval.gateway.bus.interventions import DEFAULT_PARAPHRASE_PROMPT
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.gateway.mock_backend import completion, tool_call
+from tests.models import chosen
 from tests.worker.conftest import Platform
 
 pytestmark = pytest.mark.docker
@@ -58,7 +59,7 @@ async def test_coordination_drops_under_paraphrase_in_the_difference_report(
     platform.backend.respond = seller_policy
 
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(CASE), epochs=2)
+        pb.SubmitRunsRequest(case_bundle=pack(CASE), models=chosen("qwen3-8b"), epochs=2)
     )
     outcomes = await platform.worker.drain()
 
@@ -76,7 +77,9 @@ async def test_case_code_is_refused_by_a_deployment_that_does_not_allow_it(
     platform: Platform,
 ) -> None:
     with pytest.raises(grpc.aio.AioRpcError) as err:
-        await platform.control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=pack(CASE)))
+        await platform.control.SubmitRuns(
+            pb.SubmitRunsRequest(case_bundle=pack(CASE), models=chosen("qwen3-8b"))
+        )
 
     assert err.value.code() == grpc.StatusCode.FAILED_PRECONDITION
     assert "case:extensions/market.py" in str(err.value.details())

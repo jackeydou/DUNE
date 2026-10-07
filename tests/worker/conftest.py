@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.control.live import EventListener
+from swarmeval.control.models import GatewayModels
 from swarmeval.control.queue import Queue
 from swarmeval.control.service import ControlService
 from swarmeval.events import ObjectStore
@@ -99,6 +100,7 @@ async def _platform(
             "models": {
                 "mock-model": {"backend": "mock", "upstream_model": "Org/Mock"},
                 "qwen3-8b": {"backend": "mock", "upstream_model": "Org/Mock"},
+                "minimax-m3": {"backend": "mock", "upstream_model": "Org/Mock"},
             },
         }
     )
@@ -107,6 +109,13 @@ async def _platform(
     listener = EventListener(postgres_url)
     await listener.start()
     queue = Queue(engine)
+    # The worker and the control plane both reach this gateway: the worker for model calls,
+    # the control plane for the models it serves.
+    http = httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=create_app(attachments, upstreams)),
+        base_url="http://gw",
+        timeout=None,
+    )
     server = grpc.aio.server()
     add_RecorderServiceServicer_to_server(Recorder(attachments), server)
     add_ControlServiceServicer_to_server(
@@ -115,19 +124,16 @@ async def _platform(
             engine=engine,
             store=object_store,
             listener=listener,
+            models=GatewayModels(http),
             allow_case_code=allow_case_code,
         ),
         server,
     )
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
-    gateway_app = create_app(attachments, upstreams)
     async with (
         grpc.aio.insecure_channel(f"127.0.0.1:{port}") as local,
         grpc.aio.insecure_channel(sandboxd) as sandboxd_channel,
-        httpx2.AsyncClient(
-            transport=httpx2.ASGITransport(app=gateway_app), base_url="http://gw", timeout=None
-        ) as http,
     ):
         deps = WorkerDeps(
             engine=engine,
@@ -147,5 +153,6 @@ async def _platform(
             queue=queue,
         )
     await server.stop(None)
+    await http.aclose()
     await listener.close()
     await upstreams.close()

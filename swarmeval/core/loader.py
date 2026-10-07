@@ -5,6 +5,7 @@ control plane and the worker call the same `load_case`, so a case that loads onc
 same way everywhere.
 """
 
+import dataclasses
 import itertools
 import logging
 import posixpath
@@ -14,21 +15,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-from pydantic import TypeAdapter, ValidationError
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from swarmeval.core.interventions import expand
 from swarmeval.core.models import (
     CASE_SCHEMA_VERSIONS,
     ENV_SCHEMA_VERSIONS,
+    RETIRED_CASE_SCHEMA_VERSIONS,
     AxisValue,
     CaseFile,
     CommandScorer,
     CrossSandboxScorer,
     EnvFile,
-    EventValueScorer,
     Name,
-    RuleScorer,
+    axis_json,
 )
+from swarmeval.gateway.bus.interventions import PARAPHRASE
 from swarmeval.runtime.extensions import CASE_CODE_PREFIX, ExtensionUse
 
 log = logging.getLogger(__name__)
@@ -38,6 +40,10 @@ CASE_FILE = "case.yaml"
 _REF = re.compile(r"\$\{variant\.([^}]*)\}")
 _NOT_SUBSTITUTED = ("schema_version", "id", "workspace", "variants", "epochs")
 """Case keys that identify the case or size its run matrix, so they cannot vary."""
+
+MODEL_ARG = "model."
+"""`task_args` key prefix of a run's model for a slot: `model.<slot>`. Axis names cannot hold a
+`.`, so these never collide with the variant axes."""
 
 _AXES: TypeAdapter[dict[str, tuple[AxisValue, ...]]] = TypeAdapter(
     dict[Name, tuple[AxisValue, ...]]
@@ -94,9 +100,20 @@ class Variant:
     run imports exactly what was submitted; whether it may is the deployment's
     `allow_case_code`."""
     warnings: tuple[str, ...]
+    models: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
+    """Model slot → the model this variant runs it on. Empty until models are chosen
+    (`choose_models`); a variant without them cannot run."""
 
     def sandbox_of(self, agent_id: str) -> SandboxPlan:
         return next(s for s in self.sandboxes.values() if agent_id in s.agents)
+
+    def task_args(self) -> dict[str, JsonValue]:
+        """What tells this variant apart in `task_args`: its axis values and, as
+        `model.<slot>`, its models."""
+        return {
+            **{name: axis_json(value) for name, value in self.values.items()},
+            **{f"{MODEL_ARG}{slot}": model for slot, model in self.models.items()},
+        }
 
 
 @dataclass(frozen=True)
@@ -106,22 +123,38 @@ class LoadedCase:
     workspace: str
     epochs: int
     variants: tuple[Variant, ...]
-    """Cartesian product of the variant axes, first axis varying slowest."""
+    """Cartesian product of the model slots' choices, then the variant axes: the first slot
+    varies slowest, the last axis fastest. Without chosen models, the variant axes alone."""
     warnings: tuple[str, ...]
     """Things that load but do nothing, once each across variants. Also logged."""
+    slots: tuple[str, ...]
+    """The agents' model slots, in the order the agents first name them."""
+    fixed_models: tuple[str, ...]
+    """Model names the case itself writes (a `paraphrase` intervention's `model`), across every
+    variant: a deployment must serve them as it serves the chosen ones."""
+    models: Mapping[str, tuple[str, ...]] = dataclasses.field(
+        default_factory=dict[str, tuple[str, ...]]
+    )
+    """Model slot → the models chosen for it. Empty until `choose_models`."""
+
+    @property
+    def label(self) -> str:
+        return f"{self.workspace}/{self.id}"
 
 
 def load_case(
-    case_dir: Path, overrides: Mapping[str, Sequence[AxisValue]] | None = None
+    case_dir: Path,
+    overrides: Mapping[str, Sequence[AxisValue]] | None = None,
+    models: Mapping[str, Sequence[str]] | None = None,
 ) -> LoadedCase:
-    """Loads and validates every variant. `overrides` replaces the values of declared axes."""
+    """Loads and validates every variant. `overrides` replaces the values of declared axes;
+    `models`, when given, is `choose_models`'s."""
     case_dir = case_dir.resolve()
     case_path = case_dir / CASE_FILE
     raw_case = _read_yaml(case_path)
-    version = _check_version(case_path, raw_case, CASE_SCHEMA_VERSIONS)
+    _refuse_retired(case_path, raw_case)
+    _check_version(case_path, raw_case, CASE_SCHEMA_VERSIONS)
     axes = _axes(case_path, raw_case.get("variants", {}), overrides or {})
-    if version < 2:
-        _refuse_v2_axes(case_path, axes)
     for key in _NOT_SUBSTITUTED:
         if key in raw_case and _references(raw_case[key]):
             raise CaseError(
@@ -134,19 +167,91 @@ def load_case(
     names = list(axes)
     for index, combo in enumerate(itertools.product(*axes.values())):
         values = dict(zip(names, combo, strict=True))
-        variants.append(_variant(files, case_path, raw_case, index, values, version))
+        variants.append(_variant(files, case_path, raw_case, index, values))
     first = variants[0].case
     warnings = tuple(dict.fromkeys(w for v in variants for w in v.warnings))
     for warning in warnings:
         log.warning("%s: %s", case_path, warning)
-    return LoadedCase(
+    loaded = LoadedCase(
         dir=case_dir,
         id=first.id,
         workspace=first.workspace,
         epochs=first.epochs,
         variants=tuple(variants),
         warnings=warnings,
+        slots=_slots(case_path, variants),
+        fixed_models=tuple(dict.fromkeys(m for v in variants for m in _fixed_models(v))),
     )
+    return loaded if models is None else choose_models(loaded, models)
+
+
+def choose_models(loaded: LoadedCase, models: Mapping[str, Sequence[str]]) -> LoadedCase:
+    """The case with each model slot's choices as one more matrix dimension, varying slower
+    than the variant axes. Every slot needs at least one model, and only the case's slots may
+    be given. Whether the names are served is the control plane's check, not this one's."""
+    case = f"case `{loaded.label}`"
+    unknown = [slot for slot in models if slot not in loaded.slots]
+    if unknown:
+        raise CaseError(
+            f"models are chosen for {_names('slot', unknown)}, which {case} does not have. "
+            f"Its slots: {', '.join(loaded.slots)}."
+        )
+    missing = [slot for slot in loaded.slots if slot not in models]
+    if missing:
+        raise CaseError(
+            f"{case} needs models for {_names('slot', missing)}. Choose at least one model for "
+            f"each of its slots: {', '.join(loaded.slots)}."
+        )
+    for slot in loaded.slots:
+        names = list(models[slot])
+        if not names or any(not name for name in names):
+            raise CaseError(
+                f"{case}: slot `{slot}` has {names!r} as its models. Choose at least one, and "
+                "no empty names."
+            )
+        if len(set(names)) != len(names):
+            raise CaseError(
+                f"{case}: slot `{slot}` repeats a model: {names}. Each model makes its own "
+                "variants; list it once."
+            )
+    combos = list(itertools.product(*(models[slot] for slot in loaded.slots)))
+    variants = tuple(
+        dataclasses.replace(variant, index=i, models=dict(zip(loaded.slots, combo, strict=True)))
+        for i, (combo, variant) in enumerate(itertools.product(combos, loaded.variants))
+    )
+    return dataclasses.replace(
+        loaded,
+        variants=variants,
+        models={slot: tuple(models[slot]) for slot in loaded.slots},
+    )
+
+
+def _names(what: str, names: Sequence[str]) -> str:
+    listed = ", ".join(f"`{n}`" for n in names)
+    return f"{what} {listed}" if len(names) == 1 else f"{what}s {listed}"
+
+
+def _slots(case_path: Path, variants: Sequence[Variant]) -> tuple[str, ...]:
+    first = variants[0].case
+    grouping = {a.id: a.model_slot for a in first.swarm.agents}
+    for variant in variants[1:]:
+        if {a.id: a.model_slot for a in variant.case.swarm.agents} != grouping:
+            raise CaseError(
+                f"{case_path}: the agents' `model_slot`s differ between variants "
+                f"{dict(variants[0].values)} and {dict(variant.values)}. Slots group the agents "
+                "for the whole case; do not vary `model_slot` with `${variant.…}`."
+            )
+    return first.slots
+
+
+def _fixed_models(variant: Variant) -> list[str]:
+    found: list[str] = []
+    for use in variant.extensions:
+        if use.use == PARAPHRASE:
+            model = use.config["model"]
+            assert isinstance(model, str), "expand() validated the paraphrase config"
+            found.append(model)
+    return found
 
 
 def _variant(
@@ -155,7 +260,6 @@ def _variant(
     raw_case: dict[str, object],
     index: int,
     values: dict[str, AxisValue],
-    version: int,
 ) -> Variant:
     where = f"{case_path}" + (f" (variant {values})" if values else "")
     substituted = {
@@ -163,10 +267,6 @@ def _variant(
         for key, value in raw_case.items()
     }
     case = _validate(CaseFile, substituted, where)
-    if version < 2:
-        _refuse_v2_fields(case, where)
-    if version < 3:
-        _refuse_v3_fields(case, where)
     try:
         expanded = expand(case)
     except ValueError as err:
@@ -438,53 +538,21 @@ def _check_version(path: Path, raw: dict[str, object], supported: frozenset[int]
     return version
 
 
-def _refuse_v2_axes(path: Path, axes: Mapping[str, tuple[AxisValue, ...]]) -> None:
-    for name, values in axes.items():
-        if any(isinstance(v, tuple) for v in values):
-            raise CaseError(
-                f"{path}: variant axis `{name}` has a list value, which needs "
-                "`schema_version: 2`. Raise the case's `schema_version` to 2."
-            )
-
-
-def _refuse_v2_fields(case: CaseFile, where: str) -> None:
-    for channel in case.swarm.channels:
-        if channel.interventions:
-            raise CaseError(
-                f"{where}: channel `{channel.id}` lists `interventions`, which needs "
-                "`schema_version: 2`. Raise the case's `schema_version` to 2."
-            )
-    for scorer in case.scorers:
-        if isinstance(scorer, CrossSandboxScorer):
-            raise CaseError(
-                f"{where}: scorer `{scorer.id}` has type `cross_sandbox`, which needs "
-                "`schema_version: 2`. Raise the case's `schema_version` to 2."
-            )
-
-
-def _refuse_v3_fields(case: CaseFile, where: str) -> None:
-    if case.swarm.turn_policy != "round_robin":
+def _refuse_retired(path: Path, raw: dict[str, object]) -> None:
+    version = raw.get("schema_version")
+    retired = (
+        isinstance(version, int)
+        and not isinstance(version, bool)
+        and version in RETIRED_CASE_SCHEMA_VERSIONS
+    )
+    if retired:
         raise CaseError(
-            f"{where}: `swarm.turn_policy` is `{case.swarm.turn_policy}`, which needs "
-            "`schema_version: 3`. Raise the case's `schema_version` to 3."
+            f"{path} has `schema_version: {version}`, whose agents name their models. From "
+            "version 4 on, models are chosen when the case is submitted. Set "
+            "`schema_version: 4`, remove each agent's `model` and the `model` axis under "
+            "`variants:`, and give agents that need different models their own `model_slot`. "
+            "See docs/case-format.md#model-slots."
         )
-    if case.swarm.limits.wall_clock is not None:
-        raise CaseError(
-            f"{where}: `swarm.limits.wall_clock` needs `schema_version: 3`. Raise the case's "
-            "`schema_version` to 3."
-        )
-    for i, use in enumerate(case.extensions):
-        if use.use.startswith(CASE_CODE_PREFIX):
-            raise CaseError(
-                f"{where}: `extensions[{i}]` loads `{use.use}` from the case directory, which "
-                "needs `schema_version: 3`. Raise the case's `schema_version` to 3."
-            )
-    for scorer in case.scorers:
-        if isinstance(scorer, EventValueScorer | RuleScorer):
-            raise CaseError(
-                f"{where}: scorer `{scorer.id}` has type `{scorer.type}`, which needs "
-                "`schema_version: 3`. Raise the case's `schema_version` to 3."
-            )
 
 
 def _axes(

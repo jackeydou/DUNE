@@ -156,10 +156,10 @@ def test_a_bad_monitor_config_is_refused_at_load() -> None:
 def test_the_case_loader_checks_the_inject_target() -> None:
     case = CaseFile.model_validate(
         {
-            "schema_version": 3,
+            "schema_version": 4,
             "id": "c",
             "workspace": "w",
-            "swarm": {"agents": [{"id": "a", "model": "m", "prompt": "p.md", "task": "t.md"}]},
+            "swarm": {"agents": [{"id": "a", "prompt": "p.md", "task": "t.md"}]},
             "extensions": [
                 {
                     "use": "swarmeval.monitor",

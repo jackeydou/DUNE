@@ -63,22 +63,24 @@ uv run python -c "from pyarrow.fs import S3FileSystem as S; S(access_key='dev-ke
 # sandboxd. The docker daemon must see the state directory at the same path.
 (cd go && go run ./cmd/sandboxd --state-dir "$PWD/../.state/sandboxd") &
 
-# model-gateway, with a config naming the case's model (see docs/services/model-gateway.md).
+# model-gateway, with a config naming the models to run on (see docs/services/model-gateway.md).
 uv run swarmeval-model-gateway --config gateway.yaml &
 
 # Control plane (migrates the database) and one worker.
 S3="--s3-endpoint 127.0.0.1:9000 --s3-scheme http --s3-bucket swarmeval"
-uv run swarmeval-control $S3 &
+uv run swarmeval-control $S3 &      # asks model-gateway at --gateway-http (default :7080)
 uv run swarmeval-worker $S3 --worker-id dev &
 ```
 
 Submit through the Control API with [grpcurl](https://github.com/fullstorydev/grpcurl). The bundle
-is the case directory as a tar archive, base64-encoded in JSON:
+is the case directory as a tar archive, base64-encoded in JSON, and `models` chooses the models
+for the case's [model slots](case-format.md#model-slots), from the names the gateway serves
+(`ListModels`):
 
 ```bash
 # COPYFILE_DISABLE keeps macOS tar from adding ._ metadata files.
 jq -n --arg bundle "$(COPYFILE_DISABLE=1 tar -C cases/scorer_misbelief -cf - . | base64)" \
-  '{case_bundle: $bundle, overrides: {model: ["qwen3-8b"]}}' |
+  '{case_bundle: $bundle, models: {default: {names: ["qwen3-8b"]}}}' |
 grpcurl -plaintext -import-path proto -proto swarmeval/control/v1/control.proto -d @ \
   127.0.0.1:7090 swarmeval.control.v1.ControlService/SubmitRuns
 ```

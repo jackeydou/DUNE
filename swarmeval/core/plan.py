@@ -6,11 +6,18 @@ from swarmeval.runtime import AgentSpec, Limits, RunSpec
 
 
 def run_spec(variant: Variant, *, run_id: str, seed: int) -> RunSpec:
+    """Raises `ValueError` for a variant whose case was loaded without its models chosen."""
     swarm = variant.case.swarm
+    missing = [s for s in variant.case.slots if s not in variant.models]
+    if missing:
+        raise ValueError(
+            f"variant {variant.index} of case `{variant.case.id}` has no model for slots "
+            f"{', '.join(missing)}. Load the case with its models (`choose_models`) to run it."
+        )
     agents = tuple(
         AgentSpec(
             id=agent.id,
-            model=agent.model,
+            model=variant.models[agent.model_slot],
             system_prompt=variant.prompts[agent.id].system,
             task=variant.prompts[agent.id].task,
             tools=agent.tools,

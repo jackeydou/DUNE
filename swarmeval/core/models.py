@@ -1,5 +1,5 @@
-"""The `case.yaml` and `env.yaml` formats, schema version 1. The user-facing contract is
-docs/case-format.md; a change here changes that page.
+"""The `case.yaml` and `env.yaml` formats: case schema version 4, env schema version 1. The
+user-facing contract is docs/case-format.md; a change here changes that page.
 
 These models see a file after variant substitution. Checks that span both files (sandbox
 topology) and touch the case directory (prompt files) are in the loader.
@@ -26,11 +26,14 @@ from pydantic import (
 from swarmeval.detect.defs import DetectorDef
 from swarmeval.runtime.extensions import ExtensionUse
 
-CASE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
-"""`case.yaml` versions read. Version 2 adds channel `interventions`, list values for variant
-axes, and the `cross_sandbox` scorer. Version 3 adds `case:` extension references and the
-`event_value` and `rule` scorers, the `event_driven` and `async` turn policies, and
-`limits.wall_clock`. Older cases read unchanged and refuse what came after them."""
+CASE_SCHEMA_VERSIONS = frozenset({4})
+"""`case.yaml` versions read. Version 4 moved the choice of models from the case to the run:
+agents name a model slot instead of a model, so versions 1 to 3, whose agents name models, no
+longer load (spec/2026-10-06-run-time-models)."""
+RETIRED_CASE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
+
+DEFAULT_SLOT = "default"
+"""The model slot of an agent that names none."""
 ENV_SCHEMA_VERSIONS = frozenset({1})
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=63)]
@@ -126,7 +129,8 @@ class Sampling(Strict):
 
 class AgentDef(Strict):
     id: Name
-    model: Annotated[str, Field(min_length=1)]
+    model_slot: Name = DEFAULT_SLOT
+    """Agents in one slot run the same model, chosen when the case is submitted."""
     prompt: RelPath
     """System prompt file."""
     task: RelPath | None = None
@@ -184,14 +188,13 @@ class Limits(Strict):
     """All agents together; under `async`, each agent's own."""
     max_tokens: Count | None = None
     wall_clock: Duration | None = None
-    """(v3) Run time, paused time left out."""
+    """Run time, paused time left out."""
 
 
 class SwarmDef(Strict):
     agents: Annotated[tuple[AgentDef, ...], Field(min_length=1)]
     channels: tuple[ChannelDef, ...] = ()
     turn_policy: Literal["round_robin", "event_driven", "async"] = "round_robin"
-    """`event_driven` and `async` need case schema version 3."""
     limits: Limits = Limits()
 
     @model_validator(mode="after")
@@ -312,6 +315,11 @@ class CaseFile(Strict):
     task: TaskDef | None = None
     extensions: tuple[ExtensionUse, ...] = ()
     scorers: tuple[ScorerDef, ...] = ()
+
+    @property
+    def slots(self) -> tuple[str, ...]:
+        """The agents' model slots, in the order the agents first name them."""
+        return tuple(dict.fromkeys(a.model_slot for a in self.swarm.agents))
 
     @model_validator(mode="after")
     def _unique_scorers(self) -> Self:

@@ -27,6 +27,7 @@ const (
 	ControlService_ResumeRun_FullMethodName         = "/swarmeval.control.v1.ControlService/ResumeRun"
 	ControlService_ForkRun_FullMethodName           = "/swarmeval.control.v1.ControlService/ForkRun"
 	ControlService_StreamEvents_FullMethodName      = "/swarmeval.control.v1.ControlService/StreamEvents"
+	ControlService_ListModels_FullMethodName        = "/swarmeval.control.v1.ControlService/ListModels"
 	ControlService_PushCase_FullMethodName          = "/swarmeval.control.v1.ControlService/PushCase"
 	ControlService_UpdateCaseFiles_FullMethodName   = "/swarmeval.control.v1.ControlService/UpdateCaseFiles"
 	ControlService_GetCase_FullMethodName           = "/swarmeval.control.v1.ControlService/GetCase"
@@ -73,6 +74,9 @@ type ControlServiceClient interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error)
+	// The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+	// cannot be reached.
+	ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error)
 	// Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
 	// names, creating the case on its first push. A bundle with the same bytes as the newest
 	// revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
@@ -193,6 +197,16 @@ func (c *controlServiceClient) StreamEvents(ctx context.Context, in *StreamEvent
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ControlService_StreamEventsClient = grpc.ServerStreamingClient[StreamEventsResponse]
 
+func (c *controlServiceClient) ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListModelsResponse)
+	err := c.cc.Invoke(ctx, ControlService_ListModels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *controlServiceClient) PushCase(ctx context.Context, in *PushCaseRequest, opts ...grpc.CallOption) (*PushCaseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PushCaseResponse)
@@ -309,6 +323,9 @@ type ControlServiceServer interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error
+	// The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+	// cannot be reached.
+	ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error)
 	// Validates a case bundle and stores it as the newest revision of the case its `case.yaml`
 	// names, creating the case on its first push. A bundle with the same bytes as the newest
 	// revision makes no new one. A case that does not load is INVALID_ARGUMENT and nothing is
@@ -363,6 +380,9 @@ func (UnimplementedControlServiceServer) ForkRun(context.Context, *ForkRunReques
 }
 func (UnimplementedControlServiceServer) StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error {
 	return status.Error(codes.Unimplemented, "method StreamEvents not implemented")
+}
+func (UnimplementedControlServiceServer) ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListModels not implemented")
 }
 func (UnimplementedControlServiceServer) PushCase(context.Context, *PushCaseRequest) (*PushCaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PushCase not implemented")
@@ -546,6 +566,24 @@ func _ControlService_StreamEvents_Handler(srv interface{}, stream grpc.ServerStr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ControlService_StreamEventsServer = grpc.ServerStreamingServer[StreamEventsResponse]
 
+func _ControlService_ListModels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListModelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServiceServer).ListModels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlService_ListModels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServiceServer).ListModels(ctx, req.(*ListModelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ControlService_PushCase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PushCaseRequest)
 	if err := dec(in); err != nil {
@@ -724,6 +762,10 @@ var ControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ForkRun",
 			Handler:    _ControlService_ForkRun_Handler,
+		},
+		{
+			MethodName: "ListModels",
+			Handler:    _ControlService_ListModels_Handler,
 		},
 		{
 			MethodName: "PushCase",

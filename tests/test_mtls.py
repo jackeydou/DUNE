@@ -219,6 +219,7 @@ async def gateway_http(identities: dict[str, Identity]) -> AsyncIterator[str]:
             port,
             identities[mtls.MODEL_GATEWAY],
             gateway_server.CALLERS,
+            gateway_server.LISTING,
         )
     )
     task = asyncio.create_task(web.serve())
@@ -243,7 +244,7 @@ async def test_gateway_http_serves_workers_and_analysis_only(
         response = await _models(gateway_http, identities[service])
         assert response.status_code == 200, service
         assert response.json()["data"][0]["id"] == "m"
-    for service in (mtls.EDGE, mtls.CONTROL, mtls.SANDBOXD, mtls.OPERATOR):
+    for service in (mtls.EDGE, mtls.SANDBOXD, mtls.OPERATOR):
         response = await _models(gateway_http, identities[service])
         assert response.status_code == 403, service
         assert response.json()["error"] == {
@@ -255,6 +256,24 @@ async def test_gateway_http_serves_workers_and_analysis_only(
         await _models(gateway_http, None)
     with pytest.raises(httpx2.TransportError):
         await _models(gateway_http, Identity(stranger.cert, stranger.key, identities["edge"].ca))
+
+
+async def test_gateway_http_lets_the_control_plane_list_models_only(
+    gateway_http: str, identities: dict[str, Identity]
+) -> None:
+    identity = identities[mtls.CONTROL]
+    listed = await _models(gateway_http, identity)
+    verify = mtls.http_client_tls("--gateway-http", gateway_http, identity)
+    async with httpx2.AsyncClient(verify=verify, timeout=10) as http:
+        completion = await http.post(f"{gateway_http}/v1/chat/completions", json={})
+
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["id"] == "m"
+    assert completion.status_code == 403
+    assert completion.json()["error"] == {
+        "code": "caller_not_allowed",
+        "message": "service `control` may only list models: GET /v1/models.",
+    }
 
 
 async def test_a_client_refuses_a_server_another_ca_signed(
@@ -273,6 +292,7 @@ async def test_without_a_certificate_servers_listen_on_loopback_only(listen: str
             "postgresql://nowhere",
             None,  # pyright: ignore[reportArgumentType]
             listen,
+            gateway_http="http://127.0.0.1:7080",
             allow_case_code=False,
             mtls=None,
         )

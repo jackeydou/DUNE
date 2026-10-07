@@ -13,21 +13,34 @@ from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import (
     ControlServiceStub,
     add_ControlServiceServicer_to_server,
 )
+from tests.models import SERVED, StaticModels
 
 if TYPE_CHECKING:
     from swarmeval.proto.swarmeval.control.v1.control_pb2_grpc import ControlServiceAsyncStub
 
 
 @pytest.fixture
+def models() -> StaticModels:
+    return StaticModels(*SERVED)
+
+
+@pytest.fixture
 async def control(
-    postgres_url: str, engine: AsyncEngine, object_store: ObjectStore
+    postgres_url: str, engine: AsyncEngine, object_store: ObjectStore, models: StaticModels
 ) -> AsyncIterator["ControlServiceAsyncStub"]:
-    """The Control API on a loopback port, over the shared Postgres and object store."""
+    """The Control API on a loopback port, over the shared Postgres and object store, with
+    model-gateway serving `models`."""
     listener = EventListener(postgres_url)
     await listener.start()
     server = grpc.aio.server()
     add_ControlServiceServicer_to_server(
-        ControlService(queue=Queue(engine), engine=engine, store=object_store, listener=listener),
+        ControlService(
+            queue=Queue(engine),
+            engine=engine,
+            store=object_store,
+            listener=listener,
+            models=models,
+        ),
         server,
     )
     port = server.add_insecure_port("127.0.0.1:0")

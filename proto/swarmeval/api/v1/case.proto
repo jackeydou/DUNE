@@ -148,6 +148,12 @@ message GetCaseRevisionResponse {
   CaseRevision revision = 1;
   // By path.
   repeated CaseFile files = 2;
+  // The case's model slots, in the order its agents first name them: what a submission chooses
+  // models for. Empty when the revision does not load, as `load_error` says.
+  repeated string model_slots = 3;
+  // Why the revision does not load in this SwarmEval, such as a `case.yaml` of a retired schema
+  // version; it cannot run. Empty when it loads.
+  string load_error = 4;
 }
 
 message ArchiveCaseRequest {

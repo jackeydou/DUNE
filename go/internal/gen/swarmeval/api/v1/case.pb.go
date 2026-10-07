@@ -951,7 +951,13 @@ type GetCaseRevisionResponse struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Revision *CaseRevision          `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
 	// By path.
-	Files         []*CaseFile `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
+	Files []*CaseFile `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
+	// The case's model slots, in the order its agents first name them: what a submission chooses
+	// models for. Empty when the revision does not load, as `load_error` says.
+	ModelSlots []string `protobuf:"bytes,3,rep,name=model_slots,json=modelSlots,proto3" json:"model_slots,omitempty"`
+	// Why the revision does not load in this SwarmEval, such as a `case.yaml` of a retired schema
+	// version; it cannot run. Empty when it loads.
+	LoadError     string `protobuf:"bytes,4,opt,name=load_error,json=loadError,proto3" json:"load_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -998,6 +1004,20 @@ func (x *GetCaseRevisionResponse) GetFiles() []*CaseFile {
 		return x.Files
 	}
 	return nil
+}
+
+func (x *GetCaseRevisionResponse) GetModelSlots() []string {
+	if x != nil {
+		return x.ModelSlots
+	}
+	return nil
+}
+
+func (x *GetCaseRevisionResponse) GetLoadError() string {
+	if x != nil {
+		return x.LoadError
+	}
+	return ""
 }
 
 type ArchiveCaseRequest struct {
@@ -1261,10 +1281,14 @@ const file_swarmeval_api_v1_case_proto_rawDesc = "" +
 	"\x16GetCaseRevisionRequest\x12\x1c\n" +
 	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
 	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12\x1a\n" +
-	"\brevision\x18\x03 \x01(\x05R\brevision\"\x87\x01\n" +
+	"\brevision\x18\x03 \x01(\x05R\brevision\"\xc7\x01\n" +
 	"\x17GetCaseRevisionResponse\x12:\n" +
 	"\brevision\x18\x01 \x01(\v2\x1e.swarmeval.api.v1.CaseRevisionR\brevision\x120\n" +
-	"\x05files\x18\x02 \x03(\v2\x1a.swarmeval.api.v1.CaseFileR\x05files\"K\n" +
+	"\x05files\x18\x02 \x03(\v2\x1a.swarmeval.api.v1.CaseFileR\x05files\x12\x1f\n" +
+	"\vmodel_slots\x18\x03 \x03(\tR\n" +
+	"modelSlots\x12\x1d\n" +
+	"\n" +
+	"load_error\x18\x04 \x01(\tR\tloadError\"K\n" +
 	"\x12ArchiveCaseRequest\x12\x1c\n" +
 	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x17\n" +
 	"\acase_id\x18\x02 \x01(\tR\x06caseId\"A\n" +

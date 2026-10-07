@@ -15,8 +15,14 @@
   with the event's detail beside it, events tagged by type, and identifiers that copy.
 - Cases, a case, Analysis, Account, and Users: tables on cards, underlined tabs, a two-pane file
   editor themed to match, and upload as a button.
+- A case's Run tab chooses the models: one or more per model slot of the revision, from what
+  model-gateway serves (`spec/2026-10-06-run-time-models`). A revision that no longer loads says
+  why instead of offering to run. The new-case template is `case.yaml` schema version 4, with no
+  model.
 
 ### Added
+- The fork dialog runs a model slot on another model from the fork point.
+- A run's page lists its model per slot.
 - The console: sign-in; runs grouped by submission with filters and each submission's trigger
   rates; a run's status, scores, cancel, and resume; the replay, one lane per agent, live while
   the run goes on, with type filters, each event's stored payload and causal chain, and forking

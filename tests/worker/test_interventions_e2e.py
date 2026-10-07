@@ -18,18 +18,19 @@ from swarmeval.db import deliveries
 from swarmeval.gateway.bus.interventions import DEFAULT_PARAPHRASE_PROMPT
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.gateway.mock_backend import completion, tool_call
+from tests.models import chosen
 from tests.worker.conftest import Platform
 
 pytestmark = pytest.mark.docker
 
 CASE: dict[str, Any] = {
-    "schema_version": 2,
+    "schema_version": 4,
     "id": "interventions",
     "workspace": "ws_e2e",
     "swarm": {
         "agents": [
-            {"id": "a", "model": "mock-model", "prompt": "a.md", "tools": ["send_message"]},
-            {"id": "b", "model": "mock-model", "prompt": "b.md", "tools": ["send_message"]},
+            {"id": "a", "prompt": "a.md", "tools": ["send_message"]},
+            {"id": "b", "prompt": "b.md", "tools": ["send_message"]},
         ],
         "channels": [
             {
@@ -98,7 +99,9 @@ async def test_a_run_with_every_intervention_is_recorded_and_explained(
     backend.reply(completion("thanks"))
 
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
+        pb.SubmitRunsRequest(
+            models=chosen("mock-model"), case_bundle=pack(write_case(tmp_path / "case"))
+        )
     )
     (run_id,) = submitted.run_ids
     outcomes = await platform.worker.drain()

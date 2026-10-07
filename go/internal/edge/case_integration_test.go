@@ -129,6 +129,9 @@ func TestCasesAreReadThroughEdge(t *testing.T) {
 	if len(files) != 2 || files[0].GetLinkTarget() != "task.md" || string(files[1].GetContent()) != "Fix the bug." || files[1].GetMode() != 0o644 {
 		t.Fatalf("GetCaseRevision: %v", revision.Msg)
 	}
+	if slots := revision.Msg.GetModelSlots(); len(slots) != 2 || slots[0] != "attacker" || revision.Msg.GetLoadError() != "" {
+		t.Fatalf("GetCaseRevision slots: %v", revision.Msg)
+	}
 }
 
 func TestRunsAreSubmittedByRevision(t *testing.T) {

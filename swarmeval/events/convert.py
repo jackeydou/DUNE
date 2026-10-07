@@ -61,8 +61,13 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
 )
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 """Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
+
+9: a fork's `intervention` (`hook: fork`) may be `replace_model`, whose `after` names the model
+slot and the models before and after; such a fork's agents of that slot run the new model. A
+run's `task_args` name its models as `model.<slot>`. Version 8 runs have neither and read as
+before.
 
 8: file changes carry `mtime_us`; `limit` may be `wall_clock`, a `working` `SampleLimitEvent`;
 the `.eval` header says whether the run is `deterministic` (`false` under the `async` turn

@@ -10,12 +10,17 @@ from tests.core.test_loader import base_case, write
 REPO = Path(__file__).resolve().parents[2]
 
 
-def model_case() -> dict[str, Any]:
+def framed_case() -> dict[str, Any]:
     case = base_case()
-    case["variants"] = {"model": ["m1"], "framing": ["a", "b"]}
+    case["variants"] = {"framing": ["a", "b"]}
     case["epochs"] = 3
-    for agent in case["swarm"]["agents"]:
-        agent["model"] = "${variant.model}"
+    return case
+
+
+def two_slot_case() -> dict[str, Any]:
+    case = base_case()
+    case["id"] = "duel"
+    case["swarm"]["agents"][0]["model_slot"] = "attacker"
     return case
 
 
@@ -38,18 +43,18 @@ def test_the_m1_core_suite_loads() -> None:
     assert suite.id == "m1_core"
     assert [e.case.id for e in suite.entries] == ["scorer_misbelief"]
     (entry,) = suite.entries
-    assert len(entry.overrides["model"]) >= 3
+    assert len(entry.models["default"]) >= 3
     assert entry.epochs == 10
 
 
-def test_models_fill_each_cases_model_axis_and_epochs_fall_back_in_order(
+def test_a_model_list_fills_the_default_slot_and_epochs_fall_back_in_order(
     tmp_path: Path,
 ) -> None:
-    write(tmp_path, model_case())
+    write(tmp_path, framed_case())
     path = write_suite(
         tmp_path,
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "id": "core",
             "models": ["m1", "m2", "m3"],
             "epochs": 10,
@@ -64,92 +69,127 @@ def test_models_fill_each_cases_model_axis_and_epochs_fall_back_in_order(
 
     first, second = suite.entries
     assert first.dir == (tmp_path / "case").resolve()
-    assert (first.overrides, first.epochs, first.runs) == (
-        {"model": ["m1", "m2", "m3"]},
+    assert (first.overrides, first.models, first.epochs, first.runs) == (
+        {},
+        {"default": ["m1", "m2", "m3"]},
         10,
         60,
     )
-    assert (second.overrides, second.epochs, second.runs) == (
-        {"framing": ["b"], "model": ["m1", "m2", "m3"]},
-        2,
-        6,
+    assert (second.overrides, second.epochs, second.runs) == ({"framing": ["b"]}, 2, 6)
+    assert [v.models["default"] for v in second.case.variants] == ["m1", "m2", "m3"]
+
+
+def test_a_model_mapping_fills_slots_by_name_and_an_entry_replaces_a_slot(
+    tmp_path: Path,
+) -> None:
+    write(tmp_path, two_slot_case())
+    path = write_suite(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "id": "duels",
+            "models": {"attacker": ["a1", "a2"], "default": ["d1"]},
+            "cases": [{"path": "../case"}, {"path": "../case", "models": {"attacker": ["a3"]}}],
+        },
     )
-    assert [v.values["model"] for v in second.case.variants] == ["m1", "m2", "m3"]
+
+    first, second = load_suite(path).entries
+
+    assert first.models == {"attacker": ["a1", "a2"], "default": ["d1"]}
+    assert first.runs == 2
+    assert second.models == {"attacker": ["a3"], "default": ["d1"]}
 
 
 def test_without_epochs_a_case_keeps_its_own(tmp_path: Path) -> None:
-    write(tmp_path, model_case())
+    write(tmp_path, framed_case())
 
     suite = load_suite(
-        write_suite(tmp_path, {"schema_version": 1, "id": "s", "cases": [{"path": "../case"}]})
+        write_suite(
+            tmp_path,
+            {"schema_version": 2, "id": "s", "models": ["m1"], "cases": [{"path": "../case"}]},
+        )
     )
 
     (entry,) = suite.entries
     assert (entry.overrides, entry.epochs, entry.runs) == ({}, 0, 6)
 
 
+def test_every_slot_of_every_case_needs_models(tmp_path: Path) -> None:
+    write(tmp_path, two_slot_case())
+
+    message = suite_error(
+        tmp_path,
+        {"schema_version": 2, "id": "s", "models": ["m1"], "cases": [{"path": "../case"}]},
+    )
+
+    assert "`cases[0]` (../case)" in message
+    assert "has model slots attacker, default" in message
+    assert "chooses no models for attacker" in message
+
+
+def test_a_slot_no_case_has_is_a_typo(tmp_path: Path) -> None:
+    write(tmp_path, framed_case())
+
+    suite_wide = suite_error(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "id": "s",
+            "models": {"default": ["m1"], "atacker": ["m2"]},
+            "cases": [{"path": "../case"}],
+        },
+    )
+    entry = suite_error(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "id": "s",
+            "models": ["m1"],
+            "cases": [{"path": "../case", "models": {"atacker": ["m2"]}}],
+        },
+    )
+
+    assert "`models` names slots atacker, which none of the suite's cases has" in suite_wide
+    assert "`cases[0]` (../case): `models` names slots atacker" in entry
+
+
 def test_unknown_keys_and_other_versions_are_rejected(tmp_path: Path) -> None:
-    write(tmp_path, model_case())
+    write(tmp_path, framed_case())
 
     unknown = suite_error(
         tmp_path,
-        {"schema_version": 1, "id": "s", "cases": [{"path": "../case", "variant": {}}]},
+        {"schema_version": 2, "id": "s", "cases": [{"path": "../case", "variant": {}}]},
     )
-    version = suite_error(tmp_path, {"schema_version": 2, "id": "s", "cases": []})
+    version = suite_error(tmp_path, {"schema_version": 3, "id": "s", "cases": []})
+    retired = suite_error(tmp_path, {"schema_version": 1, "id": "s", "cases": []})
 
     assert "`cases[0].variant`: unknown key" in unknown
-    assert "`schema_version: 2`" in version and "reads 1" in version
+    assert "`schema_version: 3`" in version and "reads 2" in version
+    assert "`schema_version: 1`, whose `models` filled each case's `model`" in retired
 
 
 def test_a_case_path_is_relative_to_the_suite_file(tmp_path: Path) -> None:
-    write(tmp_path, model_case())
+    write(tmp_path, framed_case())
 
     absolute = suite_error(
         tmp_path,
-        {"schema_version": 1, "id": "s", "cases": [{"path": str(tmp_path / "case")}]},
+        {"schema_version": 2, "id": "s", "cases": [{"path": str(tmp_path / "case")}]},
     )
-    missing = suite_error(tmp_path, {"schema_version": 1, "id": "s", "cases": [{"path": "case"}]})
+    missing = suite_error(tmp_path, {"schema_version": 2, "id": "s", "cases": [{"path": "case"}]})
 
     assert "is absolute" in absolute
     assert "`cases[0]` (case)" in missing and "does not exist" in missing
 
 
-def test_the_model_list_is_set_once(tmp_path: Path) -> None:
-    write(tmp_path, model_case())
+def test_a_case_that_does_not_load_names_its_entry(tmp_path: Path) -> None:
+    write(tmp_path, framed_case())
 
     message = suite_error(
         tmp_path,
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "id": "s",
             "models": ["m1"],
-            "cases": [{"path": "../case", "variants": {"model": ["m2"]}}],
-        },
-    )
-
-    assert "`cases[0].variants.model` repeats what the suite's `models` sets" in message
-
-
-def test_models_need_a_model_axis_in_every_case(tmp_path: Path) -> None:
-    write(tmp_path)
-
-    message = suite_error(
-        tmp_path,
-        {"schema_version": 1, "id": "s", "models": ["m1"], "cases": [{"path": "../case"}]},
-    )
-
-    assert "`cases[0]` (../case)" in message
-    assert "`${variant.model}`" in message
-
-
-def test_a_case_that_does_not_load_names_its_entry(tmp_path: Path) -> None:
-    write(tmp_path, model_case())
-
-    message = suite_error(
-        tmp_path,
-        {
-            "schema_version": 1,
-            "id": "s",
             "cases": [{"path": "../case", "variants": {"framing": ["c"], "colour": ["x"]}}],
         },
     )

@@ -16,6 +16,7 @@ import (
 func (a *app) runCommand() *cobra.Command {
 	var (
 		overrides []string
+		models    []string
 		epochs    int32
 		suite     string
 		library   string
@@ -28,7 +29,10 @@ func (a *app) runCommand() *cobra.Command {
 			"its own submission under one suite label. A suite that does not load submits nothing.\n" +
 			"A directory is stored in the case library as `swarm case push` stores it, and its runs\n" +
 			"use that revision. --case runs a revision already there: the newest, or @REVISION.\n\n" +
-			"-V replaces a variant axis's values: -V model=qwen3-8b,glm-5. Values are read as a\n" +
+			"-m chooses the models, for every model slot of the case: -m qwen3-8b,glm-5 for the\n" +
+			"`default` slot, -m attacker=glm-5 for a named one. Each model is one more variant.\n" +
+			"`swarm models` lists the models the deployment serves.\n\n" +
+			"-V replaces a variant axis's values: -V framing=neutral,pressure. Values are read as a\n" +
 			"YAML flow sequence, so -V paraphrased=[],[dm_ab] gives two list values.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -52,8 +56,8 @@ func (a *app) runCommand() *cobra.Command {
 			}
 			var runIDs []string
 			if isSuite {
-				if len(overrides) > 0 || epochs != 0 || suite != "" {
-					return errors.New("-V, --epochs, and --suite apply to a case directory; a suite file sets its own variants and epochs")
+				if len(overrides) > 0 || len(models) > 0 || epochs != 0 || suite != "" {
+					return errors.New("-V, -m, --epochs, and --suite apply to a case directory; a suite file sets its own variants, models, and epochs")
 				}
 				text, bundles, err := suiteBundles(args[0])
 				if err != nil {
@@ -75,7 +79,14 @@ func (a *app) runCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				req, what := &apiv1.SubmitRunsRequest{Case: ref, Overrides: values, Epochs: epochs, Suite: suite}, library
+				if len(models) == 0 {
+					return errors.New("choose the models to run with -m: -m MODEL[,MODEL…] for the `default` slot, -m SLOT=MODEL[,MODEL…] for a named one. `swarm models` lists what the deployment serves")
+				}
+				chosen, err := parseModels(models)
+				if err != nil {
+					return err
+				}
+				req, what := &apiv1.SubmitRunsRequest{Case: ref, Overrides: values, Models: chosen, Epochs: epochs, Suite: suite}, library
 				if ref == nil {
 					what = args[0]
 					if req.CaseBundle, err = pack(args[0]); err != nil {
@@ -98,12 +109,38 @@ func (a *app) runCommand() *cobra.Command {
 			return follow(cmd.Context(), c, a.out, runIDs)
 		},
 	}
+	cmd.Flags().StringArrayVarP(&models, "model", "m", nil, "[slot=]models to run a model slot on; without slot=, the default slot (repeatable)")
 	cmd.Flags().StringArrayVarP(&overrides, "variant", "V", nil, "axis=values replacing a variant axis's values (repeatable)")
 	cmd.Flags().Int32Var(&epochs, "epochs", 0, "runs per variant (default: the case's epochs)")
 	cmd.Flags().StringVar(&suite, "suite", "", "label the submission as part of a suite run")
 	cmd.Flags().StringVar(&library, "case", "", "run a case in the library, WORKSPACE/CASE[@REVISION], instead of a directory")
 	cmd.Flags().BoolVarP(&followRun, "follow", "f", false, "print the runs' events as they happen, until every run has finished")
 	return cmd
+}
+
+func (a *app) modelsCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "models",
+		Short: "List the models runs may use: what the deployment's model-gateway serves",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := a.signedIn()
+			if err != nil {
+				return err
+			}
+			res, err := c.runs.ListModels(cmd.Context(), connect.NewRequest(&apiv1.ListModelsRequest{}))
+			if err != nil {
+				return explain("list models", err)
+			}
+			if a.asJSON {
+				return printJSON(a.out, res.Msg)
+			}
+			for _, m := range res.Msg.GetModels() {
+				_, _ = fmt.Fprintln(a.out, m)
+			}
+			return nil
+		},
+	}
 }
 
 func (a *app) runsCommand() *cobra.Command {
@@ -238,15 +275,18 @@ func (a *app) eventsCommand() *cobra.Command {
 
 func (a *app) replayCommand() *cobra.Command {
 	var at, editFile string
+	var models []string
 	var followRun bool
 	cmd := &cobra.Command{
-		Use:   "replay RUN --fork-at EVENT [--edit FILE]",
+		Use:   "replay RUN --fork-at EVENT [--edit FILE] [-m [SLOT=]MODEL]...",
 		Short: "Fork a finished run from the turn an event happened in, with edits",
 		Long: "Queues a new run that goes on from RUN's state at the start of the turn EVENT\n" +
 			"happened in. --edit names a YAML or JSON list of edits, each one of:\n\n" +
 			"  - replace_message: {agent_id: a, index: 3, content: \"…\"}\n" +
 			"  - delete_message: {agent_id: a, index: 4}\n" +
-			"  - replace_delivery: {send_event_id: e17, recipient: b, content: \"…\"}",
+			"  - replace_delivery: {send_event_id: e17, recipient: b, content: \"…\"}\n\n" +
+			"-m runs a model slot on another model from the fork point: -m glm-5 for the\n" +
+			"`default` slot, -m attacker=glm-5 for a named one. Other slots keep RUN's models.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if at == "" {
@@ -259,6 +299,11 @@ func (a *app) replayCommand() *cobra.Command {
 					return err
 				}
 			}
+			swaps, err := modelEdits(models)
+			if err != nil {
+				return err
+			}
+			edits = append(edits, swaps...)
 			c, err := a.signedIn()
 			if err != nil {
 				return err
@@ -279,6 +324,7 @@ func (a *app) replayCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&at, "fork-at", "", "the event to fork at (required)")
 	cmd.Flags().StringVar(&editFile, "edit", "", "a YAML or JSON file listing the edits")
+	cmd.Flags().StringArrayVarP(&models, "model", "m", nil, "[slot=]model to run a model slot on from the fork point (repeatable)")
 	cmd.Flags().BoolVarP(&followRun, "follow", "f", false, "print the fork's events as they happen")
 	return cmd
 }

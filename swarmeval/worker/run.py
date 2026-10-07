@@ -109,10 +109,26 @@ async def _variant(run: RunRow, store: ObjectStore) -> Variant:
     bundle = await asyncio.to_thread(store.get, bundle_key(run.case_sha256))
 
     def load() -> Variant:
+        if run.models is None:
+            raise CaseError(
+                f"run `{run.run_id}` was queued before cases had model slots, and its case "
+                "names its own models, which this SwarmEval no longer loads. Submit the case "
+                "again in the current format."
+            )
         with tempfile.TemporaryDirectory(prefix="swarmeval-run-") as scratch:
             overrides = _OVERRIDES.validate_python(run.overrides)
-            loaded = load_case(unpack(bundle, Path(scratch)), overrides)
-            return loaded.variants[run.variant]
+            models = {slot: [model] for slot, model in run.models.items()}
+            loaded = load_case(unpack(bundle, Path(scratch)), overrides, models)
+        # Loaded with this run's model for each slot, the case has exactly one variant per
+        # axis combination; `task_args` names which. A fork's models may differ from its
+        # source's, so the submission's variant index would not.
+        found = [v for v in loaded.variants if v.task_args() == run.task_args]
+        if len(found) != 1:
+            raise CaseError(
+                f"run `{run.run_id}`: its task_args {run.task_args} match {len(found)} variants "
+                f"of case `{loaded.label}`, not one. The stored run and its case disagree."
+            )
+        return found[0]
 
     return await asyncio.to_thread(load)
 
@@ -344,6 +360,6 @@ def _header(run: RunRow, variant: Variant) -> RunHeader:
         epoch=run.epoch,
         epochs=run.epochs,
         input=variant.prompts[agents[0].id].task,
-        models={a.id: a.model for a in agents},
+        models={a.id: variant.models[a.model_slot] for a in agents},
         deterministic=variant.case.swarm.turn_policy != "async",
     )

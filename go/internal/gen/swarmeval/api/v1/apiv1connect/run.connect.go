@@ -49,6 +49,8 @@ const (
 	RunServiceForkRunProcedure = "/swarmeval.api.v1.RunService/ForkRun"
 	// RunServiceStreamEventsProcedure is the fully-qualified name of the RunService's StreamEvents RPC.
 	RunServiceStreamEventsProcedure = "/swarmeval.api.v1.RunService/StreamEvents"
+	// RunServiceListModelsProcedure is the fully-qualified name of the RunService's ListModels RPC.
+	RunServiceListModelsProcedure = "/swarmeval.api.v1.RunService/ListModels"
 )
 
 // RunServiceClient is a client for the swarmeval.api.v1.RunService service.
@@ -80,6 +82,9 @@ type RunServiceClient interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(context.Context, *connect.Request[v1.StreamEventsRequest]) (*connect.ServerStreamForClient[v1.StreamEventsResponse], error)
+	// The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+	// cannot be reached.
+	ListModels(context.Context, *connect.Request[v1.ListModelsRequest]) (*connect.Response[v1.ListModelsResponse], error)
 }
 
 // NewRunServiceClient constructs a client for the swarmeval.api.v1.RunService service. By default,
@@ -141,6 +146,12 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(runServiceMethods.ByName("StreamEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		listModels: connect.NewClient[v1.ListModelsRequest, v1.ListModelsResponse](
+			httpClient,
+			baseURL+RunServiceListModelsProcedure,
+			connect.WithSchema(runServiceMethods.ByName("ListModels")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -154,6 +165,7 @@ type runServiceClient struct {
 	resumeRun    *connect.Client[v1.ResumeRunRequest, v1.ResumeRunResponse]
 	forkRun      *connect.Client[v1.ForkRunRequest, v1.ForkRunResponse]
 	streamEvents *connect.Client[v1.StreamEventsRequest, v1.StreamEventsResponse]
+	listModels   *connect.Client[v1.ListModelsRequest, v1.ListModelsResponse]
 }
 
 // SubmitRuns calls swarmeval.api.v1.RunService.SubmitRuns.
@@ -196,6 +208,11 @@ func (c *runServiceClient) StreamEvents(ctx context.Context, req *connect.Reques
 	return c.streamEvents.CallServerStream(ctx, req)
 }
 
+// ListModels calls swarmeval.api.v1.RunService.ListModels.
+func (c *runServiceClient) ListModels(ctx context.Context, req *connect.Request[v1.ListModelsRequest]) (*connect.Response[v1.ListModelsResponse], error) {
+	return c.listModels.CallUnary(ctx, req)
+}
+
 // RunServiceHandler is an implementation of the swarmeval.api.v1.RunService service.
 type RunServiceHandler interface {
 	// Queues one run per variant and epoch of a case: a bundle, pushed to the case library as
@@ -225,6 +242,9 @@ type RunServiceHandler interface {
 	// A run's events with seq greater than `after_seq`, live while the run is going. The stream
 	// ends once the run has finished and every event was sent.
 	StreamEvents(context.Context, *connect.Request[v1.StreamEventsRequest], *connect.ServerStream[v1.StreamEventsResponse]) error
+	// The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+	// cannot be reached.
+	ListModels(context.Context, *connect.Request[v1.ListModelsRequest]) (*connect.Response[v1.ListModelsResponse], error)
 }
 
 // NewRunServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -282,6 +302,12 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(runServiceMethods.ByName("StreamEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	runServiceListModelsHandler := connect.NewUnaryHandler(
+		RunServiceListModelsProcedure,
+		svc.ListModels,
+		connect.WithSchema(runServiceMethods.ByName("ListModels")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/swarmeval.api.v1.RunService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RunServiceSubmitRunsProcedure:
@@ -300,6 +326,8 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 			runServiceForkRunHandler.ServeHTTP(w, r)
 		case RunServiceStreamEventsProcedure:
 			runServiceStreamEventsHandler.ServeHTTP(w, r)
+		case RunServiceListModelsProcedure:
+			runServiceListModelsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -339,4 +367,8 @@ func (UnimplementedRunServiceHandler) ForkRun(context.Context, *connect.Request[
 
 func (UnimplementedRunServiceHandler) StreamEvents(context.Context, *connect.Request[v1.StreamEventsRequest], *connect.ServerStream[v1.StreamEventsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.api.v1.RunService.StreamEvents is not implemented"))
+}
+
+func (UnimplementedRunServiceHandler) ListModels(context.Context, *connect.Request[v1.ListModelsRequest]) (*connect.Response[v1.ListModelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("swarmeval.api.v1.RunService.ListModels is not implemented"))
 }

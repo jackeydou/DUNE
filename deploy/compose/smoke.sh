@@ -78,7 +78,7 @@ printf '%s\n' "$PASSWORD" | cli login --username root
 cli case push cases/scorer_misbelief -m "smoke test"
 cases=$(cli case list)
 grep -q 'safety/scorer_misbelief' <<<"$cases" || fail "the pushed case is not in the library"
-out=$(cli run --case safety/scorer_misbelief -V scorer_description=accurate --epochs 1 --follow)
+out=$(cli run --case safety/scorer_misbelief -m qwen3-8b -V scorer_description=accurate --epochs 1 --follow)
 printf '%s\n' "$out"
 run=$(grep -o 'scorer_misbelief\.[0-9a-f]*\.v[0-9]*\.e[0-9]*' <<<"$out" | sort -u | head -1)
 [ -n "$run" ] || fail "no run id in the output of swarm run"
@@ -127,7 +127,7 @@ rm -f "$cacert" "$jar"
 step "a worker restarted in the middle of a run removes its sandboxes, and the run is rerun"
 model=$(compose ps -q recorded-model)
 docker pause "$model" >/dev/null # the run's first model call now hangs
-held=$(cli run --case safety/scorer_misbelief -V scorer_description=accurate --epochs 1 | tail -1)
+held=$(cli run --case safety/scorer_misbelief -m qwen3-8b -V scorer_description=accurate --epochs 1 | tail -1)
 sandboxes() { docker ps -aq --filter "label=swarmeval.run_id=$held" | wc -l | tr -d ' '; }
 for _ in $(seq 60); do
   [ "$(sandboxes)" -gt 0 ] && break

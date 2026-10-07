@@ -10,15 +10,7 @@ import pytest
 from swarmeval.core import load_case
 from swarmeval.runtime.extensions import ExtensionUse, load_extensions
 from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES
-from tests.core.test_loader import base_case as v1_case
-from tests.core.test_loader import load_error, write
-
-
-def base_case() -> dict[str, Any]:
-    """Channel interventions and list-valued axes need `case.yaml` schema version 2."""
-    case = v1_case()
-    case["schema_version"] = 2
-    return case
+from tests.core.test_loader import base_case, load_error, write
 
 
 def chat_case(**channel: Any) -> dict[str, Any]:

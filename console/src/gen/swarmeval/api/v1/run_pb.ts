@@ -12,7 +12,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file swarmeval/api/v1/run.proto.
  */
 export const file_swarmeval_api_v1_run: GenFile = /*@__PURE__*/
-  fileDesc("Chpzd2FybWV2YWwvYXBpL3YxL3J1bi5wcm90bxIQc3dhcm1ldmFsLmFwaS52MSKkAQoRU3VibWl0UnVuc1JlcXVlc3QSEwoLY2FzZV9idW5kbGUYASABKAwSLwoEY2FzZRgFIAEoCzIhLnN3YXJtZXZhbC5hcGkudjEuQ2FzZVJldmlzaW9uUmVmEioKCW92ZXJyaWRlcxgCIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSDgoGZXBvY2hzGAMgASgFEg0KBXN1aXRlGAQgASgJIkcKD0Nhc2VSZXZpc2lvblJlZhIRCgl3b3Jrc3BhY2UYASABKAkSDwoHY2FzZV9pZBgCIAEoCRIQCghyZXZpc2lvbhgDIAEoBSJTChJTdWJtaXRSdW5zUmVzcG9uc2USFQoNc3VibWlzc2lvbl9pZBgBIAEoCRIPCgdydW5faWRzGAIgAygJEhUKDWNhc2VfcmV2aXNpb24YAyABKAUiqQEKElN1Ym1pdFN1aXRlUmVxdWVzdBISCgpzdWl0ZV95YW1sGAEgASgJEksKDGNhc2VfYnVuZGxlcxgCIAMoCzI1LnN3YXJtZXZhbC5hcGkudjEuU3VibWl0U3VpdGVSZXF1ZXN0LkNhc2VCdW5kbGVzRW50cnkaMgoQQ2FzZUJ1bmRsZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAw6AjgBImEKD1N1aXRlU3VibWlzc2lvbhIPCgdjYXNlX2lkGAEgASgJEhUKDXN1Ym1pc3Npb25faWQYAiABKAkSDwoHcnVuX2lkcxgDIAMoCRIVCg1jYXNlX3JldmlzaW9uGAQgASgFIlwKE1N1Ym1pdFN1aXRlUmVzcG9uc2USDQoFc3VpdGUYASABKAkSNgoLc3VibWlzc2lvbnMYAiADKAsyIS5zd2FybWV2YWwuYXBpLnYxLlN1aXRlU3VibWlzc2lvbiLNBAoDUnVuEg4KBnJ1bl9pZBgBIAEoCRIVCg1zdWJtaXNzaW9uX2lkGAIgASgJEg8KB2Nhc2VfaWQYAyABKAkSEQoJd29ya3NwYWNlGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIPCgd2YXJpYW50GAYgASgFEi8KDnZhcmlhbnRfdmFsdWVzGAcgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBINCgVlcG9jaBgIIAEoBRIOCgZlcG9jaHMYCSABKAUSEwoLY2FzZV9zaGEyNTYYCiABKAkSEQoJaXNvbGF0aW9uGAsgASgJEg0KBWVycm9yGAwgASgJEi4KCmNyZWF0ZWRfYXQYDSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnN0YXJ0ZWRfYXQYDiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GA8gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghyZXBsYWNlcxgQIAEoCRINCgVzdWl0ZRgRIAEoCRITCgtmb3JrZWRfZnJvbRgSIAEoCRIQCghmb3JrX3NlcRgTIAEoAxIQCghmaWRlbGl0eRgUIAEoCRIUCgxzdWJtaXR0ZWRfYnkYFSABKAkSFAoMY2FuY2VsbGVkX2J5GBYgASgJEhIKCnJlc3VtZWRfYnkYFyABKAkSFQoNY2FzZV9yZXZpc2lvbhgYIAEoBRIRCgl0YWtlb3ZlcnMYGSABKAUiHwoNR2V0UnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiNAoOR2V0UnVuUmVzcG9uc2USIgoDcnVuGAEgASgLMhUuc3dhcm1ldmFsLmFwaS52MS5SdW4iegoPTGlzdFJ1bnNSZXF1ZXN0EhUKDXN1Ym1pc3Npb25faWQYASABKAkSDwoHY2FzZV9pZBgCIAEoCRIOCgZzdGF0dXMYAyABKAkSDQoFc3VpdGUYBCABKAkSDQoFbGltaXQYBSABKAUSEQoJd29ya3NwYWNlGAYgASgJIjcKEExpc3RSdW5zUmVzcG9uc2USIwoEcnVucxgBIAMoCzIVLnN3YXJtZXZhbC5hcGkudjEuUnVuIiIKEENhbmNlbFJ1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIjcKEUNhbmNlbFJ1blJlc3BvbnNlEiIKA3J1bhgBIAEoCzIVLnN3YXJtZXZhbC5hcGkudjEuUnVuIiIKEFJlc3VtZVJ1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIjcKEVJlc3VtZVJ1blJlc3BvbnNlEiIKA3J1bhgBIAEoCzIVLnN3YXJtZXZhbC5hcGkudjEuUnVuImAKDkZvcmtSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRITCgthdF9ldmVudF9pZBgCIAEoCRIpCgVlZGl0cxgDIAMoCzIaLnN3YXJtZXZhbC5hcGkudjEuRm9ya0VkaXQiyQEKCEZvcmtFZGl0EjsKD3JlcGxhY2VfbWVzc2FnZRgBIAEoCzIgLnN3YXJtZXZhbC5hcGkudjEuUmVwbGFjZU1lc3NhZ2VIABI5Cg5kZWxldGVfbWVzc2FnZRgCIAEoCzIfLnN3YXJtZXZhbC5hcGkudjEuRGVsZXRlTWVzc2FnZUgAEj0KEHJlcGxhY2VfZGVsaXZlcnkYAyABKAsyIS5zd2FybWV2YWwuYXBpLnYxLlJlcGxhY2VEZWxpdmVyeUgAQgYKBGVkaXQiQgoOUmVwbGFjZU1lc3NhZ2USEAoIYWdlbnRfaWQYASABKAkSDQoFaW5kZXgYAiABKAUSDwoHY29udGVudBgDIAEoCSIwCg1EZWxldGVNZXNzYWdlEhAKCGFnZW50X2lkGAEgASgJEg0KBWluZGV4GAIgASgFIkwKD1JlcGxhY2VEZWxpdmVyeRIVCg1zZW5kX2V2ZW50X2lkGAEgASgJEhEKCXJlY2lwaWVudBgCIAEoCRIPCgdjb250ZW50GAMgASgJIjUKD0ZvcmtSdW5SZXNwb25zZRIiCgNydW4YASABKAsyFS5zd2FybWV2YWwuYXBpLnYxLlJ1biI4ChNTdHJlYW1FdmVudHNSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRIRCglhZnRlcl9zZXEYAiABKAMieQoUU3RyZWFtRXZlbnRzUmVzcG9uc2USCwoDc2VxGAEgASgDEhAKCGV2ZW50X2lkGAIgASgJEgwKBHR5cGUYAyABKAkSEAoIYWdlbnRfaWQYBCABKAkSFAoMcGF5bG9hZF9qc29uGAUgASgJEgwKBGxpbmUYBiABKAkyvgUKClJ1blNlcnZpY2USVwoKU3VibWl0UnVucxIjLnN3YXJtZXZhbC5hcGkudjEuU3VibWl0UnVuc1JlcXVlc3QaJC5zd2FybWV2YWwuYXBpLnYxLlN1Ym1pdFJ1bnNSZXNwb25zZRJaCgtTdWJtaXRTdWl0ZRIkLnN3YXJtZXZhbC5hcGkudjEuU3VibWl0U3VpdGVSZXF1ZXN0GiUuc3dhcm1ldmFsLmFwaS52MS5TdWJtaXRTdWl0ZVJlc3BvbnNlEksKBkdldFJ1bhIfLnN3YXJtZXZhbC5hcGkudjEuR2V0UnVuUmVxdWVzdBogLnN3YXJtZXZhbC5hcGkudjEuR2V0UnVuUmVzcG9uc2USUQoITGlzdFJ1bnMSIS5zd2FybWV2YWwuYXBpLnYxLkxpc3RSdW5zUmVxdWVzdBoiLnN3YXJtZXZhbC5hcGkudjEuTGlzdFJ1bnNSZXNwb25zZRJUCglDYW5jZWxSdW4SIi5zd2FybWV2YWwuYXBpLnYxLkNhbmNlbFJ1blJlcXVlc3QaIy5zd2FybWV2YWwuYXBpLnYxLkNhbmNlbFJ1blJlc3BvbnNlElQKCVJlc3VtZVJ1bhIiLnN3YXJtZXZhbC5hcGkudjEuUmVzdW1lUnVuUmVxdWVzdBojLnN3YXJtZXZhbC5hcGkudjEuUmVzdW1lUnVuUmVzcG9uc2USTgoHRm9ya1J1bhIgLnN3YXJtZXZhbC5hcGkudjEuRm9ya1J1blJlcXVlc3QaIS5zd2FybWV2YWwuYXBpLnYxLkZvcmtSdW5SZXNwb25zZRJfCgxTdHJlYW1FdmVudHMSJS5zd2FybWV2YWwuYXBpLnYxLlN0cmVhbUV2ZW50c1JlcXVlc3QaJi5zd2FybWV2YWwuYXBpLnYxLlN0cmVhbUV2ZW50c1Jlc3BvbnNlMAFCQlpAZ2l0aHViLmNvbS9qYWNrZXlkb3UvRFVORS9nby9pbnRlcm5hbC9nZW4vc3dhcm1ldmFsL2FwaS92MTthcGl2MWIGcHJvdG8z", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
+  fileDesc("Chpzd2FybWV2YWwvYXBpL3YxL3J1bi5wcm90bxIQc3dhcm1ldmFsLmFwaS52MSKzAgoRU3VibWl0UnVuc1JlcXVlc3QSEwoLY2FzZV9idW5kbGUYASABKAwSLwoEY2FzZRgFIAEoCzIhLnN3YXJtZXZhbC5hcGkudjEuQ2FzZVJldmlzaW9uUmVmEioKCW92ZXJyaWRlcxgCIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSDgoGZXBvY2hzGAMgASgFEg0KBXN1aXRlGAQgASgJEj8KBm1vZGVscxgGIAMoCzIvLnN3YXJtZXZhbC5hcGkudjEuU3VibWl0UnVuc1JlcXVlc3QuTW9kZWxzRW50cnkaTAoLTW9kZWxzRW50cnkSCwoDa2V5GAEgASgJEiwKBXZhbHVlGAIgASgLMh0uc3dhcm1ldmFsLmFwaS52MS5Nb2RlbENob2ljZToCOAEiHAoLTW9kZWxDaG9pY2USDQoFbmFtZXMYASADKAkiRwoPQ2FzZVJldmlzaW9uUmVmEhEKCXdvcmtzcGFjZRgBIAEoCRIPCgdjYXNlX2lkGAIgASgJEhAKCHJldmlzaW9uGAMgASgFIlMKElN1Ym1pdFJ1bnNSZXNwb25zZRIVCg1zdWJtaXNzaW9uX2lkGAEgASgJEg8KB3J1bl9pZHMYAiADKAkSFQoNY2FzZV9yZXZpc2lvbhgDIAEoBSKpAQoSU3VibWl0U3VpdGVSZXF1ZXN0EhIKCnN1aXRlX3lhbWwYASABKAkSSwoMY2FzZV9idW5kbGVzGAIgAygLMjUuc3dhcm1ldmFsLmFwaS52MS5TdWJtaXRTdWl0ZVJlcXVlc3QuQ2FzZUJ1bmRsZXNFbnRyeRoyChBDYXNlQnVuZGxlc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoDDoCOAEiYQoPU3VpdGVTdWJtaXNzaW9uEg8KB2Nhc2VfaWQYASABKAkSFQoNc3VibWlzc2lvbl9pZBgCIAEoCRIPCgdydW5faWRzGAMgAygJEhUKDWNhc2VfcmV2aXNpb24YBCABKAUiXAoTU3VibWl0U3VpdGVSZXNwb25zZRINCgVzdWl0ZRgBIAEoCRI2CgtzdWJtaXNzaW9ucxgCIAMoCzIhLnN3YXJtZXZhbC5hcGkudjEuU3VpdGVTdWJtaXNzaW9uIs0ECgNSdW4SDgoGcnVuX2lkGAEgASgJEhUKDXN1Ym1pc3Npb25faWQYAiABKAkSDwoHY2FzZV9pZBgDIAEoCRIRCgl3b3Jrc3BhY2UYBCABKAkSDgoGc3RhdHVzGAUgASgJEg8KB3ZhcmlhbnQYBiABKAUSLwoOdmFyaWFudF92YWx1ZXMYByABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0Eg0KBWVwb2NoGAggASgFEg4KBmVwb2NocxgJIAEoBRITCgtjYXNlX3NoYTI1NhgKIAEoCRIRCglpc29sYXRpb24YCyABKAkSDQoFZXJyb3IYDCABKAkSLgoKY3JlYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKc3RhcnRlZF9hdBgOIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYDyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhAKCHJlcGxhY2VzGBAgASgJEg0KBXN1aXRlGBEgASgJEhMKC2ZvcmtlZF9mcm9tGBIgASgJEhAKCGZvcmtfc2VxGBMgASgDEhAKCGZpZGVsaXR5GBQgASgJEhQKDHN1Ym1pdHRlZF9ieRgVIAEoCRIUCgxjYW5jZWxsZWRfYnkYFiABKAkSEgoKcmVzdW1lZF9ieRgXIAEoCRIVCg1jYXNlX3JldmlzaW9uGBggASgFEhEKCXRha2VvdmVycxgZIAEoBSIfCg1HZXRSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSI0Cg5HZXRSdW5SZXNwb25zZRIiCgNydW4YASABKAsyFS5zd2FybWV2YWwuYXBpLnYxLlJ1biJ6Cg9MaXN0UnVuc1JlcXVlc3QSFQoNc3VibWlzc2lvbl9pZBgBIAEoCRIPCgdjYXNlX2lkGAIgASgJEg4KBnN0YXR1cxgDIAEoCRINCgVzdWl0ZRgEIAEoCRINCgVsaW1pdBgFIAEoBRIRCgl3b3Jrc3BhY2UYBiABKAkiNwoQTGlzdFJ1bnNSZXNwb25zZRIjCgRydW5zGAEgAygLMhUuc3dhcm1ldmFsLmFwaS52MS5SdW4iIgoQQ2FuY2VsUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiNwoRQ2FuY2VsUnVuUmVzcG9uc2USIgoDcnVuGAEgASgLMhUuc3dhcm1ldmFsLmFwaS52MS5SdW4iIgoQUmVzdW1lUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiNwoRUmVzdW1lUnVuUmVzcG9uc2USIgoDcnVuGAEgASgLMhUuc3dhcm1ldmFsLmFwaS52MS5SdW4iYAoORm9ya1J1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhMKC2F0X2V2ZW50X2lkGAIgASgJEikKBWVkaXRzGAMgAygLMhouc3dhcm1ldmFsLmFwaS52MS5Gb3JrRWRpdCKCAgoIRm9ya0VkaXQSOwoPcmVwbGFjZV9tZXNzYWdlGAEgASgLMiAuc3dhcm1ldmFsLmFwaS52MS5SZXBsYWNlTWVzc2FnZUgAEjkKDmRlbGV0ZV9tZXNzYWdlGAIgASgLMh8uc3dhcm1ldmFsLmFwaS52MS5EZWxldGVNZXNzYWdlSAASPQoQcmVwbGFjZV9kZWxpdmVyeRgDIAEoCzIhLnN3YXJtZXZhbC5hcGkudjEuUmVwbGFjZURlbGl2ZXJ5SAASNwoNcmVwbGFjZV9tb2RlbBgEIAEoCzIeLnN3YXJtZXZhbC5hcGkudjEuUmVwbGFjZU1vZGVsSABCBgoEZWRpdCIrCgxSZXBsYWNlTW9kZWwSDAoEc2xvdBgBIAEoCRINCgVtb2RlbBgCIAEoCSJCCg5SZXBsYWNlTWVzc2FnZRIQCghhZ2VudF9pZBgBIAEoCRINCgVpbmRleBgCIAEoBRIPCgdjb250ZW50GAMgASgJIjAKDURlbGV0ZU1lc3NhZ2USEAoIYWdlbnRfaWQYASABKAkSDQoFaW5kZXgYAiABKAUiTAoPUmVwbGFjZURlbGl2ZXJ5EhUKDXNlbmRfZXZlbnRfaWQYASABKAkSEQoJcmVjaXBpZW50GAIgASgJEg8KB2NvbnRlbnQYAyABKAkiNQoPRm9ya1J1blJlc3BvbnNlEiIKA3J1bhgBIAEoCzIVLnN3YXJtZXZhbC5hcGkudjEuUnVuIjgKE1N0cmVhbUV2ZW50c1JlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhEKCWFmdGVyX3NlcRgCIAEoAyJ5ChRTdHJlYW1FdmVudHNSZXNwb25zZRILCgNzZXEYASABKAMSEAoIZXZlbnRfaWQYAiABKAkSDAoEdHlwZRgDIAEoCRIQCghhZ2VudF9pZBgEIAEoCRIUCgxwYXlsb2FkX2pzb24YBSABKAkSDAoEbGluZRgGIAEoCSITChFMaXN0TW9kZWxzUmVxdWVzdCIkChJMaXN0TW9kZWxzUmVzcG9uc2USDgoGbW9kZWxzGAEgAygJMpcGCgpSdW5TZXJ2aWNlElcKClN1Ym1pdFJ1bnMSIy5zd2FybWV2YWwuYXBpLnYxLlN1Ym1pdFJ1bnNSZXF1ZXN0GiQuc3dhcm1ldmFsLmFwaS52MS5TdWJtaXRSdW5zUmVzcG9uc2USWgoLU3VibWl0U3VpdGUSJC5zd2FybWV2YWwuYXBpLnYxLlN1Ym1pdFN1aXRlUmVxdWVzdBolLnN3YXJtZXZhbC5hcGkudjEuU3VibWl0U3VpdGVSZXNwb25zZRJLCgZHZXRSdW4SHy5zd2FybWV2YWwuYXBpLnYxLkdldFJ1blJlcXVlc3QaIC5zd2FybWV2YWwuYXBpLnYxLkdldFJ1blJlc3BvbnNlElEKCExpc3RSdW5zEiEuc3dhcm1ldmFsLmFwaS52MS5MaXN0UnVuc1JlcXVlc3QaIi5zd2FybWV2YWwuYXBpLnYxLkxpc3RSdW5zUmVzcG9uc2USVAoJQ2FuY2VsUnVuEiIuc3dhcm1ldmFsLmFwaS52MS5DYW5jZWxSdW5SZXF1ZXN0GiMuc3dhcm1ldmFsLmFwaS52MS5DYW5jZWxSdW5SZXNwb25zZRJUCglSZXN1bWVSdW4SIi5zd2FybWV2YWwuYXBpLnYxLlJlc3VtZVJ1blJlcXVlc3QaIy5zd2FybWV2YWwuYXBpLnYxLlJlc3VtZVJ1blJlc3BvbnNlEk4KB0ZvcmtSdW4SIC5zd2FybWV2YWwuYXBpLnYxLkZvcmtSdW5SZXF1ZXN0GiEuc3dhcm1ldmFsLmFwaS52MS5Gb3JrUnVuUmVzcG9uc2USXwoMU3RyZWFtRXZlbnRzEiUuc3dhcm1ldmFsLmFwaS52MS5TdHJlYW1FdmVudHNSZXF1ZXN0GiYuc3dhcm1ldmFsLmFwaS52MS5TdHJlYW1FdmVudHNSZXNwb25zZTABElcKCkxpc3RNb2RlbHMSIy5zd2FybWV2YWwuYXBpLnYxLkxpc3RNb2RlbHNSZXF1ZXN0GiQuc3dhcm1ldmFsLmFwaS52MS5MaXN0TW9kZWxzUmVzcG9uc2VCQlpAZ2l0aHViLmNvbS9qYWNrZXlkb3UvRFVORS9nby9pbnRlcm5hbC9nZW4vc3dhcm1ldmFsL2FwaS92MTthcGl2MWIGcHJvdG8z", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * @generated from message swarmeval.api.v1.SubmitRunsRequest
@@ -54,6 +54,15 @@ export type SubmitRunsRequest = Message<"swarmeval.api.v1.SubmitRunsRequest"> & 
    * @generated from field: string suite = 4;
    */
   suite: string;
+
+  /**
+   * Model slot → the models to run it on, for every slot of the case and no other
+   * (docs/case-format.md#model-slots). Each slot's models are one more dimension of the run
+   * matrix. A name model-gateway does not serve is INVALID_ARGUMENT.
+   *
+   * @generated from field: map<string, swarmeval.api.v1.ModelChoice> models = 6;
+   */
+  models: { [key: string]: ModelChoice };
 };
 
 /**
@@ -62,6 +71,23 @@ export type SubmitRunsRequest = Message<"swarmeval.api.v1.SubmitRunsRequest"> & 
  */
 export const SubmitRunsRequestSchema: GenMessage<SubmitRunsRequest> = /*@__PURE__*/
   messageDesc(file_swarmeval_api_v1_run, 0);
+
+/**
+ * @generated from message swarmeval.api.v1.ModelChoice
+ */
+export type ModelChoice = Message<"swarmeval.api.v1.ModelChoice"> & {
+  /**
+   * @generated from field: repeated string names = 1;
+   */
+  names: string[];
+};
+
+/**
+ * Describes the message swarmeval.api.v1.ModelChoice.
+ * Use `create(ModelChoiceSchema)` to create a new message.
+ */
+export const ModelChoiceSchema: GenMessage<ModelChoice> = /*@__PURE__*/
+  messageDesc(file_swarmeval_api_v1_run, 1);
 
 /**
  * One revision of a case in the library.
@@ -92,7 +118,7 @@ export type CaseRevisionRef = Message<"swarmeval.api.v1.CaseRevisionRef"> & {
  * Use `create(CaseRevisionRefSchema)` to create a new message.
  */
 export const CaseRevisionRefSchema: GenMessage<CaseRevisionRef> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 1);
+  messageDesc(file_swarmeval_api_v1_run, 2);
 
 /**
  * @generated from message swarmeval.api.v1.SubmitRunsResponse
@@ -121,7 +147,7 @@ export type SubmitRunsResponse = Message<"swarmeval.api.v1.SubmitRunsResponse"> 
  * Use `create(SubmitRunsResponseSchema)` to create a new message.
  */
 export const SubmitRunsResponseSchema: GenMessage<SubmitRunsResponse> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 2);
+  messageDesc(file_swarmeval_api_v1_run, 3);
 
 /**
  * @generated from message swarmeval.api.v1.SubmitSuiteRequest
@@ -148,7 +174,7 @@ export type SubmitSuiteRequest = Message<"swarmeval.api.v1.SubmitSuiteRequest"> 
  * Use `create(SubmitSuiteRequestSchema)` to create a new message.
  */
 export const SubmitSuiteRequestSchema: GenMessage<SubmitSuiteRequest> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 3);
+  messageDesc(file_swarmeval_api_v1_run, 4);
 
 /**
  * @generated from message swarmeval.api.v1.SuiteSubmission
@@ -180,7 +206,7 @@ export type SuiteSubmission = Message<"swarmeval.api.v1.SuiteSubmission"> & {
  * Use `create(SuiteSubmissionSchema)` to create a new message.
  */
 export const SuiteSubmissionSchema: GenMessage<SuiteSubmission> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 4);
+  messageDesc(file_swarmeval_api_v1_run, 5);
 
 /**
  * @generated from message swarmeval.api.v1.SubmitSuiteResponse
@@ -206,7 +232,7 @@ export type SubmitSuiteResponse = Message<"swarmeval.api.v1.SubmitSuiteResponse"
  * Use `create(SubmitSuiteResponseSchema)` to create a new message.
  */
 export const SubmitSuiteResponseSchema: GenMessage<SubmitSuiteResponse> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 5);
+  messageDesc(file_swarmeval_api_v1_run, 6);
 
 /**
  * @generated from message swarmeval.api.v1.Run
@@ -373,7 +399,7 @@ export type Run = Message<"swarmeval.api.v1.Run"> & {
  * Use `create(RunSchema)` to create a new message.
  */
 export const RunSchema: GenMessage<Run> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 6);
+  messageDesc(file_swarmeval_api_v1_run, 7);
 
 /**
  * @generated from message swarmeval.api.v1.GetRunRequest
@@ -390,7 +416,7 @@ export type GetRunRequest = Message<"swarmeval.api.v1.GetRunRequest"> & {
  * Use `create(GetRunRequestSchema)` to create a new message.
  */
 export const GetRunRequestSchema: GenMessage<GetRunRequest> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 7);
+  messageDesc(file_swarmeval_api_v1_run, 8);
 
 /**
  * @generated from message swarmeval.api.v1.GetRunResponse
@@ -407,7 +433,7 @@ export type GetRunResponse = Message<"swarmeval.api.v1.GetRunResponse"> & {
  * Use `create(GetRunResponseSchema)` to create a new message.
  */
 export const GetRunResponseSchema: GenMessage<GetRunResponse> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 8);
+  messageDesc(file_swarmeval_api_v1_run, 9);
 
 /**
  * @generated from message swarmeval.api.v1.ListRunsRequest
@@ -453,7 +479,7 @@ export type ListRunsRequest = Message<"swarmeval.api.v1.ListRunsRequest"> & {
  * Use `create(ListRunsRequestSchema)` to create a new message.
  */
 export const ListRunsRequestSchema: GenMessage<ListRunsRequest> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 9);
+  messageDesc(file_swarmeval_api_v1_run, 10);
 
 /**
  * @generated from message swarmeval.api.v1.ListRunsResponse
@@ -470,7 +496,7 @@ export type ListRunsResponse = Message<"swarmeval.api.v1.ListRunsResponse"> & {
  * Use `create(ListRunsResponseSchema)` to create a new message.
  */
 export const ListRunsResponseSchema: GenMessage<ListRunsResponse> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 10);
+  messageDesc(file_swarmeval_api_v1_run, 11);
 
 /**
  * @generated from message swarmeval.api.v1.CancelRunRequest
@@ -487,7 +513,7 @@ export type CancelRunRequest = Message<"swarmeval.api.v1.CancelRunRequest"> & {
  * Use `create(CancelRunRequestSchema)` to create a new message.
  */
 export const CancelRunRequestSchema: GenMessage<CancelRunRequest> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 11);
+  messageDesc(file_swarmeval_api_v1_run, 12);
 
 /**
  * @generated from message swarmeval.api.v1.CancelRunResponse
@@ -504,7 +530,7 @@ export type CancelRunResponse = Message<"swarmeval.api.v1.CancelRunResponse"> & 
  * Use `create(CancelRunResponseSchema)` to create a new message.
  */
 export const CancelRunResponseSchema: GenMessage<CancelRunResponse> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 12);
+  messageDesc(file_swarmeval_api_v1_run, 13);
 
 /**
  * @generated from message swarmeval.api.v1.ResumeRunRequest
@@ -521,7 +547,7 @@ export type ResumeRunRequest = Message<"swarmeval.api.v1.ResumeRunRequest"> & {
  * Use `create(ResumeRunRequestSchema)` to create a new message.
  */
 export const ResumeRunRequestSchema: GenMessage<ResumeRunRequest> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 13);
+  messageDesc(file_swarmeval_api_v1_run, 14);
 
 /**
  * @generated from message swarmeval.api.v1.ResumeRunResponse
@@ -538,7 +564,7 @@ export type ResumeRunResponse = Message<"swarmeval.api.v1.ResumeRunResponse"> & 
  * Use `create(ResumeRunResponseSchema)` to create a new message.
  */
 export const ResumeRunResponseSchema: GenMessage<ResumeRunResponse> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 14);
+  messageDesc(file_swarmeval_api_v1_run, 15);
 
 /**
  * @generated from message swarmeval.api.v1.ForkRunRequest
@@ -565,7 +591,7 @@ export type ForkRunRequest = Message<"swarmeval.api.v1.ForkRunRequest"> & {
  * Use `create(ForkRunRequestSchema)` to create a new message.
  */
 export const ForkRunRequestSchema: GenMessage<ForkRunRequest> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 15);
+  messageDesc(file_swarmeval_api_v1_run, 16);
 
 /**
  * @generated from message swarmeval.api.v1.ForkEdit
@@ -592,6 +618,12 @@ export type ForkEdit = Message<"swarmeval.api.v1.ForkEdit"> & {
      */
     value: ReplaceDelivery;
     case: "replaceDelivery";
+  } | {
+    /**
+     * @generated from field: swarmeval.api.v1.ReplaceModel replace_model = 4;
+     */
+    value: ReplaceModel;
+    case: "replaceModel";
   } | { case: undefined; value?: undefined };
 };
 
@@ -600,7 +632,32 @@ export type ForkEdit = Message<"swarmeval.api.v1.ForkEdit"> & {
  * Use `create(ForkEditSchema)` to create a new message.
  */
 export const ForkEditSchema: GenMessage<ForkEdit> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 16);
+  messageDesc(file_swarmeval_api_v1_run, 17);
+
+/**
+ * Runs the agents of model slot `slot` on `model` from the fork point. The fork's `task_args`
+ * name the new model.
+ *
+ * @generated from message swarmeval.api.v1.ReplaceModel
+ */
+export type ReplaceModel = Message<"swarmeval.api.v1.ReplaceModel"> & {
+  /**
+   * @generated from field: string slot = 1;
+   */
+  slot: string;
+
+  /**
+   * @generated from field: string model = 2;
+   */
+  model: string;
+};
+
+/**
+ * Describes the message swarmeval.api.v1.ReplaceModel.
+ * Use `create(ReplaceModelSchema)` to create a new message.
+ */
+export const ReplaceModelSchema: GenMessage<ReplaceModel> = /*@__PURE__*/
+  messageDesc(file_swarmeval_api_v1_run, 18);
 
 /**
  * The text of message `index` in an agent's context at the fork point.
@@ -629,7 +686,7 @@ export type ReplaceMessage = Message<"swarmeval.api.v1.ReplaceMessage"> & {
  * Use `create(ReplaceMessageSchema)` to create a new message.
  */
 export const ReplaceMessageSchema: GenMessage<ReplaceMessage> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 17);
+  messageDesc(file_swarmeval_api_v1_run, 19);
 
 /**
  * A user message (a delivery or an injection) in an agent's context at the fork point.
@@ -653,7 +710,7 @@ export type DeleteMessage = Message<"swarmeval.api.v1.DeleteMessage"> & {
  * Use `create(DeleteMessageSchema)` to create a new message.
  */
 export const DeleteMessageSchema: GenMessage<DeleteMessage> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 18);
+  messageDesc(file_swarmeval_api_v1_run, 20);
 
 /**
  * Other content for a message routed to `recipient` but not yet delivered at the fork point.
@@ -682,7 +739,7 @@ export type ReplaceDelivery = Message<"swarmeval.api.v1.ReplaceDelivery"> & {
  * Use `create(ReplaceDeliverySchema)` to create a new message.
  */
 export const ReplaceDeliverySchema: GenMessage<ReplaceDelivery> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 19);
+  messageDesc(file_swarmeval_api_v1_run, 21);
 
 /**
  * @generated from message swarmeval.api.v1.ForkRunResponse
@@ -699,7 +756,7 @@ export type ForkRunResponse = Message<"swarmeval.api.v1.ForkRunResponse"> & {
  * Use `create(ForkRunResponseSchema)` to create a new message.
  */
 export const ForkRunResponseSchema: GenMessage<ForkRunResponse> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 20);
+  messageDesc(file_swarmeval_api_v1_run, 22);
 
 /**
  * @generated from message swarmeval.api.v1.StreamEventsRequest
@@ -721,7 +778,7 @@ export type StreamEventsRequest = Message<"swarmeval.api.v1.StreamEventsRequest"
  * Use `create(StreamEventsRequestSchema)` to create a new message.
  */
 export const StreamEventsRequestSchema: GenMessage<StreamEventsRequest> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 21);
+  messageDesc(file_swarmeval_api_v1_run, 23);
 
 /**
  * @generated from message swarmeval.api.v1.StreamEventsResponse
@@ -771,7 +828,39 @@ export type StreamEventsResponse = Message<"swarmeval.api.v1.StreamEventsRespons
  * Use `create(StreamEventsResponseSchema)` to create a new message.
  */
 export const StreamEventsResponseSchema: GenMessage<StreamEventsResponse> = /*@__PURE__*/
-  messageDesc(file_swarmeval_api_v1_run, 22);
+  messageDesc(file_swarmeval_api_v1_run, 24);
+
+/**
+ * @generated from message swarmeval.api.v1.ListModelsRequest
+ */
+export type ListModelsRequest = Message<"swarmeval.api.v1.ListModelsRequest"> & {
+};
+
+/**
+ * Describes the message swarmeval.api.v1.ListModelsRequest.
+ * Use `create(ListModelsRequestSchema)` to create a new message.
+ */
+export const ListModelsRequestSchema: GenMessage<ListModelsRequest> = /*@__PURE__*/
+  messageDesc(file_swarmeval_api_v1_run, 25);
+
+/**
+ * @generated from message swarmeval.api.v1.ListModelsResponse
+ */
+export type ListModelsResponse = Message<"swarmeval.api.v1.ListModelsResponse"> & {
+  /**
+   * Sorted.
+   *
+   * @generated from field: repeated string models = 1;
+   */
+  models: string[];
+};
+
+/**
+ * Describes the message swarmeval.api.v1.ListModelsResponse.
+ * Use `create(ListModelsResponseSchema)` to create a new message.
+ */
+export const ListModelsResponseSchema: GenMessage<ListModelsResponse> = /*@__PURE__*/
+  messageDesc(file_swarmeval_api_v1_run, 26);
 
 /**
  * RunService submits evaluation runs and follows them. edge forwards each call to the
@@ -871,6 +960,17 @@ export const RunService: GenService<{
     methodKind: "server_streaming";
     input: typeof StreamEventsRequestSchema;
     output: typeof StreamEventsResponseSchema;
+  },
+  /**
+   * The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+   * cannot be reached.
+   *
+   * @generated from rpc swarmeval.api.v1.RunService.ListModels
+   */
+  listModels: {
+    methodKind: "unary";
+    input: typeof ListModelsRequestSchema;
+    output: typeof ListModelsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_swarmeval_api_v1_run, 0);

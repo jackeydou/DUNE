@@ -20,13 +20,19 @@ func TestRunCallsCarryTheCallerAsActor(t *testing.T) {
 	token := s.token(t, "ada", pw)
 	b := s.login(t, "ada", pw)
 
-	submitted, err := s.runs.SubmitRuns(t.Context(), bearer(token, &apiv1.SubmitRunsRequest{CaseBundle: []byte("tar"), Epochs: 2, Suite: "core"}))
+	submitted, err := s.runs.SubmitRuns(t.Context(), bearer(token, &apiv1.SubmitRunsRequest{
+		CaseBundle: []byte("tar"), Epochs: 2, Suite: "core",
+		Models: map[string]*apiv1.ModelChoice{"default": {Names: []string{"m1", "m2"}}, "judge": {Names: []string{"m3"}}},
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	sent := s.control.last().(*controlv1.SubmitRunsRequest)
 	if sent.GetActor() != "ada" || sent.GetEpochs() != 2 || sent.GetSuite() != "core" || string(sent.GetCaseBundle()) != "tar" {
 		t.Fatalf("Control API got %v", sent)
+	}
+	if models := sent.GetModels(); len(models) != 2 || strings.Join(models["default"].GetNames(), ",") != "m1,m2" || strings.Join(models["judge"].GetNames(), ",") != "m3" {
+		t.Fatalf("Control API got models %v", sent.GetModels())
 	}
 	runID := submitted.Msg.GetRunIds()[0]
 
@@ -35,7 +41,7 @@ func TestRunCallsCarryTheCallerAsActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := got.Msg.GetRun()
-	if run.GetSubmittedBy() != "ada" || run.GetWorkspace() != "safety" || run.GetVariantValues().GetFields()["model"].GetStringValue() != "m" {
+	if run.GetSubmittedBy() != "ada" || run.GetWorkspace() != "safety" || run.GetVariantValues().GetFields()["model.default"].GetStringValue() != "m" {
 		t.Fatalf("GetRun: %v", run)
 	}
 
@@ -56,9 +62,12 @@ func TestRunCallsCarryTheCallerAsActor(t *testing.T) {
 
 	forked, err := s.runs.ForkRun(t.Context(), bearer(token, &apiv1.ForkRunRequest{
 		RunId: runID, AtEventId: "e9",
-		Edits: []*apiv1.ForkEdit{{Edit: &apiv1.ForkEdit_ReplaceDelivery{ReplaceDelivery: &apiv1.ReplaceDelivery{
-			SendEventId: "e3", Recipient: "b", Content: "stay quiet",
-		}}}},
+		Edits: []*apiv1.ForkEdit{
+			{Edit: &apiv1.ForkEdit_ReplaceDelivery{ReplaceDelivery: &apiv1.ReplaceDelivery{
+				SendEventId: "e3", Recipient: "b", Content: "stay quiet",
+			}}},
+			{Edit: &apiv1.ForkEdit_ReplaceModel{ReplaceModel: &apiv1.ReplaceModel{Slot: "default", Model: "m2"}}},
+		},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -66,6 +75,9 @@ func TestRunCallsCarryTheCallerAsActor(t *testing.T) {
 	fork := s.control.last().(*controlv1.ForkRunRequest)
 	if fork.GetActor() != "ada" || fork.GetAtEventId() != "e9" || fork.GetEdits()[0].GetReplaceDelivery().GetContent() != "stay quiet" {
 		t.Fatalf("Control API got %v", fork)
+	}
+	if swap := fork.GetEdits()[1].GetReplaceModel(); swap.GetSlot() != "default" || swap.GetModel() != "m2" {
+		t.Fatalf("Control API got model replacement %v", fork.GetEdits()[1])
 	}
 	if forked.Msg.GetRun().GetForkedFrom() != runID || forked.Msg.GetRun().GetForkSeq() != 7 {
 		t.Fatalf("ForkRun: %v", forked.Msg.GetRun())
@@ -77,6 +89,14 @@ func TestRunCallsCarryTheCallerAsActor(t *testing.T) {
 	}
 	if sent := s.control.last().(*controlv1.ListRunsRequest); len(listed.Msg.GetRuns()) != 1 || sent.GetLimit() != 5 || sent.GetWorkspace() != "safety" || sent.GetSuite() != "core" {
 		t.Fatalf("ListRuns: %v", listed.Msg.GetRuns())
+	}
+
+	models, err := s.runs.ListModels(t.Context(), asBrowser(b, &apiv1.ListModelsRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(models.Msg.GetModels(), ",") != "m1,m2,m3" {
+		t.Fatalf("ListModels: %v", models.Msg.GetModels())
 	}
 }
 

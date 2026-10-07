@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Changed
+- Models are chosen when a case is submitted, not written in the case
+  (`spec/2026-10-06-run-time-models`). `case.yaml` schema version 4: an agent names a
+  `model_slot` (default `default`) instead of a `model`, and agents in one slot run one model.
+  `SubmitRuns` takes `models`, slot → model names, required for every slot of the case; each
+  slot's models are one more dimension of the run matrix, and a run's `task_args` name them as
+  `model.<slot>`. Breaking: cases of schema versions 1 to 3 no longer load (the error says how
+  to move them), and library revisions in those versions cannot run. `cases/` is moved;
+  `cases/collusion_pricing`'s paraphraser is fixed at `minimax-m3`.
+- Suite schema version 2: `models` fills model slots, as a list (each case's `default` slot) or
+  a mapping by slot, and an entry's own `models` replaces the suite's per slot. Breaking: version
+  1 suites no longer load.
+- Event schema version 9: a fork's `intervention` may be `replace_model`. Older runs read as
+  before.
+
+### Added
+- The control plane asks model-gateway which models it serves (`swarmeval-control
+  --gateway-http`) and refuses a submission or fork naming another, before anything is stored;
+  model-gateway out of reach is `UNAVAILABLE`. `ControlService.ListModels` lists them.
+  model-gateway accepts the `control` certificate for `GET /v1/models` only. The compose stack
+  points the control plane at model-gateway.
+- `control.run_specs.models` (migration 0013): each run's model per slot.
+- `ForkEdit.replace_model`: a fork may run a model slot on another model from the fork point;
+  forks of that fork keep it.
+- `GetCaseRevision` returns the revision's `model_slots`, or `load_error` for a revision that no
+  longer loads.
+
 ### Added
 - `Run.takeovers` (migration 0012, `control.runs.takeovers`): how many times a worker claimed
   the run after its owner's lease ran out. The Control API returns it.

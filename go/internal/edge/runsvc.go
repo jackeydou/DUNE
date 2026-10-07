@@ -72,6 +72,10 @@ func (s *RunService) SubmitRuns(ctx context.Context, req *connect.Request[apiv1.
 		Epochs:     req.Msg.GetEpochs(),
 		Suite:      req.Msg.GetSuite(),
 		Actor:      callerOf(ctx).user.Username,
+		Models:     make(map[string]*controlv1.ModelChoice, len(req.Msg.GetModels())),
+	}
+	for slot, choice := range req.Msg.GetModels() {
+		sent.Models[slot] = &controlv1.ModelChoice{Names: choice.GetNames()}
 	}
 	if ref := req.Msg.GetCase(); ref != nil {
 		sent.Case = &controlv1.CaseRevisionRef{
@@ -180,6 +184,14 @@ func (s *RunService) ForkRun(ctx context.Context, req *connect.Request[apiv1.For
 		return nil, s.upstream("ForkRun", err)
 	}
 	return connect.NewResponse(&apiv1.ForkRunResponse{Run: runProto(res.Msg.GetRun())}), nil
+}
+
+func (s *RunService) ListModels(ctx context.Context, _ *connect.Request[apiv1.ListModelsRequest]) (*connect.Response[apiv1.ListModelsResponse], error) {
+	res, err := s.control.ListModels(ctx, connect.NewRequest(&controlv1.ListModelsRequest{}))
+	if err != nil {
+		return nil, s.upstream("ListModels", err)
+	}
+	return connect.NewResponse(&apiv1.ListModelsResponse{Models: res.Msg.GetModels()}), nil
 }
 
 // StreamEvents relays the Control API's stream as it arrives. It ends when the upstream stream

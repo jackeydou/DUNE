@@ -38,6 +38,9 @@ service RunService {
   // A run's events with seq greater than `after_seq`, live while the run is going. The stream
   // ends once the run has finished and every event was sent.
   rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
+  // The model names runs may use: what model-gateway serves. UNAVAILABLE when model-gateway
+  // cannot be reached.
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
 }
 
 message SubmitRunsRequest {
@@ -53,6 +56,14 @@ message SubmitRunsRequest {
   // Labels the submissions of one suite run: lowercase letters, digits, `_`, `.`, and `-`,
   // starting with a letter or digit. Empty for none.
   string suite = 4;
+  // Model slot → the models to run it on, for every slot of the case and no other
+  // (docs/case-format.md#model-slots). Each slot's models are one more dimension of the run
+  // matrix. A name model-gateway does not serve is INVALID_ARGUMENT.
+  map<string, ModelChoice> models = 6;
+}
+
+message ModelChoice {
+  repeated string names = 1;
 }
 
 // One revision of a case in the library.
@@ -187,7 +198,15 @@ message ForkEdit {
     ReplaceMessage replace_message = 1;
     DeleteMessage delete_message = 2;
     ReplaceDelivery replace_delivery = 3;
+    ReplaceModel replace_model = 4;
   }
+}
+
+// Runs the agents of model slot `slot` on `model` from the fork point. The fork's `task_args`
+// name the new model.
+message ReplaceModel {
+  string slot = 1;
+  string model = 2;
 }
 
 // The text of message `index` in an agent's context at the fork point.
@@ -230,4 +249,11 @@ message StreamEventsResponse {
   string payload_json = 5;
   // The event on one line, as the judge and the timeline show it, cut at 2,000 characters.
   string line = 6;
+}
+
+message ListModelsRequest {}
+
+message ListModelsResponse {
+  // Sorted.
+  repeated string models = 1;
 }

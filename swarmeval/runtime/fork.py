@@ -52,7 +52,20 @@ class ReplaceDelivery(Frozen):
     content: str
 
 
-type Edit = Annotated[ReplaceMessage | DeleteMessage | ReplaceDelivery, Field(discriminator="kind")]
+class ReplaceModel(Frozen):
+    """Run the agents of model slot `slot` on `model` from the fork point. The worker builds
+    the fork's agents with the fork's models, so this edit changes no state here: it records
+    the change. `before` is the source's model for the slot."""
+
+    kind: Literal["replace_model"] = "replace_model"
+    slot: str
+    before: str
+    model: str
+
+
+type Edit = Annotated[
+    ReplaceMessage | DeleteMessage | ReplaceDelivery | ReplaceModel, Field(discriminator="kind")
+]
 EDITS = TypeAdapter[tuple[Edit, ...]](tuple[Edit, ...])
 
 
@@ -133,6 +146,8 @@ def check_edits(
                         f"{where}: message {edit.send_event_id} has no undelivered copy for "
                         f"`{edit.recipient}` at the fork point. Undelivered: {pending or 'none'}."
                     )
+            case ReplaceModel():
+                pass
 
 
 def _is(mail: MailCheckpoint, edit: ReplaceDelivery) -> bool:
@@ -160,7 +175,7 @@ def edited_contexts(
             case DeleteMessage():
                 changed.setdefault(edit.agent_id, list(contexts[edit.agent_id]))
                 deleted.setdefault(edit.agent_id, set()).add(edit.index)
-            case ReplaceDelivery():
+            case ReplaceDelivery() | ReplaceModel():
                 pass
     return {
         agent: tuple(m for i, m in enumerate(msgs) if i not in deleted.get(agent, set()))
@@ -201,6 +216,19 @@ def delivery_intervention(
         after={"recipient": mail.recipient, "kind": "deliver", "content": edit.content},
     )
     return EventDraft(record=record, agent_id=mail.recipient, parent_id=parent_id)
+
+
+def model_intervention(edit: ReplaceModel, parent_id: str) -> EventDraft:
+    """Names the slot and both models; the agents' `ModelEvent`s from here on name the new
+    one."""
+    record = InterventionRecord(
+        hook="fork",
+        action="replace_model",
+        target_event_id=None,
+        before_sha256=None,
+        after={"slot": edit.slot, "before": edit.before, "model": edit.model},
+    )
+    return EventDraft(record=record, parent_id=parent_id)
 
 
 def replace_mail(mail: MailCheckpoint, edit: ReplaceDelivery) -> bool:

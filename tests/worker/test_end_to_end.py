@@ -28,6 +28,7 @@ from swarmeval.worker import worker as worker_module
 from swarmeval.worker.probes import ProbeSandbox, check_isolation
 from swarmeval.worker.run import Outcome, WorkerDeps, execute
 from tests.gateway.mock_backend import completion, tool_call
+from tests.models import chosen
 from tests.worker.conftest import Platform
 from tests.worker.test_probes_live import Aliased
 
@@ -37,20 +38,18 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.docker
 
 CASE: dict[str, Any] = {
-    "schema_version": 1,
+    "schema_version": 4,
     "id": "smoke",
     "workspace": "ws_e2e",
     "swarm": {
         "agents": [
             {
                 "id": "dev",
-                "model": "mock-model",
                 "prompt": "prompts/dev.md",
                 "tools": ["shell", "send_message"],
             },
             {
                 "id": "qa",
-                "model": "mock-model",
                 "prompt": "prompts/qa.md",
                 "tools": ["send_message"],
             },
@@ -127,7 +126,9 @@ async def test_a_submitted_case_runs_scores_and_exports(platform: Platform, tmp_
     backend.reply(completion("ok"))
 
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
+        pb.SubmitRunsRequest(
+            models=chosen("mock-model"), case_bundle=pack(write_case(tmp_path / "case"))
+        )
     )
     (run_id,) = submitted.run_ids
     outcomes = await platform.worker.drain()
@@ -204,7 +205,12 @@ async def test_a_submitted_case_runs_scores_and_exports(platform: Platform, tmp_
 
 async def test_a_cancelled_queued_run_never_starts(platform: Platform, tmp_path: Path) -> None:
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")), epochs=2, actor="ada")
+        pb.SubmitRunsRequest(
+            models=chosen("mock-model"),
+            case_bundle=pack(write_case(tmp_path / "case")),
+            epochs=2,
+            actor="ada",
+        )
     )
     first, second = submitted.run_ids
 
@@ -231,7 +237,9 @@ async def test_a_cancel_that_lands_while_a_run_finishes_is_what_the_summary_says
     for _ in range(3):
         platform.backend.reply(completion("done"))
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
+        pb.SubmitRunsRequest(
+            models=chosen("mock-model"), case_bundle=pack(write_case(tmp_path / "case"))
+        )
     )
     assert len(submitted.run_ids) == 1
 
@@ -254,7 +262,9 @@ async def test_runs_interrupted_by_a_worker_restart_get_a_summary_and_a_rerun(
     for _ in range(3):
         platform.backend.reply(completion("done"))
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
+        pb.SubmitRunsRequest(
+            models=chosen("mock-model"), case_bundle=pack(write_case(tmp_path / "case"))
+        )
     )
     (run_id,) = submitted.run_ids
     claimed = await platform.queue.claim("worker_e2e")
@@ -279,7 +289,9 @@ async def test_a_case_that_does_not_load_is_refused(platform: Platform, tmp_path
     (case_dir / "task.md").unlink()
 
     with pytest.raises(grpc.aio.AioRpcError) as info:
-        await platform.control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=pack(case_dir)))
+        await platform.control.SubmitRuns(
+            pb.SubmitRunsRequest(models=chosen("mock-model"), case_bundle=pack(case_dir))
+        )
 
     assert info.value.code() == grpc.StatusCode.INVALID_ARGUMENT
     assert "task.md" in str(info.value.details())
@@ -289,7 +301,9 @@ async def test_a_model_backend_error_fails_the_run(platform: Platform, tmp_path:
     platform.backend.reply({"error": {"message": "context length exceeded"}}, status=400)
 
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
+        pb.SubmitRunsRequest(
+            models=chosen("mock-model"), case_bundle=pack(write_case(tmp_path / "case"))
+        )
     )
     (run_id,) = submitted.run_ids
     outcomes = await platform.worker.drain()
@@ -314,7 +328,9 @@ async def test_sandboxes_that_are_not_isolated_fail_the_run_before_any_agent_tur
 
     monkeypatch.setattr(run_module, "check_isolation", merged)
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(write_case(tmp_path / "case")))
+        pb.SubmitRunsRequest(
+            models=chosen("mock-model"), case_bundle=pack(write_case(tmp_path / "case"))
+        )
     )
     (run_id,) = submitted.run_ids
     outcomes = await platform.worker.drain()

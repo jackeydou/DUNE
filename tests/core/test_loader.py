@@ -1,25 +1,24 @@
 import re
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-from swarmeval.core import CaseError, load_case, run_spec
+from swarmeval.core import CaseError, choose_models, load_case, run_spec
 from swarmeval.runtime.messages import SystemMessage, UserMessage
 from tests.runtime.fakes import call, harness, reply
 
 
 def base_case() -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 4,
         "id": "demo",
         "workspace": "safety",
         "swarm": {
             "agents": [
-                {"id": "dev", "model": "m1", "prompt": "prompts/dev.md", "tools": ["shell"]},
-                {"id": "qa", "model": "m1", "prompt": "prompts/qa.md"},
+                {"id": "dev", "prompt": "prompts/dev.md", "tools": ["shell"]},
+                {"id": "qa", "prompt": "prompts/qa.md"},
             ],
         },
         "task": {"input": "task.md"},
@@ -80,7 +79,7 @@ def test_shared_sandbox_is_named_by_env_and_private_one_by_agent(tmp_path: Path)
     agents = case["swarm"]["agents"]
     agents[0]["sandbox"] = "team_box"
     agents[1].update(sandbox="team_box", os_user="qa")
-    agents.append({"id": "rival", "model": "m1", "prompt": "prompts/qa.md"})
+    agents.append({"id": "rival", "prompt": "prompts/qa.md"})
     agents[2]["sandbox_profile"] = "restricted"
     env = base_env()
     env["sandbox_profiles"]["restricted"] = {
@@ -101,35 +100,35 @@ def test_shared_sandbox_is_named_by_env_and_private_one_by_agent(tmp_path: Path)
 
 def test_variants_expand_as_cartesian_product_with_typed_substitution(tmp_path: Path) -> None:
     case = base_case()
-    case["variants"] = {"model": ["m1", "m2"], "disclosed": [True, False]}
+    case["variants"] = {"persona": ["dev", "qa"], "disclosed": [True, False]}
     case["epochs"] = 3
-    case["swarm"]["agents"][0]["model"] = "${variant.model}"
-    case["swarm"]["agents"][1]["model"] = "${variant.model}-judge"
+    case["swarm"]["agents"][0]["prompt"] = "prompts/${variant.persona}.md"
+    case["swarm"]["agents"][1]["os_user"] = "${variant.persona}_user"
     case["extensions"] = [{"use": "acme.guard", "config": {"disclosed": "${variant.disclosed}"}}]
 
     loaded = load_case(write(tmp_path, case))
 
     assert loaded.epochs == 3
     assert [v.values for v in loaded.variants] == [
-        {"model": "m1", "disclosed": True},
-        {"model": "m1", "disclosed": False},
-        {"model": "m2", "disclosed": True},
-        {"model": "m2", "disclosed": False},
+        {"persona": "dev", "disclosed": True},
+        {"persona": "dev", "disclosed": False},
+        {"persona": "qa", "disclosed": True},
+        {"persona": "qa", "disclosed": False},
     ]
     last = loaded.variants[3].case
-    assert last.swarm.agents[0].model == "m2"
-    assert last.swarm.agents[1].model == "m2-judge"
+    assert last.swarm.agents[0].prompt == "prompts/qa.md"
+    assert last.swarm.agents[1].os_user == "qa_user"
     assert last.extensions[0].config == {"disclosed": False}
 
 
 def test_overrides_replace_an_axis(tmp_path: Path) -> None:
     case = base_case()
-    case["variants"] = {"model": ["m1", "m2"]}
-    case["swarm"]["agents"][0]["model"] = "${variant.model}"
+    case["variants"] = {"persona": ["dev", "qa"]}
+    case["swarm"]["agents"][0]["prompt"] = "prompts/${variant.persona}.md"
 
-    loaded = load_case(write(tmp_path, case), overrides={"model": ["m3"]})
+    loaded = load_case(write(tmp_path, case), overrides={"persona": ["qa"]})
 
-    assert [v.case.swarm.agents[0].model for v in loaded.variants] == ["m3"]
+    assert [v.case.swarm.agents[0].prompt for v in loaded.variants] == ["prompts/qa.md"]
 
 
 def test_override_of_unknown_axis_is_rejected(tmp_path: Path) -> None:
@@ -165,11 +164,12 @@ def test_run_spec_maps_agents_prompts_and_sandboxes(tmp_path: Path) -> None:
     case["swarm"]["limits"] = {"max_turns": 5}
     env = base_env()
     env["sandboxes"] = {"box": {"profile": "default"}}
-    (variant,) = load_case(write(tmp_path, case, env)).variants
+    (variant,) = load_case(write(tmp_path, case, env), models={"default": ["m1"]}).variants
 
     spec = run_spec(variant, run_id="run_1", seed=9)
 
     dev, qa = spec.agents
+    assert (dev.model, qa.model) == ("m1", "m1")
     assert (dev.sandbox_id, dev.temperature, dev.seed, dev.tools) == ("box", 0.2, 1, ("shell",))
     assert (qa.sandbox_id, qa.system_prompt, qa.task) == ("qa", "You are qa.", "You are qa.")
     assert (spec.run_id, spec.seed, spec.limits.max_turns) == ("run_1", 9, 5)
@@ -192,7 +192,7 @@ def test_missing_schema_version_is_rejected(tmp_path: Path) -> None:
     case = base_case()
     del case["schema_version"]
 
-    assert "has no `schema_version`. Add `schema_version: 3`" in load_error(tmp_path, case)
+    assert "has no `schema_version`. Add `schema_version: 4`" in load_error(tmp_path, case)
 
 
 def test_unsupported_schema_version_is_rejected(tmp_path: Path) -> None:
@@ -306,11 +306,11 @@ def test_missing_prompt_file_is_rejected(tmp_path: Path) -> None:
 
 def test_reference_to_undeclared_axis_names_the_field(tmp_path: Path) -> None:
     case = base_case()
-    case["swarm"]["agents"][0]["model"] = "${variant.model}"
+    case["swarm"]["agents"][0]["prompt"] = "${variant.persona}"
 
     message = load_error(tmp_path, case)
 
-    assert "`swarm.agents[0].model` refers to `${variant.model}`" in message
+    assert "`swarm.agents[0].prompt` refers to `${variant.persona}`" in message
     assert "Declare it under `variants:`" in message
 
 
@@ -324,9 +324,9 @@ def test_fixed_keys_cannot_vary(tmp_path: Path) -> None:
 
 def test_repeated_variant_value_is_rejected(tmp_path: Path) -> None:
     case = base_case()
-    case["variants"] = {"model": ["m1", "m1"]}
+    case["variants"] = {"persona": ["dev", "dev"]}
 
-    assert "variant axis `model`" in load_error(tmp_path, case)
+    assert "variant axis `persona`" in load_error(tmp_path, case)
 
 
 def test_bad_token_count_is_rejected(tmp_path: Path) -> None:
@@ -354,7 +354,7 @@ async def test_loaded_case_drives_the_run_loop(tmp_path: Path) -> None:
     case["swarm"]["agents"][1]["sandbox"] = "box"
     env = base_env()
     env["sandboxes"] = {"box": {"profile": "default"}}
-    (variant,) = load_case(write(tmp_path, case, env)).variants
+    (variant,) = load_case(write(tmp_path, case, env), models={"default": ["m1"]}).variants
     spec = run_spec(variant, run_id="run_1", seed=7)
     h = harness(
         spec.agents,
@@ -457,7 +457,6 @@ def test_a_command_scorer_needs_its_script_and_a_used_sandbox(tmp_path: Path) ->
 
 def test_a_cross_sandbox_scorer_needs_two_sandboxes(tmp_path: Path) -> None:
     case = base_case()
-    case["schema_version"] = 2
     case["scorers"] = [{"id": "crossed", "type": "cross_sandbox"}]
 
     (variant,) = load_case(write(tmp_path, case)).variants
@@ -520,33 +519,105 @@ def test_a_canary_and_a_copied_file_cannot_share_a_path(tmp_path: Path) -> None:
         load_case(case_dir)
 
 
-def _intervened_channel(case: dict[str, Any]) -> None:
-    case["swarm"]["channels"] = [{"id": "dm", "members": ["dev", "qa"], "interventions": ["log"]}]
-
-
-def _cross_sandbox_scorer(case: dict[str, Any]) -> None:
-    case["scorers"] = [{"id": "crossed", "type": "cross_sandbox"}]
-
-
-def _list_axis(case: dict[str, Any]) -> None:
-    case["variants"] = {"paraphrased": [[], ["dm"]]}
-
-
-@pytest.mark.parametrize(
-    ("change", "needs"),
-    [
-        (_intervened_channel, "channel `dm` lists `interventions`"),
-        (_cross_sandbox_scorer, "scorer `crossed` has type `cross_sandbox`"),
-        (_list_axis, "variant axis `paraphrased` has a list value"),
-    ],
-)
-def test_version_1_cases_refuse_the_version_2_grammar(
-    tmp_path: Path, change: Callable[[dict[str, Any]], None], needs: str
+@pytest.mark.parametrize("version", [1, 2, 3])
+def test_retired_schema_versions_say_how_to_move_to_model_slots(
+    tmp_path: Path, version: int
 ) -> None:
     case = base_case()
-    change(case)
+    case["schema_version"] = version
 
     error = load_error(tmp_path, case)
 
-    assert needs in error
-    assert "needs `schema_version: 2`" in error
+    assert f"has `schema_version: {version}`, whose agents name their models" in error
+    assert "remove each agent's `model`" in error
+    assert "docs/case-format.md#model-slots" in error
+
+
+def test_an_agent_cannot_name_its_model(tmp_path: Path) -> None:
+    case = base_case()
+    case["swarm"]["agents"][0]["model"] = "m1"
+
+    assert "`swarm.agents[0].model`: unknown key" in load_error(tmp_path, case)
+
+
+# Model slots.
+
+
+def test_agents_without_a_slot_share_the_default_slot(tmp_path: Path) -> None:
+    loaded = load_case(write(tmp_path))
+
+    assert loaded.slots == ("default",)
+    assert loaded.models == {}
+    assert loaded.variants[0].models == {}
+
+
+def test_slots_are_listed_in_the_order_agents_first_name_them(tmp_path: Path) -> None:
+    case = base_case()
+    case["swarm"]["agents"][0]["model_slot"] = "attacker"
+    case["swarm"]["agents"].append({"id": "rival", "prompt": "prompts/qa.md"})
+
+    assert load_case(write(tmp_path, case)).slots == ("attacker", "default")
+
+
+def test_chosen_models_vary_slower_than_the_axes(tmp_path: Path) -> None:
+    case = base_case()
+    case["swarm"]["agents"][0]["model_slot"] = "attacker"
+    case["variants"] = {"disclosed": [True, False]}
+    models = {"default": ["d1"], "attacker": ["a1", "a2"]}
+
+    loaded = load_case(write(tmp_path, case), models=models)
+
+    assert loaded.models == {"attacker": ("a1", "a2"), "default": ("d1",)}
+    assert [(v.index, v.task_args()) for v in loaded.variants] == [
+        (0, {"disclosed": True, "model.attacker": "a1", "model.default": "d1"}),
+        (1, {"disclosed": False, "model.attacker": "a1", "model.default": "d1"}),
+        (2, {"disclosed": True, "model.attacker": "a2", "model.default": "d1"}),
+        (3, {"disclosed": False, "model.attacker": "a2", "model.default": "d1"}),
+    ]
+    dev, qa = run_spec(loaded.variants[3], run_id="run_1", seed=1).agents
+    assert (dev.model, qa.model) == ("a2", "d1")
+
+
+@pytest.mark.parametrize(
+    ("models", "error"),
+    [
+        ({}, "needs models for slot `default`. Choose at least one model"),
+        ({"default": ["m1"], "judge": ["m2"]}, "for slot `judge`, which case `safety/demo`"),
+        ({"default": []}, "slot `default` has [] as its models"),
+        ({"default": ["m1", "m1"]}, "slot `default` repeats a model"),
+    ],
+)
+def test_every_slot_and_only_the_cases_slots_get_models(
+    tmp_path: Path, models: dict[str, list[str]], error: str
+) -> None:
+    loaded = load_case(write(tmp_path))
+
+    with pytest.raises(CaseError, match=re.escape(error)):
+        choose_models(loaded, models)
+
+
+def test_a_slot_cannot_vary_by_variant(tmp_path: Path) -> None:
+    case = base_case()
+    case["variants"] = {"slot": ["a", "b"]}
+    case["swarm"]["agents"][0]["model_slot"] = "${variant.slot}"
+
+    assert "`model_slot`s differ between variants" in load_error(tmp_path, case)
+
+
+def test_run_spec_needs_the_variants_models(tmp_path: Path) -> None:
+    (variant,) = load_case(write(tmp_path)).variants
+
+    with pytest.raises(ValueError, match="has no model for slots default"):
+        run_spec(variant, run_id="run_1", seed=1)
+
+
+def test_a_paraphrase_model_is_one_the_case_fixes(tmp_path: Path) -> None:
+    case = base_case()
+    case["swarm"]["channels"] = [
+        {"id": "dm", "members": ["dev", "qa"], "interventions": [{"paraphrase": {"model": "pm"}}]}
+    ]
+
+    loaded = load_case(write(tmp_path, case))
+
+    assert loaded.slots == ("default",)
+    assert loaded.fixed_models == ("pm",)

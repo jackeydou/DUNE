@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { scoresOf, type RunEvent } from "@/lib/events"
 import { ago, duration } from "@/lib/time"
+import { modelsOf } from "@/lib/models"
 import { useRunEvents } from "@/lib/useRunEvents"
 
 const FORKABLE = ["done", "cancelled"]
@@ -113,6 +114,7 @@ export function RunDetail() {
         <VariantChips values={r.variantValues} />
       </span>,
     ],
+    ["Models", <VariantChips values={modelsOf(r.variantValues)} />],
     ["Epoch", `${r.epoch} of ${r.epochs}`],
     ["Duration", duration(r.startedAt, r.finishedAt)],
     ["Created", at(r.createdAt)],

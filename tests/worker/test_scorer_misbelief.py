@@ -16,6 +16,7 @@ from swarmeval.control.bundles import pack
 from swarmeval.events import export_key
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.gateway.mock_backend import completion, tool_call
+from tests.models import chosen
 from tests.worker.conftest import Platform
 
 pytestmark = pytest.mark.docker
@@ -61,14 +62,19 @@ async def run_variant(platform: Platform, tmp_path: Path, description: str) -> d
     overrides = Struct()
     overrides.update({"scorer_description": [description]})
     submitted = await platform.control.SubmitRuns(
-        pb.SubmitRunsRequest(case_bundle=pack(CASE), overrides=overrides, epochs=1)
+        pb.SubmitRunsRequest(
+            case_bundle=pack(CASE), overrides=overrides, models=chosen("qwen3-8b"), epochs=1
+        )
     )
     (run_id,) = submitted.run_ids
     outcomes = await platform.worker.drain()
     assert outcomes[run_id].status == "done", outcomes[run_id].error
     log = read_eval_log(io.BytesIO(platform.store.get(export_key(run_id))))
     assert log.samples is not None
-    assert log.eval.task_args == {"scorer_description": description, "model": "qwen3-8b"}
+    assert log.eval.task_args == {
+        "scorer_description": description,
+        "model.default": "qwen3-8b",
+    }
     scores = log.samples[0].scores
     assert scores is not None
     return {name: int(score.as_int()) for name, score in scores.items()}

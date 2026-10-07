@@ -27,6 +27,7 @@ from swarmeval.control.cases import (
     refuse_archived,
 )
 from swarmeval.control.live import EventListener
+from swarmeval.control.models import ModelCatalog, UnknownModel, check_replacements
 from swarmeval.control.queue import (
     FINISHED,
     NewRun,
@@ -52,6 +53,7 @@ from swarmeval.runtime.fork import (
     ForkError,
     ReplaceDelivery,
     ReplaceMessage,
+    ReplaceModel,
     check_edits,
 )
 
@@ -132,7 +134,12 @@ def _scalar(axis: str, value: object) -> Scalar:
     return value
 
 
-def edit_of(edit: pb.ForkEdit) -> Edit:
+def models_of(choices: Mapping[str, pb.ModelChoice]) -> dict[str, list[str]]:
+    return {slot: list(choice.names) for slot, choice in choices.items()}
+
+
+def edit_of(edit: pb.ForkEdit, models: Mapping[str, str]) -> Edit:
+    """`models` is the source run's model for each slot."""
     match edit.WhichOneof("edit"):
         case "replace_message":
             m = edit.replace_message
@@ -146,6 +153,16 @@ def edit_of(edit: pb.ForkEdit) -> Edit:
             return ReplaceDelivery(
                 send_event_id=d.send_event_id, recipient=d.recipient, content=d.content
             )
+        case "replace_model":
+            m = edit.replace_model
+            if m.slot not in models:
+                raise ForkError(
+                    f"a model replacement names slot `{m.slot}`; the run's slots are "
+                    f"{', '.join(models) or 'none'}."
+                )
+            if not m.model:
+                raise ForkError(f"the model replacement for slot `{m.slot}` names no model.")
+            return ReplaceModel(slot=m.slot, before=models[m.slot], model=m.model)
         case _:
             raise ForkError("a fork edit names no edit; set one of its fields.")
 
@@ -170,9 +187,10 @@ def plan_runs(
             case_revision_id=revision.id,
             overrides={k: [axis_json(x) for x in v] for k, v in overrides.items()},
             variant=variant.index,
-            task_args={k: axis_json(v) for k, v in variant.values.items()},
+            task_args=variant.task_args(),
             epoch=epoch,
             epochs=epochs,
+            models=dict(variant.models),
             suite=suite,
             submitted_by=submitted_by,
         )
@@ -222,6 +240,7 @@ class ControlService(CaseRpcs, ControlServiceServicer):
         engine: AsyncEngine,
         store: ObjectStore,
         listener: EventListener,
+        models: ModelCatalog,
         allow_case_code: bool = False,
     ) -> None:
         self._queue = queue
@@ -229,6 +248,7 @@ class ControlService(CaseRpcs, ControlServiceServicer):
         self._store = store
         self._library = CaseLibrary(engine)
         self._listener = listener
+        self._models = models
         self._allow_case_code = allow_case_code
 
     async def SubmitRuns(
@@ -263,7 +283,7 @@ class ControlService(CaseRpcs, ControlServiceServicer):
             bundle = await asyncio.to_thread(self._store.get, bundle_key(stored.bundle_sha256))
         else:
             bundle = request.case_bundle
-        loaded, bundle = await self._accept(bundle, overrides, context)
+        loaded, bundle = await self._accept(bundle, overrides, context, models_of(request.models))
         if stored is None:
             await self._refuse_archived(loaded.workspace, loaded.id, context)
             await asyncio.to_thread(self._store.put, bundle_key(bundle_hash(bundle)), bundle)
@@ -318,6 +338,7 @@ class ControlService(CaseRpcs, ControlServiceServicer):
         for entry in loaded.entries:
             await self._refuse_case_code(entry.case, context)
             await self._refuse_archived(entry.case.workspace, entry.case.id, context)
+        await self._check_served([entry.case for entry in loaded.entries], context)
         label = f"{loaded.id}.{secrets.token_hex(4)}"
         for bundle in bundles.values():
             await asyncio.to_thread(self._store.put, bundle_key(bundle_hash(bundle)), bundle)
@@ -416,9 +437,20 @@ class ControlService(CaseRpcs, ControlServiceServicer):
                 "its parents into the source.",
             )
         try:
-            edits = [edit_of(e) for e in request.edits]
+            edits = [edit_of(e, source.models or {}) for e in request.edits]
         except (ForkError, ValidationError) as err:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"fork edits: {err}")
+        replaced = {e.slot: e.model for e in edits if isinstance(e, ReplaceModel)}
+        if len(replaced) != sum(isinstance(e, ReplaceModel) for e in edits):
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "fork edits: a slot's model is replaced more than once. Replace each slot once.",
+            )
+        if replaced:
+            try:
+                check_replacements(await self._served(context), source.run_id, replaced)
+            except UnknownModel as err:
+                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err))
         try:
             point = await fork_point(self._engine, source.run_id, request.at_event_id)
             check_edits(edits, point.contexts, point.checkpoint.mail)
@@ -429,9 +461,18 @@ class ControlService(CaseRpcs, ControlServiceServicer):
         except ForkError as err:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(err))
         run = await self._queue.fork(
-            source, point.seq, [e.model_dump(mode="json") for e in edits], request.actor or None
+            source,
+            point.seq,
+            [e.model_dump(mode="json") for e in edits],
+            request.actor or None,
+            models=replaced,
         )
         return pb.ForkRunResponse(run=to_proto(run))
+
+    async def ListModels(
+        self, request: pb.ListModelsRequest, context: Context
+    ) -> pb.ListModelsResponse:
+        return pb.ListModelsResponse(models=await self._served(context))
 
     async def StreamEvents(
         self, request: pb.StreamEventsRequest, context: Context

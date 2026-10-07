@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed
+- `swarm run` takes `-m` for the models to run on, required for a case: `-m MODEL[,MODEL…]` for
+  the `default` model slot, `-m SLOT=MODEL[,MODEL…]` for a named one
+  (`spec/2026-10-06-run-time-models`). A suite file chooses its own. Breaking: a case submitted
+  without `-m` is refused before anything is sent.
+
+### Added
+- `swarm models`: the model names the deployment's model-gateway serves.
+- `swarm replay -m [SLOT=]MODEL`: the fork runs a model slot on another model from the fork
+  point.
+- edge forwards `SubmitRunsRequest.models`, `ForkEdit.replace_model`, `RunService.ListModels`,
+  and `GetCaseRevisionResponse.model_slots` and `load_error`.
+
 ### Added
 - `Run.takeovers` in `swarmeval.api.v1` and `swarmeval.control.v1`, forwarded by edge. `swarm
   runs get` shows `taken over` for a run a worker took over after its owner's lease ran out,

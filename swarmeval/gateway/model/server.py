@@ -15,6 +15,7 @@ from swarmeval.gateway.model.tls import uvicorn_config
 from swarmeval.gateway.model.upstream import Upstreams
 from swarmeval.mtls import (
     ANALYSIS,
+    CONTROL,
     WORKER,
     Identity,
     add_mtls,
@@ -29,6 +30,8 @@ from swarmeval.proto.swarmeval.modelgw.v1.recorder_pb2_grpc import (
 
 CALLERS = (WORKER, ANALYSIS)
 """Who may call the gateway: workers for runs, analysis for its judge."""
+LISTING = (CONTROL,)
+"""Who may only list the models: the control plane, checking the models a submission names."""
 
 
 async def serve(
@@ -44,7 +47,7 @@ async def serve(
     add_port(server, grpc_address, mtls)
     host, _, port = http.rpartition(":")
     app = create_app(attachments, upstreams, config.analysis_key())
-    web = uvicorn.Server(uvicorn_config(app, host, int(port), mtls, CALLERS))
+    web = uvicorn.Server(uvicorn_config(app, host, int(port), mtls, CALLERS, LISTING))
     await server.start()
     try:
         await web.serve()

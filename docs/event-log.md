@@ -169,8 +169,10 @@ since the run's first event.
 (migration 0009). Every `runs` table references it. `control.cases` and `control.case_revisions`
 are the [case library](services/orchestrator.md#case-library) (migration 0010).
 `control.run_specs` holds each run's `submission_id`, `case_id`, `case_sha256`,
-`case_revision_id` (the library revision whose bundle that hash is), `overrides`,
-`variant`, `task_args`, `epoch`, `epochs`, `replaces`, the interrupted run a
+`case_revision_id` (the library revision whose bundle that hash is), `overrides`, `models`
+(model slot → the model the run uses for it, migration 0013; null for runs queued before
+[model slots](case-format.md#model-slots)), `variant`, `task_args` (with each model as
+`model.<slot>`, schema version 9), `epoch`, `epochs`, `replaces`, the interrupted run a
 [rerun](services/orchestrator.md#reruns) stands in for, and `suite`, the
 [suite](services/orchestrator.md#suites) label of the submission, and for a [fork](services/orchestrator.md#forks) `forked_from`,
 `fork_seq`, and `fork_edits` (migration 0008), and `submitted_by`, the actor of the submission or
@@ -244,7 +246,9 @@ A fork's transcript also holds its sources' events up to the fork point (`lineag
 the contexts it copied at their generation numbers; their own requests, responses, sends, and
 deliveries were checked in the source and are not checked again. A fork's `edit_context`
 intervention starts a generation the way a compaction does, and its `deliver` intervention
-counts as the last rewrite of that message for that recipient.
+counts as the last rewrite of that message for that recipient. Its `replace_model` intervention
+(schema version 9) changes no context: `after` names the model slot and the models `before` and
+after (`model`), and the agents of that slot call the new model from there on.
 
 ## Hash chain
 

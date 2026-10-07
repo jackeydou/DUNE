@@ -5,6 +5,7 @@ import asyncio
 import logging
 
 import grpc
+import httpx2
 
 from swarmeval.config import (
     add_case_code,
@@ -16,6 +17,7 @@ from swarmeval.config import (
 )
 from swarmeval.control.bundles import MAX_BUNDLE_BYTES
 from swarmeval.control.live import EventListener
+from swarmeval.control.models import GatewayModels
 from swarmeval.control.queue import Queue
 from swarmeval.control.service import ControlService
 from swarmeval.db import async_engine, migrate
@@ -27,6 +29,7 @@ from swarmeval.mtls import (
     add_mtls,
     add_port,
     check_listen,
+    http_client_tls,
     identity,
     interceptors,
 )
@@ -45,9 +48,16 @@ CALLERS = (EDGE, OPERATOR)
 
 
 async def serve(
-    url: str, store: ObjectStore, listen: str, *, allow_case_code: bool, mtls: Identity | None
+    url: str,
+    store: ObjectStore,
+    listen: str,
+    *,
+    gateway_http: str,
+    allow_case_code: bool,
+    mtls: Identity | None,
 ) -> None:
     check_listen("--listen", listen, mtls)
+    verify = http_client_tls("--gateway-http", gateway_http, mtls)
     await asyncio.to_thread(migrate, url)
     engine = async_engine(url)
     listener = EventListener(url)
@@ -59,11 +69,13 @@ async def serve(
             ("grpc.max_send_message_length", MAX_MESSAGE_BYTES),
         ],
     )
+    gateway = httpx2.AsyncClient(base_url=gateway_http, timeout=10.0, verify=verify)
     service = ControlService(
         queue=Queue(engine),
         engine=engine,
         store=store,
         listener=listener,
+        models=GatewayModels(gateway),
         allow_case_code=allow_case_code,
     )
     add_ControlServiceServicer_to_server(service, server)
@@ -73,6 +85,7 @@ async def serve(
         await server.wait_for_termination()
     finally:
         await server.stop(grace=5)
+        await gateway.aclose()
         await listener.close()
         await engine.dispose()
 
@@ -88,6 +101,11 @@ def main() -> None:
         default="127.0.0.1:7090",
         help="Control API address. Without --mtls-cert it must be a loopback address",
     )
+    parser.add_argument(
+        "--gateway-http",
+        default="http://127.0.0.1:7080",
+        help="model-gateway HTTP base URL, asked which models runs may use; https with --mtls-cert",
+    )
     args = parser.parse_args()
     mtls = identity(args)
     logging.basicConfig(level=logging.INFO)
@@ -96,6 +114,7 @@ def main() -> None:
             database_url(args),
             object_store(args),
             args.listen,
+            gateway_http=args.gateway_http,
             allow_case_code=args.allow_case_code,
             mtls=mtls,
         )

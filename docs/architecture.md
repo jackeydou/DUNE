@@ -66,6 +66,7 @@ flowchart TB
     SBX -- docker / k8s API --> BOX
     W -- web_request · public addresses only --> WEB2
     AN -. judge .-> MG
+    CP -. served models .-> MG
     MG --> LLM
 
     classDef go fill:#d7f0f7,stroke:#00758f,color:#0b2a33
@@ -94,7 +95,7 @@ address, which is how development and the tests run.
 |---|---|
 | orchestrator control plane (`ControlService`) | `edge`, `operator` |
 | `analysis` | `edge` |
-| `model-gateway` (HTTP and `RecorderService`) | `worker`, `analysis` |
+| `model-gateway` (HTTP and `RecorderService`) | `worker`, `analysis`; `control` for `GET /v1/models` only |
 | `sandboxd` | `worker` |
 
 `operator` is for tools a person runs on the internal network: `python -m

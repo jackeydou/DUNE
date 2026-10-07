@@ -15,9 +15,10 @@ swarmeval-model-gateway --config gateway.yaml --http 127.0.0.1:7080 --grpc 127.0
 ```
 
 With `--mtls-cert`, `--mtls-key`, and `--mtls-ca`, both addresses serve mutual TLS and accept
-only `worker` and `analysis` certificates ([service identity](../architecture.md#service-identity)):
-a call from another service gets `403 caller_not_allowed` on HTTP and `PERMISSION_DENIED` on
-gRPC. Without them, both must be loopback addresses, where the virtual keys are the only
+only `worker` and `analysis` certificates ([service identity](../architecture.md#service-identity)),
+and the `control` certificate for `GET /v1/models` alone: a call from another service, or
+another call from the control plane, gets `403 caller_not_allowed` on HTTP and
+`PERMISSION_DENIED` on gRPC. Without them, both must be loopback addresses, where the virtual keys are the only
 authentication. The HTTP check is made per connection, in a subclass of uvicorn's HTTP/1.1
 protocol (`swarmeval.gateway.model.tls`), because uvicorn does not hand the peer certificate to
 the application.
@@ -28,6 +29,7 @@ the application.
 |---|---|---|
 | Run worker, for an agent | One virtual key per agent per run, registered when the worker attaches | Run evidence: a `ModelEvent` committed by the run's worker before the response is returned |
 | Run worker, for an extension's own model calls, such as the `swarmeval.bus.paraphrase` intervention | One virtual key per extension instance per run (`extension:<instance>`), registered with the agents' keys | Run evidence, the same way, as a `ModelEvent` with no agent and the instance as its `extension` |
+| The control plane, for the models it may queue | None: `GET /v1/models` only, which needs no key | Nothing |
 | [analysis](analysis.md), for the LLM judge | One analysis key, from the environment variable the config's `analysis_key_env` names (at least 32 characters). Unset, no analysis call is served | Not run evidence. Answered directly, with no `Attach` stream; analysis stores the call with its verdict |
 
 Sandboxes cannot reach model-gateway, and neither can [net-gateway](net-gateway.md).
@@ -40,7 +42,8 @@ Sandboxes cannot reach model-gateway, and neither can [net-gateway](net-gateway.
   (`swarmeval/gateway/model/wire.py`): messages, function tools, `temperature`, `top_p`,
   `max_completion_tokens`, `seed`. Any other field is refused, and so is `stream: true`. Past
   reasoning travels as `reasoning_content` on assistant messages.
-- `GET /v1/models`: the model names cases may use.
+- `GET /v1/models`: the model names runs may use. The control plane checks every submission
+  against it, and lists it to users ([orchestrator](orchestrator.md#models)). No virtual key.
 - Authentication is `Authorization: Bearer <virtual key>`. Each call also carries the caller's
   `X-SwarmEval-Call-Id`, which the gateway echoes in the call's record.
 

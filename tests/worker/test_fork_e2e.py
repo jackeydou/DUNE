@@ -18,23 +18,23 @@ from swarmeval.control.bundles import pack
 from swarmeval.db import checkpoints, extension_state
 from swarmeval.proto.swarmeval.control.v1 import control_pb2 as pb
 from tests.gateway.mock_backend import completion, tool_call
+from tests.models import chosen
 from tests.worker.conftest import Platform
 
 pytestmark = pytest.mark.docker
 
 CASE: dict[str, Any] = {
-    "schema_version": 3,
+    "schema_version": 4,
     "id": "forked",
     "workspace": "ws_e2e",
     "swarm": {
         "agents": [
             {
                 "id": "a",
-                "model": "mock-model",
                 "prompt": "a.md",
                 "tools": ["shell", "send_message"],
             },
-            {"id": "b", "model": "mock-model", "prompt": "b.md", "tools": ["send_message"]},
+            {"id": "b", "prompt": "b.md", "tools": ["send_message"]},
         ],
         "channels": [{"id": "ab", "members": ["a", "b"]}],
         "limits": {"max_turns": 10},
@@ -101,7 +101,9 @@ async def test_a_fork_from_an_alert_goes_on_from_the_sources_state(
 ) -> None:
     platform.backend.respond = policy
     (source_id,) = (
-        await platform.control.SubmitRuns(pb.SubmitRunsRequest(case_bundle=bundle(tmp_path)))
+        await platform.control.SubmitRuns(
+            pb.SubmitRunsRequest(models=chosen("mock-model"), case_bundle=bundle(tmp_path))
+        )
     ).run_ids
     assert (await platform.worker.drain())[source_id].status == "done"
     source = (await load_events_table(platform.store, source_id)).to_pylist()
@@ -188,3 +190,66 @@ async def test_a_fork_of_a_running_or_unknown_run_is_refused(platform: Platform)
     with pytest.raises(grpc.aio.AioRpcError) as err:
         await platform.control.ForkRun(pb.ForkRunRequest(run_id="nope", at_event_id="x"))
     assert err.value.code() == grpc.StatusCode.NOT_FOUND
+
+
+async def test_a_fork_can_run_a_slot_on_another_model_and_its_forks_keep_it(
+    platform: Platform, tmp_path: Path
+) -> None:
+    platform.backend.respond = policy
+    (source_id,) = (
+        await platform.control.SubmitRuns(
+            pb.SubmitRunsRequest(models=chosen("mock-model"), case_bundle=bundle(tmp_path))
+        )
+    ).run_ids
+    assert (await platform.worker.drain())[source_id].status == "done"
+    source = (await load_events_table(platform.store, source_id)).to_pylist()
+    (alert,) = [e for e in source if e["type"] == "swarmeval.alert"]
+
+    def replace(slot: str, model: str) -> pb.ForkEdit:
+        return pb.ForkEdit(replace_model=pb.ReplaceModel(slot=slot, model=model))
+
+    for edit, expected in (
+        (replace("judge", "qwen3-8b"), "names slot `judge`; the run's slots are default"),
+        (replace("default", "gpt-x"), "on model `gpt-x`, which model-gateway does not serve"),
+    ):
+        with pytest.raises(grpc.aio.AioRpcError) as err:
+            await platform.control.ForkRun(
+                pb.ForkRunRequest(run_id=source_id, at_event_id=alert["event_id"], edits=[edit])
+            )
+        assert err.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        assert expected in str(err.value.details())
+
+    forked = await platform.control.ForkRun(
+        pb.ForkRunRequest(
+            run_id=source_id,
+            at_event_id=alert["event_id"],
+            edits=[replace("default", "qwen3-8b")],
+        )
+    )
+    fork_id = forked.run.run_id
+    assert forked.run.task_args.fields["model.default"].string_value == "qwen3-8b"
+    assert (await platform.worker.drain())[fork_id].status == "done"
+
+    events = (await load_events_table(platform.store, fork_id)).to_pylist()
+    payloads = [json.loads(e["payload"]) for e in events]
+    (swap,) = [
+        p["data"]
+        for p in payloads
+        if p.get("source") == "swarmeval.intervention" and p["data"]["action"] == "replace_model"
+    ]
+    assert (swap["hook"], swap["after"]) == (
+        "fork",
+        {"slot": "default", "before": "mock-model", "model": "qwen3-8b"},
+    )
+    called = {p["model"] for p in payloads if p.get("event") == "model"}
+    assert called == {"qwen3-8b"}
+
+    fork_events = [e for e in events if e["type"] == "model"]
+    again = await platform.control.ForkRun(
+        pb.ForkRunRequest(run_id=fork_id, at_event_id=fork_events[-1]["event_id"])
+    )
+    assert again.run.task_args.fields["model.default"].string_value == "qwen3-8b"
+    assert (await platform.worker.drain())[again.run.run_id].status == "done"
+    later = (await load_events_table(platform.store, again.run.run_id)).to_pylist()
+    later_models = {json.loads(e["payload"])["model"] for e in later if e["type"] == "model"}
+    assert later_models <= {"qwen3-8b"}

@@ -112,6 +112,7 @@ run_specs = Table(
     Column("fork_seq", BigInteger),
     Column("fork_edits", JSONB),
     Column("submitted_by", Text),
+    Column("models", JSONB),
     ForeignKeyConstraint(["run_id"], [control_runs.c.run_id]),
     ForeignKeyConstraint(["case_revision_id"], [case_revisions.c.id]),
     Index(None, "case_revision_id"),
@@ -126,7 +127,9 @@ bundle. `replaces` is the interrupted run a rerun stands in for, at the next unu
 same submission and variant (docs/services/orchestrator.md#reruns). `suite` labels the
 submissions of one suite run (docs/case-format.md#suites). `forked_from`, `fork_seq`, and
 `fork_edits` make a fork: a run that goes on from its source's state after event `fork_seq`, with
-the edits applied (docs/services/orchestrator.md#forks; migration 0008)."""
+the edits applied (docs/services/orchestrator.md#forks; migration 0008). `models` is the run's
+model for each of its case's model slots, chosen when it was submitted (a fork's may replace
+some); null for runs queued before migration 0013, whose cases named their models."""
 
 events = Table(
     "events",

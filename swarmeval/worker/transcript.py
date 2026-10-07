@@ -400,11 +400,10 @@ def _check_deliveries(transcript: RunTranscript, explained: list[str]) -> list[T
     sends = {s.seq: s for s in transcript.sends}
     decided: dict[tuple[str, str], list[Recorded[InterventionRecord]]] = {}
     for i in transcript.interventions:
-        if (
-            i.record.hook in ("before_deliver", "fork")
-            and i.record.action != "edit_context"
-            and isinstance(i.record.after, dict)
-        ):
+        delivery = i.record.hook == "before_deliver" or (
+            i.record.hook == "fork" and i.record.action == "deliver"
+        )
+        if delivery and isinstance(i.record.after, dict):
             recipient = str(i.record.after["recipient"])
             key = (i.record.target_event_id or "", recipient)
             decided.setdefault(key, []).append(i)

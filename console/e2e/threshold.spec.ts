@@ -68,8 +68,10 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await expect(page.getByTestId("diff")).toContainText("prompts/agent.md")
   await expect(page.getByTestId("diff")).toContainText("+You are a careful engineer. <b>Say done</b>")
 
-  // Run revision 2.
+  // Run revision 2, on a model chosen here: the case names none.
   await page.getByRole("tab", { name: "Run" }).click()
+  await expect(page.getByRole("button", { name: "Run revision 2" })).toBeDisabled()
+  await page.getByRole("group", { name: "Models for slot default" }).getByRole("checkbox", { name: "mock-model" }).click()
   await page.getByRole("button", { name: "Run revision 2" }).click()
   await expect(page).toHaveURL(/\/runs\?submission=/)
   await expect(page.getByTestId("submission")).toHaveCount(1)
@@ -95,13 +97,17 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await page.getByRole("checkbox", { name: "model", exact: true }).click()
   await expect(page.locator('[data-testid="event"]')).toHaveCount(count)
 
-  // Fork from the model call; the fork runs to its own result.
+  // Fork from the model call on another model; the fork runs to its own result.
   const source = new URL(page.url()).pathname.split("/").pop() ?? ""
   await page.getByRole("button", { name: "Fork from here" }).click()
+  await page.getByLabel("Model for slot default").selectOption("qwen3-8b")
   await page.getByRole("button", { name: "Fork", exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`/runs/${source.replaceAll(".", "\\.")}\\.f1$`))
   await expect(page.getByText(`after seq`)).toBeVisible()
   await expect(page.locator("h1 [data-status]")).toHaveAttribute("data-status", "done", { timeout: 120_000 })
+  const models = page.locator("dl > div").filter({ has: page.locator("dt", { hasText: /^Models$/ }) })
+  await expect(models).toContainText("default")
+  await expect(models).toContainText("qwen3-8b")
 
   // At phone width an event's detail covers the lanes with its controls on screen, and the
   // sidebar is a sheet that closes once a page is picked.
