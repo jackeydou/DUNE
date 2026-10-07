@@ -22,7 +22,7 @@ test("the file list follows the pending edits", () => {
   expect(pathsWith(files, changes)).toEqual(["case.yaml", "prompts/new.md"])
 })
 
-test("each listed path has its text with the edits, and none for a binary file or a link", () => {
+test("each listed path has its text with the edits, a link its target's, and none for a binary file", () => {
   const files = [
     file("case.yaml", "id: a"),
     file("blob.bin", "x"),
@@ -38,9 +38,46 @@ test("each listed path has its text with the edits, and none for a binary file o
   expect([...textsWith(files, changes)]).toEqual([
     ["blob.bin", undefined],
     ["case.yaml", "id: b"],
-    ["link", undefined],
+    ["link", "id: b"],
     ["new.md", ""],
   ])
+})
+
+// Review on #33: a case.yaml or env file that is a link inside the case drew as missing.
+test("links are followed inside the case: chains, directory links, and pending edits", () => {
+  const link = (path: string, linkTarget: string) => create(CaseFileSchema, { path, linkTarget })
+  const files = [
+    file("shared/env.yaml", "schema_version: 1"),
+    file("shared/case.yaml", "id: real"),
+    link("common", "shared"),
+    link("case.yaml", "common/case.yaml"),
+    link("env.yaml", "./prompts/../shared/env.yaml"),
+    link("prompts/up.md", "../case.yaml"),
+    link("out.md", "../outside.md"),
+    link("abs.md", "/etc/passwd"),
+    link("loop_a", "loop_b"),
+    link("loop_b", "loop_a"),
+    link("dangling.md", "nothing.md"),
+    link("to_deleted.md", "shared/env.yaml"),
+    link("replaced.md", "shared/case.yaml"),
+  ]
+  const texts = textsWith(files, new Map())
+  expect(texts.get("case.yaml")).toBe("id: real")
+  expect(texts.get("env.yaml")).toBe("schema_version: 1")
+  expect(texts.get("prompts/up.md")).toBe("id: real")
+  for (const path of ["out.md", "abs.md", "loop_a", "dangling.md"]) expect(texts.get(path), path).toBeUndefined()
+
+  const edited = textsWith(
+    files,
+    new Map<string, Uint8Array | null>([
+      ["shared/case.yaml", bytes("id: edited")],
+      ["shared/env.yaml", null],
+      ["replaced.md", bytes("own text")],
+    ])
+  )
+  expect(edited.get("case.yaml")).toBe("id: edited")
+  expect(edited.get("to_deleted.md")).toBeUndefined()
+  expect(edited.get("replaced.md")).toBe("own text")
 })
 
 test("new paths must be relative and unused", () => {
