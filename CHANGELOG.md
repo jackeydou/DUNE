@@ -18,6 +18,8 @@
   before.
 
 ### Added
+- CI: `mise run check` on every pull request and push to `main`
+  (`.github/workflows/check.yml`).
 - The control plane asks model-gateway which models it serves (`swarmeval-control
   --gateway-http`) and refuses a submission or fork naming another, before anything is stored;
   model-gateway out of reach is `UNAVAILABLE`. `ControlService.ListModels` lists them.
