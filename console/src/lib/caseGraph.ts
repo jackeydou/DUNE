@@ -251,6 +251,13 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
       files: [],
     })
   const expand = (path: string) => (path ? expandPath(path, axes) : [])
+  // A name the case refers to (a sandbox, a profile, an agent), as every name it can be: a
+  // whole `${variant.x}` is each string in the axis's values, list values included.
+  const names = (value: string): string[] => {
+    const whole = /^\$\{variant\.([a-z][a-z0-9_]*)\}$/.exec(value)
+    if (whole && axes.has(whole[1])) return stringsIn(axes.get(whole[1])).map(([, v]) => v)
+    return expand(value)
+  }
 
   // The shared task.
   const swarm = obj(c.swarm)
@@ -324,10 +331,11 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
   // Sandboxes: the shared instances env declares, and one private sandbox per other agent.
   const profiles = obj(env.sandbox_profiles)
   const shared = obj(env.sandboxes)
-  const sandboxProfile = new Map<string, string>()
+  // Sandbox name → the profiles it can have, over the variants.
+  const sandboxProfiles = new Map<string, string[]>()
   for (const [name, raw] of Object.entries(shared)) {
     const profile = str(obj(raw).profile)
-    sandboxProfile.set(name, profile)
+    sandboxProfiles.set(name, names(profile))
     nodes.push({
       id: `sandbox:${name}`,
       kind: "sandbox",
@@ -346,7 +354,7 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
     const id = agentIds[i]
     if (!id || str(a.sandbox)) return
     const profile = str(a.sandbox_profile) || "default"
-    sandboxProfile.set(id, profile)
+    sandboxProfiles.set(id, names(profile))
     nodes.push({
       id: `sandbox:${id}`,
       kind: "sandbox",
@@ -390,7 +398,8 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
       files: copies.flatMap((f) => under(str(f.from), paths)),
     })
   }
-  for (const [sandbox, profile] of sandboxProfile) edge(`sandbox:${sandbox}`, `profile:${profile}`, "profile")
+  for (const [sandbox, profiles] of sandboxProfiles)
+    for (const profile of profiles) edge(`sandbox:${sandbox}`, `profile:${profile}`, "profile")
 
   list(env.canaries).forEach((raw, i) => {
     const k = obj(raw)
@@ -408,7 +417,7 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
       source: envYaml?.source(["canaries", i]),
       files: [],
     })
-    edge(`sandbox:${str(k.sandbox)}`, `canary:${id}`, "holds")
+    for (const sandbox of names(str(k.sandbox))) edge(`sandbox:${sandbox}`, `canary:${id}`, "holds")
   })
 
   // Extensions.
@@ -442,7 +451,7 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
   })
 
   // Scorers.
-  const sandboxIds = [...sandboxProfile.keys()]
+  const sandboxIds = [...sandboxProfiles.keys()]
   const canaryIds = list(env.canaries).map((k) => str(obj(k).id))
   list(c.scorers).forEach((raw, i) => {
     const s = obj(raw)
@@ -463,7 +472,7 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
           .map(([k, v]): [string, string] => [k, inline(v)])
       ),
       source: caseYaml.source(["scorers", i]),
-      files: type === "command" && str(s.script) ? [str(s.script)] : [],
+      files: type === "command" ? expand(str(s.script)) : [],
     })
   })
 
@@ -474,19 +483,17 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
   agents.forEach((a, i) => {
     const id = `agent:${agentIds[i]}`
     if (!str(a.task)) edge("task:input", id, "input")
-    edge(id, `sandbox:${str(a.sandbox) || agentIds[i]}`, "runs_in")
+    for (const sandbox of str(a.sandbox) ? names(str(a.sandbox)) : [agentIds[i]]) edge(id, `sandbox:${sandbox}`, "runs_in")
   })
   list(swarm.channels).forEach((raw) => {
     const ch = obj(raw)
-    for (const member of strings(ch.members)) edge(`agent:${member}`, `channel:${str(ch.id)}`, "member")
+    for (const member of strings(ch.members).flatMap(names)) edge(`agent:${member}`, `channel:${str(ch.id)}`, "member")
   })
   list(c.extensions).forEach((raw, i) => {
     const x = obj(raw)
     const name = extensionIds[i]
     for (const [key, value] of stringsIn(x.config)) {
-      const whole = /^\$\{variant\.([a-z][a-z0-9_]*)\}$/.exec(value)
-      const targets = whole ? stringsIn(axes.get(whole[1])).map(([, v]) => v) : [value]
-      for (const t of targets) {
+      for (const t of names(value)) {
         if (key === "sandbox") edge(name, `sandbox:${t}`, "acts_on")
         else if (agentIds.includes(t)) edge(name, `agent:${t}`, "acts_on")
         else if (channelIds.has(t)) edge(name, `channel:${t}`, "acts_on")
@@ -499,7 +506,7 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
     const fromSandboxes = (names: string[]) => names.forEach((n) => edge(`sandbox:${n}`, id, "reads"))
     switch (str(s.type)) {
       case "command":
-        fromSandboxes([str(s.sandbox)])
+        fromSandboxes(names(str(s.sandbox)))
         break
       case "canary":
         if (canaryIds.length) canaryIds.forEach((k) => edge(`canary:${k}`, id, "reads"))
@@ -507,7 +514,7 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
         break
       case "protected_write": {
         const guarded = sandboxIds.filter((sb) =>
-          list(obj(profiles[sandboxProfile.get(sb) ?? ""]).fs).some((m) => obj(m).protected)
+          (sandboxProfiles.get(sb) ?? []).some((p) => list(obj(profiles[p]).fs).some((m) => obj(m).protected))
         )
         fromSandboxes(guarded.length ? guarded : sandboxIds)
         break

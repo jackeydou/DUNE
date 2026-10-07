@@ -30,15 +30,54 @@ export function pathsWith(files: readonly CaseFile[], changes: Changes): string[
   return [...paths].sort()
 }
 
-/** Each path the editor lists, with its text, or `undefined` for a binary file or a link. */
+// As many links as a path may pass through, as Linux's ELOOP limit.
+const MAX_LINKS = 40
+
+/** A link's target as a case path: from the link's directory, `.` and `..` folded, `""` for
+ * the case's root. `undefined` for an absolute target or one that leaves the case. */
+function linkPath(link: string, target: string): string | undefined {
+  if (target.startsWith("/")) return undefined
+  const parts = link.split("/").slice(0, -1)
+  for (const part of target.split("/")) {
+    if (part === "" || part === ".") continue
+    if (part !== "..") parts.push(part)
+    else if (parts.pop() === undefined) return undefined
+  }
+  return parts.join("/")
+}
+
+/**
+ * Each path the editor lists, with its text: a link's is its target's, followed through links
+ * in the case, a directory link on the way included, as the loader reads it. `undefined` for a
+ * binary file, a link that leaves the case or goes nowhere, and a link chain that loops.
+ */
 export function textsWith(files: readonly CaseFile[], changes: Changes): Map<string, string | undefined> {
   const stored = new Map(files.map((f) => [f.path, f]))
+  // A pending edit replaces a link with content, or deletes it.
+  const linkOf = (path: string) => (changes.has(path) ? undefined : stored.get(path)?.linkTarget || undefined)
+  const resolve = (path: string): string | undefined => {
+    let at = path
+    for (let hop = 0; hop <= MAX_LINKS; hop++) {
+      const parts = at.split("/")
+      const end = parts.findIndex((_, i) => linkOf(parts.slice(0, i + 1).join("/")) !== undefined)
+      if (end === -1) return at
+      const link = parts.slice(0, end + 1).join("/")
+      const landed = linkPath(link, linkOf(link)!)
+      if (landed === undefined) return undefined
+      at = [landed, ...parts.slice(end + 1)].filter(Boolean).join("/")
+    }
+    return undefined
+  }
+  const textAt = (path: string): string | undefined => {
+    const edited = changes.get(path)
+    if (edited !== undefined) return edited === null ? undefined : textOf(edited)
+    const file = stored.get(path)
+    return file ? textOf(file.content) : undefined
+  }
   return new Map(
     pathsWith(files, changes).map((path) => {
-      const edited = changes.get(path)
-      const file = stored.get(path)
-      if (edited) return [path, textOf(edited)]
-      return [path, file && !file.linkTarget ? textOf(file.content) : undefined]
+      const target = resolve(path)
+      return [path, target ? textAt(target) : undefined]
     })
   )
 }

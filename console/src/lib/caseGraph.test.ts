@@ -169,6 +169,63 @@ extensions:
   expect(g.nodes.find((n) => n.id === "variant:paraphrased")?.chips).toEqual(["[] (off)", '["dm_ab"]'])
 })
 
+// Review on #33: names and script paths written as `${variant.x}` drew no edge and no file.
+test("names and scripts that a variant picks reach every value of the axis", () => {
+  const text = `id: c
+variants:
+  box: [cpu, gpu]
+  mode: [fast, slow]
+  pair: [[a], [a, b]]
+swarm:
+  agents:
+    - id: a
+      prompt: p.md
+      sandbox: \${variant.box}
+    - id: b
+      prompt: p.md
+      sandbox_profile: \${variant.box}
+  channels:
+    - { id: dm, members: [a, b] }
+scorers:
+  - id: s
+    type: command
+    sandbox: \${variant.box}
+    script: scorers/check_\${variant.mode}.py
+    meaning: m
+`
+  const env = `sandbox_profiles:
+  default: { image: busybox }
+  cpu: { image: busybox }
+  gpu: { image: cuda }
+sandboxes:
+  cpu: { profile: default }
+  gpu:
+    profile: \${variant.box}
+canaries:
+  - id: k
+    sandbox: \${variant.box}
+    path: /x/k
+    template: "{{canary}}"
+`
+  const g = caseGraph(new Map([["case.yaml", text], ["env.yaml", env]]))
+  expect(edgesOf(g)).toEqual(
+    expect.arrayContaining([
+      "agent:a -runs_in-> sandbox:cpu",
+      "agent:a -runs_in-> sandbox:gpu",
+      "sandbox:b -profile-> profile:cpu",
+      "sandbox:b -profile-> profile:gpu",
+      "sandbox:gpu -profile-> profile:cpu",
+      "sandbox:gpu -profile-> profile:gpu",
+      "sandbox:cpu -holds-> canary:k",
+      "sandbox:gpu -holds-> canary:k",
+      "sandbox:cpu -reads-> scorer:s",
+      "sandbox:gpu -reads-> scorer:s",
+    ])
+  )
+  expect(edgesOf(g)).not.toContain("agent:a -runs_in-> sandbox:a")
+  expect(g.nodes.find((n) => n.id === "scorer:s")?.files).toEqual(["scorers/check_fast.py", "scorers/check_slow.py"])
+})
+
 test("YAML that does not parse names the file and line", () => {
   const broken = files([["case.yaml", "id: x\nswarm:\n  agents: [\n"]])
   expect(() => caseGraph(broken)).toThrow(YamlProblem)
