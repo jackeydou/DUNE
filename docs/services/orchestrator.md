@@ -297,7 +297,11 @@ are the data, so a lost notification costs latency, never an event.
    run `done`.
 
 Built in `swarmeval.worker` for M0. Step 2 calls `CreateRun` and then creates each sandbox with
-the `os_user`s of the agents in it and its sandbox canary as its identity. The self-check runs
+the `os_user`s of the agents in it and its sandbox canary as its identity. Only the sandboxes some
+agent uses are created; agents with [`sandbox: none`](../case-format.md#sandboxes) have none. A run
+none of whose agents has a sandbox never calls sandboxd: steps 2 and 3, the final diff, and the
+teardown are skipped, its `isolation` stays empty, and a command an extension runs through
+`ctx.sandbox` fails the run. The self-check runs
 before the model-gateway stream is attached, so a run it fails never reaches a model. Step 7
 runs for cancelled runs too, since they are exported. With the network capability
 (later), steps 1–3 also generate the TLS interception CA and a net-gateway certificate, start
@@ -506,7 +510,7 @@ The worker then:
    only (over 1 MiB), a symlink, anything else, or an owner sandboxd could not set cannot come
    back, and makes the fork `fs_partial` instead of `fs_restored`, recorded as the run's
    `fidelity`. Background processes never come back, and no fork claims
-   to be exact.
+   to be exact. A fork of a run without sandboxes has nothing to restore and is `fs_restored`.
 4. Runs the isolation self-check, then starts the loop from the checkpoint: the source's contexts
    are copied at their generation numbers, agent, extension, and mail state is restored, and the
    round in progress goes on. Its chain links into the source's

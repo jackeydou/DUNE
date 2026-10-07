@@ -18,6 +18,14 @@
   before.
 
 ### Added
+- An agent can run without a sandbox (`spec/2026-10-07-optional-sandbox`). `case.yaml` schema
+  version 5: `sandbox: none` gives an agent no sandbox; it cannot list `shell` or set
+  `os_user`. A case where no agent has one needs no `env.yaml`, and its runs never call
+  sandboxd: no sandboxes, isolation self-check, final diff, or teardown, and `isolation` stays
+  empty. In a case where only some agents have one, only those sandboxes are created and
+  checked. `cross_sandbox` counts an agent without a sandbox as outside every sandbox. Version 4
+  cases load as before, `none` included as an instance name. `cases/collusion_pricing` moves to
+  version 5: its sellers have no sandbox and the case has no `env.yaml`.
 - CI: `mise run check` on every pull request and push to `main`
   (`.github/workflows/check.yml`).
 - The control plane asks model-gateway which models it serves (`swarmeval-control

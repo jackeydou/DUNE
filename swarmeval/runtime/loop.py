@@ -145,7 +145,7 @@ class RunLoop:
                 if isinstance(tool, SandboxTool) and agent.sandbox_id is None:
                     raise RunConfigError(
                         f"agent `{agent.id}` lists sandbox tool `{name}` but has no sandbox. "
-                        "Give it `sandbox:` or `sandbox_profile:`, or drop the tool."
+                        "Remove its `sandbox: none`, or drop the tool."
                     )
 
     async def run(self) -> RunOutcome:

@@ -8,7 +8,6 @@ same way everywhere.
 import dataclasses
 import itertools
 import logging
-import posixpath
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -17,6 +16,7 @@ from pathlib import Path
 import yaml
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
+from swarmeval.core.errors import CaseError
 from swarmeval.core.interventions import expand
 from swarmeval.core.models import (
     CASE_SCHEMA_VERSIONS,
@@ -30,12 +30,21 @@ from swarmeval.core.models import (
     Name,
     axis_json,
 )
+from swarmeval.core.topology import (
+    FileSeed,
+    SandboxPlan,
+    check_canaries,
+    check_crossing,
+    plan_sandboxes,
+    seed_files,
+)
 from swarmeval.gateway.bus.interventions import PARAPHRASE
 from swarmeval.runtime.extensions import CASE_CODE_PREFIX, ExtensionUse
 
 log = logging.getLogger(__name__)
 
 CASE_FILE = "case.yaml"
+DEFAULT_ENV_FILE = "env.yaml"
 
 _REF = re.compile(r"\$\{variant\.([^}]*)\}")
 _NOT_SUBSTITUTED = ("schema_version", "id", "workspace", "variants", "epochs")
@@ -50,34 +59,10 @@ _AXES: TypeAdapter[dict[str, tuple[AxisValue, ...]]] = TypeAdapter(
 )
 
 
-class CaseError(Exception):
-    """A case directory cannot be loaded. The message names the file, the field, and the fix."""
-
-
-SEED_LIMIT = 1 << 20
-"""sandboxd's limit on the files written into one sandbox at creation, canaries included."""
-
-
-@dataclass(frozen=True)
-class FileSeed:
-    path: str
-    content: bytes
-    mode: int
-
-
 @dataclass(frozen=True)
 class AgentPrompts:
     system: str
     task: str
-
-
-@dataclass(frozen=True)
-class SandboxPlan:
-    id: str
-    """Shared instances keep their declared name; a private one is named after its agent."""
-    profile: str
-    shared: bool
-    agents: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -88,7 +73,7 @@ class Variant:
     env: EnvFile
     prompts: Mapping[str, AgentPrompts]
     sandboxes: Mapping[str, SandboxPlan]
-    """In order of first reference by an agent."""
+    """In order of first reference by an agent. Agents without a sandbox are in none."""
     scripts: Mapping[str, str]
     """Command scorer id → its script's text."""
     files: Mapping[str, tuple[FileSeed, ...]]
@@ -104,8 +89,8 @@ class Variant:
     """Model slot → the model this variant runs it on. Empty until models are chosen
     (`choose_models`); a variant without them cannot run."""
 
-    def sandbox_of(self, agent_id: str) -> SandboxPlan:
-        return next(s for s in self.sandboxes.values() if agent_id in s.agents)
+    def sandbox_of(self, agent_id: str) -> SandboxPlan | None:
+        return next((s for s in self.sandboxes.values() if agent_id in s.agents), None)
 
     def task_args(self) -> dict[str, JsonValue]:
         """What tells this variant apart in `task_args`: its axis values and, as
@@ -272,15 +257,11 @@ def _variant(
     except ValueError as err:
         raise CaseError(f"{where}: {err}") from err
 
-    env_path = files.resolve(case.environment, "environment")
-    raw_env = files.yaml(env_path)
-    _check_version(env_path, raw_env, ENV_SCHEMA_VERSIONS)
+    env_path, env = _env(files, case, values)
     env_where = f"{env_path}" + (f" (variant {values})" if values else "")
-    env = _validate(EnvFile, _substitute(raw_env, values, env_where, ()), env_where)
-
-    sandboxes = _sandboxes(case, env, env_path)
-    _check_canaries(env, sandboxes, env_where)
-    seeds = _seeds(env, sandboxes, files, env_where)
+    sandboxes = plan_sandboxes(case, env, env_path)
+    check_canaries(env, sandboxes, env_where)
+    seeds = seed_files(env, sandboxes, files.tree, env_where)
     scripts: dict[str, str] = {}
     for scorer in case.scorers:
         if isinstance(scorer, CommandScorer):
@@ -290,12 +271,8 @@ def _variant(
                     f"agent uses. Sandboxes: {', '.join(sandboxes)}."
                 )
             scripts[scorer.id] = files.text(scorer.script, f"scorers[{scorer.id}].script")
-        if isinstance(scorer, CrossSandboxScorer) and len(sandboxes) < 2:
-            raise CaseError(
-                f"{where}: scorer `{scorer.id}` looks for information crossing between sandboxes, "
-                f"but every agent uses sandbox `{next(iter(sandboxes))}`. Give agents their own "
-                "sandboxes, or remove the scorer."
-            )
+        if isinstance(scorer, CrossSandboxScorer):
+            check_crossing(where, scorer.id, sandboxes, len(case.swarm.agents))
     code = {
         use.use: _case_code(files, use.use, f"extensions[{i}].use")
         for i, use in enumerate(case.extensions)
@@ -338,114 +315,18 @@ def _case_code(files: "_Files", use: str, field: str) -> str:
     return files.text(relative, field)
 
 
-def _check_canaries(env: EnvFile, sandboxes: Mapping[str, SandboxPlan], where: str) -> None:
-    for canary in env.canaries:
-        plan = sandboxes.get(canary.sandbox)
-        if plan is None:
-            raise CaseError(
-                f"{where}: canary `{canary.id}` goes in sandbox `{canary.sandbox}`, which no "
-                f"agent uses. Sandboxes: {', '.join(sandboxes)}."
-            )
-        mounts = [m.path for m in env.sandbox_profiles[plan.profile].fs]
-        if not any(canary.path.startswith(m + "/") for m in mounts):
-            raise CaseError(
-                f"{where}: canary `{canary.id}` path `{canary.path}` is not inside a key path of "
-                f"sandbox `{canary.sandbox}` (profile `{plan.profile}`: "
-                f"{', '.join(mounts) or 'no key paths'}). Canaries are written into key paths "
-                "when the sandbox is created."
-            )
-
-
-def _sandboxes(case: CaseFile, env: EnvFile, env_path: Path) -> dict[str, SandboxPlan]:
-    agents_of: dict[str, list[str]] = {}
-    profile_of: dict[str, str] = {}
-    for agent in case.swarm.agents:
-        if agent.sandbox is not None:
-            instance = env.sandboxes.get(agent.sandbox)
-            if instance is None:
-                raise CaseError(
-                    f"agent `{agent.id}` uses sandbox `{agent.sandbox}`, which {env_path} does "
-                    f"not declare. Declared: {', '.join(env.sandboxes) or 'none'}. Add it under "
-                    "`sandboxes:`, or use `sandbox_profile:` for a private sandbox."
-                )
-            name, profile = agent.sandbox, instance.profile
-        else:
-            if agent.id in env.sandboxes:
-                raise CaseError(
-                    f"agent `{agent.id}` gets a private sandbox named `{agent.id}`, but "
-                    f"{env_path} also declares a shared sandbox `{agent.id}`. Rename the shared "
-                    "sandbox."
-                )
-            name, profile = agent.id, agent.sandbox_profile or "default"
-            if profile not in env.sandbox_profiles:
-                fix = (
-                    "Add a `default` profile, or set `sandbox_profile:` or `sandbox:` on it."
-                    if agent.sandbox_profile is None
-                    else "Declare it under `sandbox_profiles:`."
-                )
-                raise CaseError(
-                    f"agent `{agent.id}` needs sandbox profile `{profile}`, which {env_path} "
-                    f"does not declare. Profiles: {', '.join(env.sandbox_profiles) or 'none'}. "
-                    f"{fix}"
-                )
-        agents_of.setdefault(name, []).append(agent.id)
-        profile_of[name] = profile
-
-    unused = [name for name in env.sandboxes if name not in agents_of]
-    if unused:
-        raise CaseError(
-            f"{env_path} declares shared sandboxes {', '.join(f'`{u}`' for u in unused)} that no "
-            "agent uses. Point an agent at each with `sandbox:`, or remove them."
-        )
-    return {
-        name: SandboxPlan(
-            id=name,
-            profile=profile_of[name],
-            shared=name in env.sandboxes,
-            agents=tuple(agents),
-        )
-        for name, agents in agents_of.items()
-    }
-
-
-def _seeds(
-    env: EnvFile, sandboxes: Mapping[str, SandboxPlan], files: "_Files", where: str
-) -> dict[str, tuple[FileSeed, ...]]:
-    by_profile: dict[str, tuple[FileSeed, ...]] = {}
-    for name, profile in env.sandbox_profiles.items():
-        mounts = [m.path for m in profile.fs]
-        seeds: list[FileSeed] = []
-        for i, copy in enumerate(profile.files):
-            field = f"sandbox_profiles.{name}.files[{i}]"
-            for rel, path in files.tree(copy.source, f"{field}.from"):
-                target = posixpath.join(copy.to, rel) if rel else copy.to
-                if not any(target.startswith(m + "/") for m in mounts):
-                    raise CaseError(
-                        f"{where}: `{field}` copies to `{target}`, which is not inside a key path "
-                        f"of profile `{name}` ({', '.join(mounts) or 'none'}). Files are written "
-                        "into key paths when the sandbox is created."
-                    )
-                seeds.append(FileSeed(target, path.read_bytes(), path.stat().st_mode & 0o777))
-        by_profile[name] = tuple(seeds)
-    result: dict[str, tuple[FileSeed, ...]] = {}
-    for plan in sandboxes.values():
-        copied = by_profile[plan.profile]
-        paths = {s.path for s in copied}
-        canaries = [c for c in env.canaries if c.sandbox == plan.id]
-        for canary in canaries:
-            if canary.path in paths:
-                raise CaseError(
-                    f"{where}: canary `{canary.id}` and a copied case file both write "
-                    f"`{canary.path}` in sandbox `{plan.id}`. Move one of them."
-                )
-        size = sum(len(s.content) for s in copied) + sum(len(c.template) + 64 for c in canaries)
-        if size > SEED_LIMIT:
-            raise CaseError(
-                f"{where}: sandbox `{plan.id}` would get {size} bytes of case files and canaries, "
-                f"over the {SEED_LIMIT} byte limit. Put large data in the sandbox image instead."
-            )
-        result[plan.id] = copied
-    return result
+def _env(files: "_Files", case: CaseFile, values: dict[str, AxisValue]) -> tuple[Path, EnvFile]:
+    """The env file, or an empty environment for a case that names none, has no `env.yaml`,
+    and gives no agent a sandbox."""
+    relative = case.environment or DEFAULT_ENV_FILE
+    sandboxed = any(case.has_sandbox(a) for a in case.swarm.agents)
+    if case.environment is None and not sandboxed and not files.exists(relative):
+        return files.path(relative), EnvFile(schema_version=max(ENV_SCHEMA_VERSIONS))
+    env_path = files.resolve(relative, "environment")
+    raw_env = files.yaml(env_path)
+    _check_version(env_path, raw_env, ENV_SCHEMA_VERSIONS)
+    where = f"{env_path}" + (f" (variant {values})" if values else "")
+    return env_path, _validate(EnvFile, _substitute(raw_env, values, where, ()), where)
 
 
 class _Files:
@@ -456,6 +337,13 @@ class _Files:
         self._dir = case_dir
         self._yaml: dict[Path, dict[str, object]] = {}
         self._text: dict[Path, str] = {}
+
+    def path(self, relative: str) -> Path:
+        """Where `relative` would be, without checking it."""
+        return self._dir / relative
+
+    def exists(self, relative: str) -> bool:
+        return self.path(relative).is_file()
 
     def resolve(self, relative: str, field: str) -> Path:
         path = (self._dir / relative).resolve()

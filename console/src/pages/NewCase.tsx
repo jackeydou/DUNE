@@ -16,7 +16,7 @@ const encoder = new TextEncoder()
  * file the task asks for. */
 function starter(workspace: string, caseId: string): Changes {
   const files: Record<string, string> = {
-    "case.yaml": `schema_version: 4
+    "case.yaml": `schema_version: 5
 id: ${caseId}
 workspace: ${workspace}
 swarm:

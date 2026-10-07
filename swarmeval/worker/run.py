@@ -1,7 +1,8 @@
 """One run, from claim to teardown (docs/services/orchestrator.md#run-lifecycle).
 
 The run's case comes from its stored bundle, so the worker runs exactly what was submitted.
-Sandboxes are destroyed whatever happens; a run that fails keeps every event it committed.
+Sandboxes are destroyed whatever happens; a run that fails keeps every event it committed. A run
+whose agents have no sandbox never calls sandboxd.
 """
 
 import asyncio
@@ -46,7 +47,7 @@ from swarmeval.runtime.records import CommittedEvent, EventDraft, Transaction
 from swarmeval.runtime.specs import initial_context
 from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, BUILTIN_TOOLS
 from swarmeval.runtime.writer import RunWriter
-from swarmeval.sandbox import RunSandboxes, S3BlobStore, SandboxdError, SeedFile
+from swarmeval.sandbox import NoSandboxes, RunSandboxes, S3BlobStore, SandboxdError, SeedFile
 from swarmeval.scorers import FinalStateScoring, ScoringError, last_lifecycle
 from swarmeval.web import HttpWebClient
 from swarmeval.worker.fork import last_changes, lineage_views, load_fork, restore
@@ -196,22 +197,33 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
     committed: list[CommittedEvent] = []
     writer.subscribe(committed.extend)
     blobs = S3BlobStore(deps.store)
-    sandboxes = RunSandboxes(deps.sandboxd, run.run_id, blobs)
+    sandboxes = (
+        RunSandboxes(deps.sandboxd, run.run_id, blobs)
+        if variant.sandboxes
+        else NoSandboxes(run.run_id)
+    )
     callers: list[Caller] = [AgentCaller(a.id) for a in spec.agents]
     callers.extend(ExtensionCaller(e.instance_id) for e in extensions)
     try:
         async with contextlib.AsyncExitStack() as stack:
             stack.push_async_callback(sandboxes.destroy)
-            await _create_sandboxes(run, variant, canaries, sandbox_canaries, sandboxes, deps.queue)
+            if isinstance(sandboxes, RunSandboxes):
+                await _create_sandboxes(
+                    run, variant, canaries, sandbox_canaries, sandboxes, deps.queue
+                )
             if fork is not None:
                 prior = await lineage_views(deps.engine, ancestors)
-                changes = last_changes(prior)
-                fidelity, lost = await restore(sandboxes, blobs, changes, list(variant.sandboxes))
+                fidelity, lost = (
+                    await restore(sandboxes, blobs, last_changes(prior), list(variant.sandboxes))
+                    if isinstance(sandboxes, RunSandboxes)
+                    else ("fs_restored", [])
+                )
                 if lost:
                     log.warning("run %s: fork restored partially: %s", run.run_id, "; ".join(lost))
                 await deps.queue.set_fidelity(run.run_id, run.owner_epoch, fidelity)
                 fork = replace(fork, fidelity=fidelity)
-            await check_isolation(probe_targets(variant, sandbox_canaries), sandboxes, writer)
+            if isinstance(sandboxes, RunSandboxes):
+                await check_isolation(probe_targets(variant, sandbox_canaries), sandboxes, writer)
             gateway = await stack.enter_async_context(
                 GatewaySession(
                     http=deps.gateway_http,
@@ -248,7 +260,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     scripts=variant.scripts,
                     canaries=spec.canaries,
                     sandbox_canaries=sandbox_canaries,
-                    agent_sandboxes={a.id: variant.sandbox_of(a.id).id for a in spec.agents},
+                    agent_sandboxes={a.id: a.sandbox_id for a in spec.agents},
                     sandboxes=sandboxes,
                     writer=writer,
                     prior=prior,
@@ -314,7 +326,7 @@ async def _create_sandboxes(
             {
                 a.os_user
                 for a in variant.case.swarm.agents
-                if a.os_user is not None and variant.sandbox_of(a.id).id == plan.id
+                if a.os_user is not None and a.id in plan.agents
             }
         )
         canary = identity[plan.id]

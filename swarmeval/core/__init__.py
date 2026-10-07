@@ -4,12 +4,10 @@ cases.
 The format is documented in docs/case-format.md.
 """
 
+from swarmeval.core.errors import CaseError
 from swarmeval.core.loader import (
     AgentPrompts,
-    CaseError,
-    FileSeed,
     LoadedCase,
-    SandboxPlan,
     Variant,
     choose_models,
     load_case,
@@ -23,6 +21,7 @@ from swarmeval.core.suite import (
     load_suite,
     load_suite_text,
 )
+from swarmeval.core.topology import FileSeed, SandboxPlan
 
 __all__ = [
     "AgentPrompts",

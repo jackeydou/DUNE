@@ -8,10 +8,12 @@ from swarmeval.sandbox.client import (
     SandboxdError,
     SeedFile,
 )
+from swarmeval.sandbox.empty import NoSandboxes
 
 __all__ = [
     "BlobStore",
     "FileContent",
+    "NoSandboxes",
     "RestoreEntry",
     "RunSandboxes",
     "S3BlobStore",

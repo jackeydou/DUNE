@@ -91,10 +91,10 @@ def test_shared_sandbox_is_named_by_env_and_private_one_by_agent(tmp_path: Path)
 
     (variant,) = load_case(write(tmp_path, case, env)).variants
 
-    assert variant.sandbox_of("qa").id == "team_box"
+    assert variant.sandbox_of("qa") == variant.sandboxes["team_box"]
     assert variant.sandboxes["team_box"].agents == ("dev", "qa")
     assert variant.sandboxes["team_box"].shared
-    assert variant.sandbox_of("rival").profile == "restricted"
+    assert variant.sandboxes["rival"].profile == "restricted"
     assert variant.env.sandbox_profiles["restricted"].limits.memory == 2 * 2**30
 
 
@@ -192,7 +192,7 @@ def test_missing_schema_version_is_rejected(tmp_path: Path) -> None:
     case = base_case()
     del case["schema_version"]
 
-    assert "has no `schema_version`. Add `schema_version: 4`" in load_error(tmp_path, case)
+    assert "has no `schema_version`. Add `schema_version: 5`" in load_error(tmp_path, case)
 
 
 def test_unsupported_schema_version_is_rejected(tmp_path: Path) -> None:
