@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- The case flow draws no sandbox for an agent with `sandbox: none` (case version 5), and its
+  details say `none`. New case's template is `schema_version: 5`.
 - A case's Files tab opens on a flow: `case.yaml` and its env file, pending edits included,
   drawn as variant axes, the task, agents, channels, extensions, sandboxes, profiles, canaries,
   and scorers, with what connects them. A click shows a part's settings, its connections, its

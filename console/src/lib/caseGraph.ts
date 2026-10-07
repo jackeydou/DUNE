@@ -226,6 +226,9 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
   const envYaml = envText === undefined ? undefined : new Yaml(environment, envText)
   const env = envYaml?.value ?? {}
   const paths = [...texts.keys()]
+  // From case version 5, `sandbox: none` gives an agent no sandbox; before, it names an instance.
+  const sandboxless = (a: Record<string, unknown>) =>
+    Number(c.schema_version) >= 5 && str(a.sandbox) === "none"
 
   const nodes: CaseNode[] = []
   const edges: CaseEdge[] = []
@@ -287,7 +290,10 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
       ["prompt", str(a.prompt)],
       ["task", str(a.task) || (taskInput ? `${taskInput} (task.input)` : "")],
       ["tools", tools.join(", ")],
-      ["sandbox", str(a.sandbox) ? `${str(a.sandbox)} (shared)` : `${id} (private)`],
+      [
+        "sandbox",
+        sandboxless(a) ? "none" : str(a.sandbox) ? `${str(a.sandbox)} (shared)` : `${id} (private)`,
+      ],
       ["sandbox profile", str(a.sandbox_profile)],
       ["os user", str(a.os_user)],
       ["sampling", sampling.join(", ")],
@@ -328,7 +334,8 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
     })
   })
 
-  // Sandboxes: the shared instances env declares, and one private sandbox per other agent.
+  // Sandboxes: the shared instances env declares, and one private sandbox per agent that names
+  // neither one of those nor `none`.
   const profiles = obj(env.sandbox_profiles)
   const shared = obj(env.sandboxes)
   // Sandbox name → the profiles it can have, over the variants.
@@ -483,6 +490,7 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
   agents.forEach((a, i) => {
     const id = `agent:${agentIds[i]}`
     if (!str(a.task)) edge("task:input", id, "input")
+    if (sandboxless(a)) return
     for (const sandbox of str(a.sandbox) ? names(str(a.sandbox)) : [agentIds[i]]) edge(id, `sandbox:${sandbox}`, "runs_in")
   })
   list(swarm.channels).forEach((raw) => {

@@ -1,4 +1,4 @@
-"""The `case.yaml` and `env.yaml` formats: case schema version 4, env schema version 1. The
+"""The `case.yaml` and `env.yaml` formats: case schema versions 4 and 5, env schema version 1. The
 user-facing contract is docs/case-format.md; a change here changes that page.
 
 These models see a file after variant substitution. Checks that span both files (sandbox
@@ -25,12 +25,19 @@ from pydantic import (
 
 from swarmeval.detect.defs import DetectorDef
 from swarmeval.runtime.extensions import ExtensionUse
+from swarmeval.runtime.tools import BUILTIN_TOOLS, SandboxTool
 
-CASE_SCHEMA_VERSIONS = frozenset({4})
+CASE_SCHEMA_VERSIONS = frozenset({4, 5})
 """`case.yaml` versions read. Version 4 moved the choice of models from the case to the run:
 agents name a model slot instead of a model, so versions 1 to 3, whose agents name models, no
-longer load (spec/2026-10-06-run-time-models)."""
+longer load (spec/2026-10-06-run-time-models). Version 5 lets an agent run without a sandbox
+(spec/2026-10-07-optional-sandbox)."""
 RETIRED_CASE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
+
+NO_SANDBOX = "none"
+"""From case version 5, `sandbox: none` gives an agent no sandbox. In version 4 it is the name of
+a shared instance, as any other name."""
+NO_SANDBOX_VERSION = 5
 
 DEFAULT_SLOT = "default"
 """The model slot of an agent that names none."""
@@ -137,7 +144,8 @@ class AgentDef(Strict):
     """First user message file. Overrides the case's `task.input`."""
     tools: tuple[str, ...] = ()
     sandbox: Name | None = None
-    """A shared instance declared under `sandboxes:` in `env.yaml`."""
+    """A shared instance declared under `sandboxes:` in `env.yaml`, or, from case version 5,
+    `none` for no sandbox at all."""
     sandbox_profile: Name | None = None
     """Profile of this agent's private sandbox. Neither field set means profile `default`."""
     os_user: UnixUser | None = None
@@ -311,7 +319,9 @@ class CaseFile(Strict):
     )
     epochs: PositiveInt = 1
     swarm: SwarmDef
-    environment: RelPath = "env.yaml"
+    environment: RelPath | None = None
+    """The env file. Default `env.yaml`, which a case where no agent has a sandbox may leave
+    out; a file named here must exist."""
     task: TaskDef | None = None
     extensions: tuple[ExtensionUse, ...] = ()
     scorers: tuple[ScorerDef, ...] = ()
@@ -320,6 +330,30 @@ class CaseFile(Strict):
     def slots(self) -> tuple[str, ...]:
         """The agents' model slots, in the order the agents first name them."""
         return tuple(dict.fromkeys(a.model_slot for a in self.swarm.agents))
+
+    def has_sandbox(self, agent: AgentDef) -> bool:
+        return self.schema_version < NO_SANDBOX_VERSION or agent.sandbox != NO_SANDBOX
+
+    @model_validator(mode="after")
+    def _sandboxless_agents_run_nothing(self) -> Self:
+        sandbox_tools = {t.name for t in BUILTIN_TOOLS if isinstance(t, SandboxTool)}
+        for agent in self.swarm.agents:
+            if self.has_sandbox(agent):
+                continue
+            needs = [t for t in agent.tools if t in sandbox_tools]
+            if needs:
+                raise ValueError(
+                    f"agent `{agent.id}` has `sandbox: none` but lists "
+                    f"{', '.join(f'`{t}`' for t in needs)}, which runs in the agent's sandbox. "
+                    "Drop the tool, or give the agent a sandbox."
+                )
+            if agent.os_user is not None:
+                raise ValueError(
+                    f"agent `{agent.id}` has `sandbox: none` but sets `os_user: "
+                    f"{agent.os_user}`, which is a user inside its sandbox. Remove `os_user`, or "
+                    "give the agent a sandbox."
+                )
+        return self
 
     @model_validator(mode="after")
     def _unique_scorers(self) -> Self:
@@ -406,7 +440,8 @@ class EnvFile(Strict):
     schema_version: int
     sandbox_profiles: dict[Name, SandboxProfile] = Field(default_factory=dict[str, SandboxProfile])
     sandboxes: dict[Name, SandboxInstance] = Field(default_factory=dict[str, SandboxInstance])
-    """Shared instances only. Every agent without `sandbox:` gets a private one."""
+    """Shared instances only. Every agent without `sandbox:` gets a private one; from case
+    version 5, one with `sandbox: none` gets none."""
     canaries: tuple[CanaryDef, ...] = ()
 
     @model_validator(mode="after")

@@ -126,6 +126,34 @@ test("edges say who uses what, and what each scorer reads", () => {
   expect(edges).not.toContain("task:input -input-> agent:qa")
 })
 
+test("an agent with `sandbox: none` runs in no sandbox from version 5, and in instance `none` before", () => {
+  const text = (version: number) => `schema_version: ${version}
+id: chat
+swarm:
+  agents:
+    - { id: a, prompt: p.md, sandbox: none, tools: [send_message] }
+    - { id: b, prompt: p.md }
+`
+  const env = `sandbox_profiles:
+  default: { image: busybox }
+sandboxes:
+  none: { profile: default }
+`
+  const v5 = caseGraph(new Map([["case.yaml", text(5)]]))
+  expect(v5.nodes.filter((n) => n.kind === "sandbox").map((n) => n.id)).toEqual(["sandbox:b"])
+  expect(v5.nodes.find((n) => n.id === "agent:a")?.fields).toContainEqual(["sandbox", "none"])
+  expect(edgesOf(v5).filter((e) => e.includes("runs_in"))).toEqual(["agent:b -runs_in-> sandbox:b"])
+
+  const v4 = caseGraph(
+    new Map([
+      ["case.yaml", text(4)],
+      ["env.yaml", env],
+    ])
+  )
+  expect(edgesOf(v4)).toContain("agent:a -runs_in-> sandbox:none")
+  expect(v4.nodes.find((n) => n.id === "agent:a")?.fields).toContainEqual(["sandbox", "none (shared)"])
+})
+
 test("a node keeps its lines of YAML and the files it points to", () => {
   const g = caseGraph(files())
   const dev = g.nodes.find((n) => n.id === "agent:dev")!

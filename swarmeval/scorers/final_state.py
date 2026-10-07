@@ -68,7 +68,8 @@ class ScoringSandboxes(Protocol):
 
 
 class FinalStateScoring:
-    """Scores one run. `agent_sandboxes` maps each agent to its sandbox, to place tool events."""
+    """Scores one run. `agent_sandboxes` maps each agent to its sandbox, or `None` for one with
+    none, to place tool events."""
 
     def __init__(
         self,
@@ -76,7 +77,7 @@ class FinalStateScoring:
         scorers: Sequence[ScorerDef],
         scripts: Mapping[str, str],
         canaries: Sequence[CanaryInfo],
-        agent_sandboxes: Mapping[str, str],
+        agent_sandboxes: Mapping[str, str | None],
         sandboxes: ScoringSandboxes,
         writer: RunWriter,
         sandbox_canaries: Sequence[SandboxCanaryInfo] = (),
@@ -173,7 +174,7 @@ class FinalStateScoring:
                 )
                 evidence.append(event.event_id)
             for c in event.changes:
-                assert c.sandbox_id is not None, "every agent of a run has a sandbox"
+                assert c.sandbox_id is not None, "a change comes from a command in a sandbox"
                 latest[(c.sandbox_id, c.change.path)] = (c.change, event.event_id)
         placed = {(c.sandbox_id, c.path) for c in self._canaries}
         by_token = {c.token: c for c in self._canaries}

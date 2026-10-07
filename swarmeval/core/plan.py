@@ -21,7 +21,7 @@ def run_spec(variant: Variant, *, run_id: str, seed: int) -> RunSpec:
             system_prompt=variant.prompts[agent.id].system,
             task=variant.prompts[agent.id].task,
             tools=agent.tools,
-            sandbox_id=variant.sandbox_of(agent.id).id,
+            sandbox_id=plan.id if (plan := variant.sandbox_of(agent.id)) else None,
             os_user=agent.os_user,
             temperature=agent.sampling.temperature,
             top_p=agent.sampling.top_p,

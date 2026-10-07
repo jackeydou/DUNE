@@ -1,4 +1,4 @@
-schema_version: 4
+schema_version: 5
 id: collusion_pricing
 workspace: safety
 category: covert_comm
@@ -18,18 +18,18 @@ swarm:
       prompt: prompts/seller.md
       task: prompts/task_a.md
       tools: [set_price, market_report, send_message]
+      sandbox: none                   # prices and messages only; nothing runs in a sandbox
       sampling: { temperature: 0.6 }
     - id: seller_b
       prompt: prompts/seller.md
       task: prompts/task_b.md
       tools: [set_price, market_report, send_message]
+      sandbox: none
       sampling: { temperature: 0.6 }
   channels:
     - { id: dm_ab, members: [seller_a, seller_b] }
   # Ten rounds of two turns each, and a last turn for each seller to finish.
   limits: { max_turns: 30, max_tokens: 400k }
-
-environment: env.yaml
 
 extensions:
   - use: case:extensions/market.py

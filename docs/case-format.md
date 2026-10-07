@@ -1,23 +1,24 @@
 # Case format
 
-A case is a directory with `case.yaml`, `env.yaml`, and the files they point to. A
+A case is a directory with `case.yaml`, `env.yaml` (unless no agent has a
+[sandbox](#sandboxes)), and the files they point to. A
 [suite](#suites) is a set of cases run together over a model matrix. This page describes what the
 loader accepts today. The code is `swarmeval/core/`; the models are in
 `models.py`. Why the format is shaped this way is in the
 [v1 spec](../spec/2026-09-27-swarmeval-v1/README.md) §4–5 and the
 [runtime spec](../spec/2026-09-28-runtime-sandbox-logs/README.md) decisions 1–5.
 
-**Status:** `case.yaml` schema version 4, env files at version 1, suite files at version 2. It
-covers agents and their [model slots](#model-slots), channels and their interventions, limits,
-variants, extensions (installed or from the case directory), scorers, sandbox profiles, and
-shared sandboxes. A case names no models: they are chosen when it is submitted. Fields the specs describe for later milestones are listed in
+**Status:** `case.yaml` schema versions 4 and 5, env files at version 1, suite files at version 2.
+It covers agents and their [model slots](#model-slots), channels and their interventions, limits,
+variants, extensions (installed or from the case directory), scorers, sandbox profiles, shared
+sandboxes, and agents with [no sandbox](#sandboxes). A case names no models: they are chosen when it is submitted. Fields the specs describe for later milestones are listed in
 [Not accepted yet](#not-accepted-yet); the loader rejects them as unknown keys.
 
 ## Example
 
 ```yaml
 # case.yaml
-schema_version: 4
+schema_version: 5
 id: shared_repo
 workspace: safety-team
 category: reward_hacking
@@ -40,8 +41,12 @@ swarm:
       sandbox: team_box
       os_user: qa
       sampling: { temperature: 0.6, seed: 1 }
+    - id: lead
+      prompt: prompts/lead.md
+      tools: [send_message]
+      sandbox: none                   # runs no commands, so gets no sandbox
   channels:
-    - { id: team, members: [dev, qa] }
+    - { id: team, members: [dev, qa, lead] }
   turn_policy: round_robin
   limits: { max_turns: 40, max_tokens: 400k }
 
@@ -71,7 +76,7 @@ sandboxes:                            # shared instances only
 
 | Key | Required | Meaning |
 |---|---|---|
-| `schema_version` | yes | `4`. Versions 1 to 3, whose agents named their models, no longer load; the error says how to move a case to 4 ([versioning](#versioning)) |
+| `schema_version` | yes | `5`, or `4`, which has no [`sandbox: none`](#sandboxes). Versions 1 to 3, whose agents named their models, no longer load; the error says how to move a case on ([versioning](#versioning)) |
 | `id` | yes | Case id |
 | `workspace` | yes | Organizational field. It groups runs and is recorded on every event; it is not access control |
 | `category`, `description` | no | Free text |
@@ -81,7 +86,7 @@ sandboxes:                            # shared instances only
 | `swarm.channels` | no | `id`, at least two `members`, each an agent id, and optional `interventions` ([below](#channel-interventions)) |
 | `swarm.turn_policy` | no | `round_robin` (default), `event_driven`, or `async` ([agent-runtime.md](agent-runtime.md#turn-policies)) |
 | `swarm.limits` | no | `max_turns` (all agents together; under `async` each agent's own), `max_tokens`, which accepts `400k` or `2m`, and `wall_clock`, a duration such as `90s`, `20m`, or `2h`, paused time left out |
-| `environment` | no | Path to the env file. Default `env.yaml` |
+| `environment` | no | Path to the env file. Default `env.yaml`, which a case where no agent has a sandbox may leave out; a file named here must exist |
 | `task.input` | if any agent has no `task` | File whose text is each agent's first user message |
 | `extensions` | no | `use`, optional `as`, `config`. `use` names an installed extension, or a Python file in the case directory, [below](#case-extensions). See [agent-runtime.md](agent-runtime.md#writing-an-extension). A built-in `swarmeval.bus.*` config is checked at load, [below](#channel-interventions) |
 | `scorers` | no | Final-state scorers, below |
@@ -95,9 +100,9 @@ An agent:
 | `prompt` | yes | System prompt file |
 | `task` | no | First user message file. Overrides `task.input` |
 | `tools` | no | Tool names: `shell`, `send_message`, `web_request`, or one an extension provides. The run fails to start if nothing provides one. `web_request` is the agent's only way to the internet |
-| `sandbox` | no | Join a shared instance from `env.yaml` |
+| `sandbox` | no | Join a shared instance from `env.yaml`, or, from version 5, `none` for [no sandbox](#sandboxes) |
 | `sandbox_profile` | no | Profile of the agent's private sandbox. Exclusive with `sandbox` |
-| `os_user` | no | Unix user the agent's commands run as. sandboxd adds it to the sandbox's image with a private home under `/home`, unless the image has it already. Where it may write besides its home is up to the image |
+| `os_user` | no | Unix user the agent's commands run as; not with `sandbox: none`. sandboxd adds it to the sandbox's image with a private home under `/home`, unless the image has it already. Where it may write besides its home is up to the image |
 | `sampling` | no | `temperature`, `top_p`, `max_output_tokens`, `seed` |
 
 Ids of cases, agents, channels, sandboxes, profiles, model slots, and variant axes match
@@ -267,7 +272,8 @@ has no default `threshold`: what a meaningful one is depends on the field.
 matches across `/`). A `command`
 scorer's sandbox must be one an agent uses, and its script must exist. `cross_sandbox` looks for a
 sandbox's canary reaching an agent outside it other than in a message on a declared channel, so
-the loader rejects it in a case where every agent uses one sandbox.
+the loader rejects it in a case with no sandbox, or where every agent uses one sandbox; an agent
+with no sandbox is outside every sandbox.
 
 ## Canaries
 
@@ -312,11 +318,20 @@ canary and a copied file may not write the same path.
 
 ## Sandboxes
 
-Every agent gets a sandbox:
+An agent gets a sandbox unless it says otherwise:
 
 - `sandbox: <name>` joins the shared instance `<name>`, with the profile `env.yaml` gives it.
+- `sandbox: none` (version 5) gives it no sandbox. Use it for agents that run no commands and
+  touch no files, which only talk or call worker-side tools (`send_message`, `web_request`, an
+  extension's `runs_in="worker"` tools). Such an agent cannot list `shell` or set `os_user` or
+  `sandbox_profile`; an extension tool that runs in a sandbox fails the run when it starts. In
+  version 4, `none` is a name like any other.
 - Otherwise the agent gets a private sandbox named after the agent, with `sandbox_profile`, or
   `default` when that is not set either.
+
+Only sandboxes some agent uses are created, so a case whose agents all have `sandbox: none`
+needs no `env.yaml` and never reaches sandboxd ([orchestrator.md](services/orchestrator.md#run-lifecycle)).
+If it has an env file anyway, the file is checked as usual.
 
 Names are deterministic because events, replay, and cross-run comparison key on them. The loader
 rejects the following:
@@ -325,6 +340,7 @@ rejects the following:
 - A declared instance no agent uses.
 - A missing profile, including a missing `default`.
 - A shared instance named like an agent that has a private sandbox.
+- From version 5, a shared instance named `none`, which no agent can join.
 
 ## Variants
 
@@ -428,6 +444,7 @@ error says how to move a case: set `schema_version: 4`, remove each agent's `mod
 | 2 | Channel `interventions`, list values for variant axes, the `cross_sandbox` scorer |
 | 3 | `case:` extension references, the `event_value` and `rule` scorers, the `event_driven` and `async` turn policies, `limits.wall_clock` |
 | 4 | Agents name a [`model_slot`](#model-slots), not a `model`; models are chosen at submission. Versions 1 to 3 no longer load |
+| 5 | `sandbox: none` gives an agent [no sandbox](#sandboxes); a case where no agent has one needs no `env.yaml` |
 
 | Suite | Adds |
 |---|---|
