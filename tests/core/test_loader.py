@@ -197,9 +197,9 @@ def test_missing_schema_version_is_rejected(tmp_path: Path) -> None:
 
 def test_unsupported_schema_version_is_rejected(tmp_path: Path) -> None:
     env = base_env()
-    env["schema_version"] = 2
+    env["schema_version"] = 3
 
-    assert "env.yaml has `schema_version: 2`" in load_error(tmp_path, base_case(), env)
+    assert "env.yaml has `schema_version: 3`" in load_error(tmp_path, base_case(), env)
 
 
 def test_workspace_is_required(tmp_path: Path) -> None:

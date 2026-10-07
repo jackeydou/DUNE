@@ -68,6 +68,7 @@ func (s *Server) CreateSandbox(ctx context.Context, req *sandboxv1.CreateSandbox
 		Env:       req.GetEnv(),
 		Hostname:  req.GetHostname(),
 		MachineID: req.GetMachineId(),
+		Display:   display(req.GetDisplay()),
 	})
 	if err != nil {
 		return nil, s.status("CreateSandbox", err)
@@ -87,6 +88,7 @@ func (s *Server) Exec(req *sandboxv1.ExecRequest, stream grpc.ServerStreamingSer
 		Cwd:       req.GetCwd(),
 		User:      req.GetUser(),
 		Timeout:   req.GetTimeout().AsDuration(),
+		Collect:   req.GetCollect(),
 	})
 	if err != nil {
 		return s.status("Exec", err)
@@ -100,6 +102,7 @@ func (s *Server) Exec(req *sandboxv1.ExecRequest, stream grpc.ServerStreamingSer
 		BackgroundChanges: changes(res.Background),
 		Changes:           changes(res.Changes),
 		Processes:         processes(res.Processes),
+		Collected:         collected(res.Collected),
 	}
 	if err := stream.Send(&sandboxv1.ExecResponse{Item: &sandboxv1.ExecResponse_Header{Header: header}}); err != nil {
 		return err
@@ -198,6 +201,21 @@ func sendBlobs(blobs []Blob, send func(*sandboxv1.BlobChunk) error) error {
 		}
 	}
 	return nil
+}
+
+func display(d *sandboxv1.Display) *Display {
+	if d == nil {
+		return nil
+	}
+	return &Display{Width: d.GetWidth(), Height: d.GetHeight(), URL: d.GetUrl()}
+}
+
+func collected(cs []Collected) []*sandboxv1.CollectedFile {
+	out := make([]*sandboxv1.CollectedFile, len(cs))
+	for i, c := range cs {
+		out[i] = &sandboxv1.CollectedFile{Path: c.Path, Missing: c.Missing, Size: c.Size, Sha256: c.SHA256}
+	}
+	return out
 }
 
 func output(o Output) *sandboxv1.Output {

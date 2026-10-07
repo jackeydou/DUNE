@@ -2,7 +2,33 @@
 
 ## [Unreleased]
 
+### Added
+- `browser` and `computer`: agents drive a web browser and a virtual screen inside their sandbox
+  (`spec/2026-10-07-browser-computer-use`). A profile's `display` (`env.yaml` schema version 2)
+  starts the display image's screen and Chromium; `browser` acts on accessibility-snapshot refs,
+  `computer` on screen pixels, both run as the display's own user, and their screenshots reach
+  the model as images. The sandbox keeps no network: the browser reaches loopback and files only.
+  `deploy/images/display` builds the image (`mise run display:build`).
+- Tool results may carry images (`ToolResult.images`, `ToolMessage.images`, `ImageRef`), stored
+  as blobs and referenced by hash. `RequestOptions.max_images` (default 3) keeps a request to
+  the context's latest images; `before_model_request` may change it.
+- model-gateway accepts `image_url` parts (inline PNG `data:` URLs) in tool messages and moves
+  them into a user message after the tool messages before sending upstream, after reasoning
+  passback.
+- `Exec.user` and `Exec.collect`: a sandbox tool may run as another user and have sandboxd read
+  files out of the sandbox after the call. `SandboxTool.output` turns sandboxd's result into the
+  agent's.
+- The `.eval` export embeds a run's images: tool results inline, contexts as attachments, with
+  `[image omitted]` where a request left one out.
+
 ### Changed
+- Event schema version 10: tool events carry `images`, model events `max_images`, `exec`
+  observations `collected`. Older runs read as before.
+- `env.yaml` schema version 2 adds a profile's `display`. Version 1 files load as before.
+- A fork at a turn after a run's first `browser` or `computer` call is refused
+  (`FAILED_PRECONDITION`): a fork restores files, not a browser.
+- `GatewaySession` takes `images`, where it reads the images requests carry;
+  `check_transcript` takes `images` to rebuild them.
 - Models are chosen when a case is submitted, not written in the case
   (`spec/2026-10-06-run-time-models`). `case.yaml` schema version 4: an agent names a
   `model_slot` (default `default`) instead of a `model`, and agents in one slot run one model.

@@ -19,7 +19,8 @@ service SandboxService {
   rpc CreateRun(CreateRunRequest) returns (CreateRunResponse);
 
   // Creates and starts one sandbox, on its network if CreateRun made one. Each top-level key path starts as a copy of the image's
-  // content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
+  // content at that path, plus any seed files. With `display` set, the image's display stack is
+  // started before the first manifest. Fails with ALREADY_EXISTS if the sandbox exists.
   rpc CreateSandbox(CreateSandboxRequest) returns (CreateSandboxResponse);
 
   // Runs one tool call. The stream carries exactly one header first, then the blobs the
@@ -92,6 +93,19 @@ message CreateSandboxRequest {
   // diffed. Empty writes nothing. 32 lowercase hex characters, the file's format. The image
   // must have /etc.
   string machine_id = 10;
+  // Starts the image's display stack (docs/services/sandboxd.md#display). Unset, the sandbox has
+  // no display.
+  Display display = 11;
+}
+
+// A virtual screen with a browser on it, run by the image's `swarm-display` as the user
+// `swarmdisplay`. Its processes are never reported or attributed to a call.
+message Display {
+  // Pixels, 320 to 1920 wide and 240 to 1200 high.
+  uint32 width = 1;
+  uint32 height = 2;
+  // Page the browser opens first. Empty opens about:blank.
+  string url = 3;
 }
 
 message SeedFile {
@@ -118,6 +132,10 @@ message ExecRequest {
   string user = 6;
   // Required. On expiry the command and its descendants are killed.
   google.protobuf.Duration timeout = 7;
+  // Absolute paths outside every key path. After the command, sandboxd reads each regular file
+  // there as `user`, removes it, and returns it as a blob. For output a tool writes besides its
+  // text, such as a screenshot.
+  repeated string collect = 8;
 }
 
 message ExecResponse {
@@ -141,6 +159,19 @@ message ExecHeader {
   repeated FsChange changes = 7;
   // Started while this call ran and still alive after it.
   repeated Process processes = 8;
+  // One per `collect` path, in request order.
+  repeated CollectedFile collected = 9;
+}
+
+message CollectedFile {
+  string path = 1;
+  // No regular file was there.
+  bool missing = 2;
+  // Bytes of the file. Over sandboxd's collect limit the file is removed but not sent, and
+  // `sha256` is empty.
+  int64 size = 3;
+  // The content follows as a blob with this hash.
+  string sha256 = 4;
 }
 
 message Output {

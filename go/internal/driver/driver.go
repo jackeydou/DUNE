@@ -95,8 +95,11 @@ type ExecSpec struct {
 
 // Process is one process in a container, with pids as the container sees them.
 type Process struct {
-	PID     int32
-	PPID    int32
+	PID  int32
+	PPID int32
+	// UID is the numeric uid; User is its name from the container's /etc/passwd, or the uid
+	// when it has none.
+	UID     string
 	User    string
 	Cmdline string
 }

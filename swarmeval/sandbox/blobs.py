@@ -9,11 +9,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Protocol
 
-from swarmeval.events import ObjectStore
-
-
-def blob_key(sha256: str) -> str:
-    return f"blobs/sha256/{sha256}"
+from swarmeval.events import ObjectStore, blob_key
 
 
 class BlobStore(Protocol):

@@ -29,13 +29,15 @@ Docker is found through the standard `DOCKER_HOST` / `DOCKER_*` environment.
 Requirements and limits:
 
 - Sandbox images must provide `sleep`, `tr`, and `/bin/sh`, `/etc/passwd` when the sandbox
-  has users, and `/etc` when it has a machine id. sandboxd never pulls; pull images on the
-  docker host first.
+  has users, and `/etc` when it has a machine id. A sandbox with a display needs an image built
+  from `swarmeval/display` (`deploy/images/display`). sandboxd never pulls; pull or build images
+  on the docker host first.
 - In production sandboxd runs as root, so extracted key paths keep their owners.
 - Sandboxes have no network but loopback by default. Agents reach the internet only through the
   worker's `web_request`.
 - Output and content caps are in `sandboxd.DefaultConfig`: 64 KiB of stdout and stderr inline,
-  16 MiB kept per stream, changed files sent back up to 1 MiB each and 64 MiB per call.
+  16 MiB kept per stream, changed files sent back up to 1 MiB each and 64 MiB per call, 8 MiB
+  per collected file, and 60 s to start a display.
 - State is in memory. A restarted sandboxd does not know the sandboxes it created; `DestroyRun`
   still removes their containers and networks by label.
 
@@ -117,6 +119,8 @@ hosts once the certificates are issued.
 From the repo root: `mise run check` lints and tests this module with everything else.
 `mise run go:test-integration` runs sandboxd against the local docker daemon and needs
 `busybox:latest` and `python:3.12-slim` on the host; it also runs edge against a throwaway
-`postgres:18-alpine`. `SWARMEVAL_IT_RUNTIME=runc` or `runsc` picks the runtime. On macOS,
+`postgres:18-alpine`. The display test also needs `swarmeval/display:dev`
+(`SWARMEVAL_IT_DISPLAY_IMAGE` names another), built from `deploy/images/display`, and skips
+without it. `SWARMEVAL_IT_RUNTIME=runc` or `runsc` picks the runtime. On macOS,
 Docker Desktop and OrbStack enforce neither owners nor modes on bind mounts, so the `os_user`
 permission test skips there; run it on Linux.

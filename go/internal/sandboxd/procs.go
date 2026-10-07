@@ -36,7 +36,7 @@ for d in /proc/[0-9]*; do
 done`
 
 // processes lists what runs in the sandbox, with pids as the sandbox sees them: the same pids
-// killTree signals. It runs as root, which reads every process's /proc entries without any
+// killTree signals. The display's processes are left out. It runs as root, which reads every process's /proc entries without any
 // capability.
 func (s *Service) processes(ctx context.Context, sb *sandbox) ([]driver.Process, error) {
 	listCtx, cancel := context.WithTimeout(ctx, s.cfg.HelperTimeout)
@@ -56,7 +56,11 @@ func (s *Service) processes(ctx context.Context, sb *sandbox) ([]driver.Process,
 		return nil, fmt.Errorf("process listing of container %s is %d bytes, over the %d byte limit: the sandbox holds too many processes or too long command lines. Set a pids limit in the profile",
 			sb.container, stdout.size, s.cfg.ProcessListLimit)
 	}
-	return parseProcesses(string(stdout.buf))
+	procs, err := parseProcesses(string(stdout.buf))
+	if err != nil {
+		return nil, err
+	}
+	return sb.withoutDisplay(procs), nil
 }
 
 // parseProcesses reads processScript's output. Names come from the sandbox's /etc/passwd, which
@@ -86,13 +90,13 @@ func parseProcesses(out string) ([]driver.Process, error) {
 			if err := errors.Join(err1, err2, err3); err != nil {
 				return nil, fmt.Errorf("process listing line %q: %w", line, err)
 			}
-			procs = append(procs, driver.Process{PID: int32(pid), PPID: int32(ppid), User: fields[2], Cmdline: strings.TrimRight(fields[3], " ")})
+			procs = append(procs, driver.Process{PID: int32(pid), PPID: int32(ppid), UID: fields[2], User: fields[2], Cmdline: strings.TrimRight(fields[3], " ")})
 		default:
 			return nil, fmt.Errorf("process listing line %q is neither a U nor a P line", line)
 		}
 	}
 	for i, p := range procs {
-		if name, ok := names[p.User]; ok {
+		if name, ok := names[p.UID]; ok {
 			procs[i].User = name
 		}
 	}

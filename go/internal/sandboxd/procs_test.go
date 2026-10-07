@@ -21,9 +21,9 @@ func TestParseProcessesNamesUsersAndKeepsCommandLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []driver.Process{
-		{PID: 1, PPID: 0, User: "root", Cmdline: "/sbin/docker-init -- sleep infinity"},
-		{PID: 14, PPID: 1, User: "qa", Cmdline: "python3 -m http.server 8000"},
-		{PID: 20, PPID: 14, User: "4242", Cmdline: "[kworker]"},
+		{PID: 1, PPID: 0, UID: "0", User: "root", Cmdline: "/sbin/docker-init -- sleep infinity"},
+		{PID: 14, PPID: 1, UID: "1001", User: "qa", Cmdline: "python3 -m http.server 8000"},
+		{PID: 20, PPID: 14, UID: "4242", User: "4242", Cmdline: "[kworker]"},
 	}
 	if !slices.Equal(procs, want) {
 		t.Fatalf("procs = %+v\nwant %+v", procs, want)

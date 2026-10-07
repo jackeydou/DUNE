@@ -40,8 +40,8 @@ authentication and refuses to listen on anything but a loopback address.
 
 | RPC | Does | State |
 |---|---|---|
-| `CreateSandbox` | Creates one sandbox from a profile's image, key paths, limits, seed files, users, and identity (environment, hostname, machine id), labels it, and takes the initial manifest | Built |
-| `Exec` | Runs one tool call and streams back its result, file changes, and surviving processes | Built |
+| `CreateSandbox` | Creates one sandbox from a profile's image, key paths, limits, seed files, users, and identity (environment, hostname, machine id), labels it, starts its [display](#display) when it has one, and takes the initial manifest | Built |
+| `Exec` | Runs one tool call and streams back its result, file changes, surviving processes, and the files it asked to [collect](#collected-files) | Built |
 | `ReadFile` | Reads a file for final-state scorers, through the engine's copy API, so nothing runs in the sandbox | Built |
 | `FsChange.mtime_ns` | Every reported change carries the path's modification time after it (before it for a delete), as the file system reports it; a process can set it to anything | Built |
 | `RestoreFiles` | For a [fork](orchestrator.md#forks): removes paths, creates directories, and writes files in a sandbox's key paths, each with its recorded mode and owner, then takes the manifest again, so none of it is ever reported as a change. Whatever is at a directory's or file's path and is of another kind (a symlink included) is removed first, so a write never follows a link. Every path must be strictly inside a key path; a path to remove that does not exist is skipped. An owner sandboxd cannot set, because it is not root, is reported in `unowned`. Only before the sandbox's first `Exec` (`FAILED_PRECONDITION` after it), and at most 3 MiB of content per request, so a client sends several (the worker keeps each under 2 MiB, paths included) | Built |
@@ -125,6 +125,30 @@ from inside the sandbox (see [below](#exec-diff-and-process-snapshot)). The dock
   calls as its `os_user`. Under runc and runsc alike, files an `os_user` writes carry its uid on
   the host side, which `fs.*` events record, and one user cannot read another's `0600` files.
 
+## Display
+
+`CreateSandbox` with `display` (width, height, first URL) starts the image's display stack: a
+virtual screen with a web browser, which the `browser` and `computer` tools drive
+([agent-runtime.md](../agent-runtime.md#tools)). The image must be built from
+`swarmeval/display` ([deploy/images/display](../../deploy/images/display/README.md)).
+
+- After the container starts and before the first manifest, sandboxd runs `swarm-display start
+  --width W --height H [--url U]` as the user `swarmdisplay`, with a 60 s timeout. The command
+  returns once the screen and the browser are up and prints the display daemon's pid. A failure,
+  a timeout, or output that is not the pid of a live process fails `CreateSandbox`, and the
+  container is removed.
+- sandboxd records that process's numeric uid. From then on every process with that uid is the
+  display's: left out of every process listing, so it is never reported as a `proc.*` event and
+  never makes a call's file changes `ambiguous`. Chromium starts renderers on each navigation,
+  and some of its helpers leave their parent for pid 1, so a pid subtree would not hold them.
+  An agent running as root could move a process of its own to that uid and hide it.
+- The display keeps its state in `/run/swarm-display`, mode `0700`, owned by `swarmdisplay`.
+  Its home, temporary files, and browser profile are there, so it writes nothing into key paths.
+  A key path at `/`, `/run`, or under `/run/swarm-display` is `INVALID_ARGUMENT`.
+- The screen needs a cookie only `swarmdisplay` can read, and the browser is driven through a
+  pipe, with no debugging port. An agent's own `os_user`, and root with no capabilities, reach
+  neither. Guard: `TestLiveDisplayDrivesTheBrowserAndKeepsItsProcessesOut`.
+
 ## Networks
 
 `--sandbox-network` picks how sandboxes are networked.
@@ -189,6 +213,18 @@ Each `Exec` does the following:
 5. List processes again. New processes still alive become `proc.*` events with pid, ppid, user,
    and command line.
 
+### Collected files
+
+An `ExecRequest` may name `collect` paths: absolute, clean, and outside every key path. After the
+command, timed out or not, sandboxd reads each regular file there and removes it, as the call's
+user, with a short `sh` script inside the sandbox; a symlink is removed without being followed.
+Root cannot do it: with every capability dropped it cannot open another user's `0700` directory,
+and what a call may collect is what its user may read anyway. The header's `collected` lists one
+entry per path, in order: `missing` when there was no regular file, else its size and sha256,
+with the content following as a blob. A file over 8 MiB is removed and reported by size only.
+The `browser` and `computer` tools collect `/run/swarm-display/out/screenshot.png` this way, so a
+screenshot never lands in a key path and is never a file change.
+
 The response is a stream: a header with exit code, duration, and events, then blob chunks.
 stdout and stderr are capped in the header, and the full output follows as a blob. Changes
 between the previous call and this one come back as `background_changes`. While a process an
@@ -236,7 +272,7 @@ it is not built in M0–M5.
 3. Where each `os_user` may write. Today it is whatever the image lays out; a profile setting for
    key path owners may be needed once a case shares a writable workspace between users.
 4. Size caps. Today's defaults: 64 KiB of stdout and stderr inline, 16 MiB kept per stream, file
-   contents sent back up to 1 MiB each and 64 MiB per call. They are constants in
-   `sandboxd.DefaultConfig`, not flags yet.
+   contents sent back up to 1 MiB each and 64 MiB per call, 8 MiB per collected file, and 60 s
+   to start a display. They are constants in `sandboxd.DefaultConfig`, not flags yet.
 5. `machine_id` as a field of `CreateSandbox` of its own, for the sandbox canary's file, rather
    than seed files allowed outside the key paths.

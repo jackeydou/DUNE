@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- sandboxd starts a sandbox's display: `CreateSandboxRequest.display` (width, height, first URL)
+  runs the display image's `swarm-display start` as `swarmdisplay` before the first manifest
+  (`spec/2026-10-07-browser-computer-use`). That user's processes are left out of every process
+  listing, so a browser's renderers are neither reported nor make a call's changes ambiguous. A
+  key path overlapping `/run/swarm-display` is refused.
+- `ExecRequest.collect`: after the command, sandboxd reads and removes files outside the key
+  paths as the call's user and returns them as blobs (`ExecHeader.collected`), up to 8 MiB each.
+- `driver.Process.UID`: the numeric uid beside the user's name.
+
 ### Changed
 - `swarm run` takes `-m` for the models to run on, required for a case: `-m MODEL[,MODEL…]` for
   the `default` model slot, `-m SLOT=MODEL[,MODEL…]` for a named one

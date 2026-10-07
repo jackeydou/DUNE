@@ -15,6 +15,7 @@ from swarmeval.runtime.messages import (
     AssistantMessage,
     ChatMessage,
     Frozen,
+    ImageRef,
     RequestOptions,
     ToolCall,
     Usage,
@@ -43,6 +44,7 @@ class ToolResult(Frozen):
     tool: str
     content: str
     is_error: bool = False
+    images: tuple[ImageRef, ...] = ()
 
 
 class Exec(Frozen):
@@ -51,6 +53,11 @@ class Exec(Frozen):
     argv: tuple[str, ...]
     cwd: str | None = None
     timeout_s: float = 60.0
+    user: str | None = None
+    """Runs as this user instead of the calling agent's `os_user`, such as the display's."""
+    collect: tuple[str, ...] = ()
+    """Files outside the key paths that sandboxd reads, removes, and returns after the command
+    (docs/services/sandboxd.md#exec-diff-and-process-snapshot)."""
 
 
 class FsChange(Frozen):
@@ -93,6 +100,23 @@ class Truncated(Frozen):
     """The kept output is itself cut at sandboxd's blob limit."""
 
 
+class PngInfo(Frozen):
+    width: int
+    height: int
+
+
+class CollectedFile(Frozen):
+    path: str
+    missing: bool = False
+    """No regular file was there."""
+    size: int = 0
+    sha256: str | None = None
+    """The content is in the blob store under this hash. `None` when missing or over sandboxd's
+    collect limit."""
+    png: PngInfo | None = None
+    """Set when the content is a PNG image, read from its header by sandboxd's client."""
+
+
 class ExecResult(Frozen):
     exit_code: int
     stdout: str
@@ -107,6 +131,8 @@ class ExecResult(Frozen):
     """Changed between the previous call on this sandbox and this one, by background
     processes. Always ambiguous."""
     processes: tuple[ProcessInfo, ...] = ()
+    collected: tuple[CollectedFile, ...] = ()
+    """One per `Exec.collect` path, in order."""
 
 
 class WebRequest(Frozen):

@@ -153,6 +153,7 @@ class CreateSandboxRequest(_message.Message):
     ENV_FIELD_NUMBER: _builtins.int
     HOSTNAME_FIELD_NUMBER: _builtins.int
     MACHINE_ID_FIELD_NUMBER: _builtins.int
+    DISPLAY_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     sandbox_id: _builtins.str
     image: _builtins.str
@@ -190,6 +191,12 @@ class CreateSandboxRequest(_message.Message):
         override the image's. Names match [A-Za-z_][A-Za-z0-9_]{0,127}; values hold no NUL.
         """
 
+    @_builtins.property
+    def display(self) -> Global___Display:
+        """Starts the image's display stack (docs/services/sandboxd.md#display). Unset, the sandbox has
+        no display.
+        """
+
     def __init__(
         self,
         *,
@@ -203,14 +210,46 @@ class CreateSandboxRequest(_message.Message):
         env: _abc.Mapping[_builtins.str, _builtins.str] | None = ...,
         hostname: _builtins.str = ...,
         machine_id: _builtins.str = ...,
+        display: Global___Display | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["resources", b"resources"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["display", b"display", "resources", b"resources"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["env", b"env", "files", b"files", "hostname", b"hostname", "image", b"image", "machine_id", b"machine_id", "mounts", b"mounts", "resources", b"resources", "run_id", b"run_id", "sandbox_id", b"sandbox_id", "users", b"users"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["display", b"display", "env", b"env", "files", b"files", "hostname", b"hostname", "image", b"image", "machine_id", b"machine_id", "mounts", b"mounts", "resources", b"resources", "run_id", b"run_id", "sandbox_id", b"sandbox_id", "users", b"users"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___CreateSandboxRequest: _TypeAlias = CreateSandboxRequest  # noqa: Y015
+
+@_typing.final
+class Display(_message.Message):
+    """A virtual screen with a browser on it, run by the image's `swarm-display` as the user
+    `swarmdisplay`. Its processes are never reported or attributed to a call.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WIDTH_FIELD_NUMBER: _builtins.int
+    HEIGHT_FIELD_NUMBER: _builtins.int
+    URL_FIELD_NUMBER: _builtins.int
+    width: _builtins.int
+    """Pixels, 320 to 1920 wide and 240 to 1200 high."""
+    height: _builtins.int
+    url: _builtins.str
+    """Page the browser opens first. Empty opens about:blank."""
+    def __init__(
+        self,
+        *,
+        width: _builtins.int = ...,
+        height: _builtins.int = ...,
+        url: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["height", b"height", "url", b"url", "width", b"width"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___Display: _TypeAlias = Display  # noqa: Y015
 
 @_typing.final
 class SeedFile(_message.Message):
@@ -270,6 +309,7 @@ class ExecRequest(_message.Message):
     CWD_FIELD_NUMBER: _builtins.int
     USER_FIELD_NUMBER: _builtins.int
     TIMEOUT_FIELD_NUMBER: _builtins.int
+    COLLECT_FIELD_NUMBER: _builtins.int
     run_id: _builtins.str
     sandbox_id: _builtins.str
     call_id: _builtins.str
@@ -283,6 +323,13 @@ class ExecRequest(_message.Message):
     def timeout(self) -> _duration_pb2.Duration:
         """Required. On expiry the command and its descendants are killed."""
 
+    @_builtins.property
+    def collect(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Absolute paths outside every key path. After the command, sandboxd reads each regular file
+        there as `user`, removes it, and returns it as a blob. For output a tool writes besides its
+        text, such as a screenshot.
+        """
+
     def __init__(
         self,
         *,
@@ -293,10 +340,11 @@ class ExecRequest(_message.Message):
         cwd: _builtins.str = ...,
         user: _builtins.str = ...,
         timeout: _duration_pb2.Duration | None = ...,
+        collect: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["timeout", b"timeout"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["argv", b"argv", "call_id", b"call_id", "cwd", b"cwd", "run_id", b"run_id", "sandbox_id", b"sandbox_id", "timeout", b"timeout", "user", b"user"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["argv", b"argv", "call_id", b"call_id", "collect", b"collect", "cwd", b"cwd", "run_id", b"run_id", "sandbox_id", b"sandbox_id", "timeout", b"timeout", "user", b"user"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -340,6 +388,7 @@ class ExecHeader(_message.Message):
     BACKGROUND_CHANGES_FIELD_NUMBER: _builtins.int
     CHANGES_FIELD_NUMBER: _builtins.int
     PROCESSES_FIELD_NUMBER: _builtins.int
+    COLLECTED_FIELD_NUMBER: _builtins.int
     exit_code: _builtins.int
     """-1 when timed out."""
     timed_out: _builtins.bool
@@ -363,6 +412,10 @@ class ExecHeader(_message.Message):
     def processes(self) -> _containers.RepeatedCompositeFieldContainer[Global___Process]:
         """Started while this call ran and still alive after it."""
 
+    @_builtins.property
+    def collected(self) -> _containers.RepeatedCompositeFieldContainer[Global___CollectedFile]:
+        """One per `collect` path, in request order."""
+
     def __init__(
         self,
         *,
@@ -374,14 +427,48 @@ class ExecHeader(_message.Message):
         background_changes: _abc.Iterable[Global___FsChange] | None = ...,
         changes: _abc.Iterable[Global___FsChange] | None = ...,
         processes: _abc.Iterable[Global___Process] | None = ...,
+        collected: _abc.Iterable[Global___CollectedFile] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["duration", b"duration", "stderr", b"stderr", "stdout", b"stdout"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["background_changes", b"background_changes", "changes", b"changes", "duration", b"duration", "exit_code", b"exit_code", "processes", b"processes", "stderr", b"stderr", "stdout", b"stdout", "timed_out", b"timed_out"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["background_changes", b"background_changes", "changes", b"changes", "collected", b"collected", "duration", b"duration", "exit_code", b"exit_code", "processes", b"processes", "stderr", b"stderr", "stdout", b"stdout", "timed_out", b"timed_out"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___ExecHeader: _TypeAlias = ExecHeader  # noqa: Y015
+
+@_typing.final
+class CollectedFile(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PATH_FIELD_NUMBER: _builtins.int
+    MISSING_FIELD_NUMBER: _builtins.int
+    SIZE_FIELD_NUMBER: _builtins.int
+    SHA256_FIELD_NUMBER: _builtins.int
+    path: _builtins.str
+    missing: _builtins.bool
+    """No regular file was there."""
+    size: _builtins.int
+    """Bytes of the file. Over sandboxd's collect limit the file is removed but not sent, and
+    `sha256` is empty.
+    """
+    sha256: _builtins.str
+    """The content follows as a blob with this hash."""
+    def __init__(
+        self,
+        *,
+        path: _builtins.str = ...,
+        missing: _builtins.bool = ...,
+        size: _builtins.int = ...,
+        sha256: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["missing", b"missing", "path", b"path", "sha256", b"sha256", "size", b"size"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CollectedFile: _TypeAlias = CollectedFile  # noqa: Y015
 
 @_typing.final
 class Output(_message.Message):

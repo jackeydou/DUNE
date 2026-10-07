@@ -81,14 +81,27 @@ class _Sources:
     equal message in any agent's context."""
 
 
+def transcript_images(transcript: RunTranscript) -> set[str]:
+    """Every image the run's contexts hold, which `check_transcript` needs the bytes of."""
+    return {
+        image.sha256
+        for context in transcript.contexts.values()
+        for message in context
+        if isinstance(message, ToolMessage)
+        for image in message.images
+    }
+
+
 def check_transcript(
     transcript: RunTranscript,
     *,
     prompts: Mapping[str, tuple[ChatMessage, ...]],
     tools: Mapping[str, ToolSchema],
+    images: Mapping[str, bytes] | None = None,
 ) -> TranscriptCheckRecord:
     """`prompts` is each agent's generation 0 before its first turn; `tools` every tool the run
-    could offer, by name, as requests carried them."""
+    could offer, by name, as requests carried them; `images` the bytes of every image
+    `transcript_images` names, which requests carried inline."""
     sources = _index(transcript)
     mismatches: list[TranscriptMismatch] = []
     explained: list[str] = []
@@ -104,7 +117,15 @@ def check_transcript(
         if call.event_id in inherited:
             continue
         requests += 1
-        mismatch = _check_request(call, call.agent_id, call.gen, call.length, transcript, tools)
+        mismatch = _check_request(
+            call,
+            call.agent_id,
+            call.gen,
+            call.length,
+            transcript,
+            tools,
+            {} if images is None else images,
+        )
         if mismatch is not None:
             mismatches.append(mismatch)
     mismatches.extend(
@@ -218,6 +239,7 @@ def _walk(
                     tool_call_id=outcome.result.call_id,
                     content=result.content,
                     is_error=result.is_error,
+                    images=result.images,
                 )
                 if message != expected:
                     found.append(mismatch(idx, outcome.event_id, _differs("tool call", by)))
@@ -271,6 +293,7 @@ def _check_request(
     length: int,
     transcript: RunTranscript,
     tools: Mapping[str, ToolSchema],
+    images: Mapping[str, bytes],
 ) -> TranscriptMismatch | None:
     def mismatch(detail: str) -> TranscriptMismatch:
         return TranscriptMismatch(
@@ -297,7 +320,7 @@ def _check_request(
         tools=tuple(tools[name] for name in call.options.tools),
         options=call.options,
     )
-    body = to_wire(request).model_dump_json(exclude_none=True).encode()
+    body = to_wire(request, images).model_dump_json(exclude_none=True).encode()
     digest = hashlib.sha256(body).hexdigest()
     if digest != call.gateway.request_sha256:
         return mismatch(

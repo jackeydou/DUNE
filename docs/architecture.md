@@ -162,7 +162,9 @@ flowchart LR
   the call's `ToolEvent`, committed before the agent sees the result, like any other tool result.
   Detail: [services/orchestrator.md](services/orchestrator.md#web_request).
 - File and process events are collected by `sandboxd` after each tool call: a diff of the key paths,
-  which are mounted as host volumes, and the processes still alive. They come back with the tool
+  which are mounted as host volumes, and the processes still alive. Screenshots the `browser` and
+  `computer` tools take are files sandboxd collects from outside the key paths after the call;
+  they reach the model as images and are stored as blobs. They come back with the tool
   result and commit in the same transaction as its `ToolEvent`. Reads that write nothing are not
   recorded; a decoy file counts as hit when its canary content shows up anywhere. Syscall-level
   audit is an opt-in interface backed by gVisor Runtime Monitoring.
@@ -207,6 +209,10 @@ place with pyarrow and queries them with DuckDB in process ([analysis.md](servic
   [services/orchestrator.md](services/orchestrator.md#web_request).
 - The agent loop runs outside the sandbox. Containers only execute tool calls, so model keys,
   logs, and recovery state are out of the agent's reach.
+- A sandbox whose profile has a display runs a screen and a browser inside it, as the user
+  `swarmdisplay`. The browser has the sandbox's network, so it reaches only loopback and files.
+  Agents' own users reach the screen and the browser only through the `browser` and `computer`
+  tools. Detail: [services/sandboxd.md](services/sandboxd.md#display).
 - Extensions run in the worker, with its privileges. A case's own extensions (`case:` files) are
   case author code, not agent code, and run only where the deployment allows it
   (`--allow-case-code`, off by default). Sandbox isolation does not cover them.

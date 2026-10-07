@@ -332,3 +332,66 @@ async def test_restore_batches_paths_and_content_and_reports_unowned_paths(rig: 
     ]
     assert [(d.path, d.uid) for r in requests for d in r.dirs] == [("/workspace/d", 1000)]
     assert unowned == ["/workspace/small.txt"] * len(requests)
+
+
+PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x04\x00\x00\x00\x03\x00rest"
+
+
+async def test_a_display_profile_asks_sandboxd_for_a_display(rig: Rig) -> None:
+    profile = SandboxProfile.model_validate(
+        {"image": "swarmeval/display:dev", "display": {"width": 1280, "url": "http://127.0.0.1/"}}
+    )
+
+    await rig.client.create("box_a", profile)
+
+    (request,) = rig.server.requests
+    assert request.HasField("display")
+    assert (request.display.width, request.display.height, request.display.url) == (
+        1280,
+        768,
+        "http://127.0.0.1/",
+    )
+
+
+async def test_a_profile_without_a_display_sends_none(rig: Rig) -> None:
+    await rig.client.create("box_a", SandboxProfile(image="busybox"))
+
+    (request,) = rig.server.requests
+    assert not request.HasField("display")
+
+
+async def test_exec_runs_as_the_commands_user_and_returns_what_it_collected(rig: Rig) -> None:
+    rig.server.exec_items = [
+        header_item(
+            exit_code=0,
+            collected=[
+                pb.CollectedFile(path="/run/out/shot.png", size=len(PNG), sha256=sha(PNG)),
+                pb.CollectedFile(path="/run/out/none.png", missing=True),
+            ],
+        ),
+        *blob_items(PNG),
+    ]
+    command = Exec(
+        argv=("true",), user="swarmdisplay", collect=("/run/out/shot.png", "/run/out/none.png")
+    )
+
+    result = await rig.client.exec("box_a", "agent", command, call_id="c1")
+
+    (request,) = rig.server.requests
+    assert (request.user, list(request.collect)) == ("swarmdisplay", list(command.collect))
+    shot, none = result.collected
+    assert (shot.sha256, shot.png and (shot.png.width, shot.png.height)) == (sha(PNG), (1024, 768))
+    assert (none.missing, none.sha256, none.png) == (True, None, None)
+    assert rig.blobs.stored[sha(PNG)] == PNG
+
+
+async def test_a_collected_file_that_is_not_a_png_has_no_png_info(rig: Rig) -> None:
+    rig.server.exec_items = [
+        header_item(collected=[pb.CollectedFile(path="/run/x", size=3, sha256=sha(b"gif"))]),
+        *blob_items(b"gif"),
+    ]
+
+    result = await rig.client.exec("box_a", None, LS, call_id="c1")
+
+    assert result.collected[0].png is None
+    assert rig.server.requests[0].user == ""

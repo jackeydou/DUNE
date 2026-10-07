@@ -3,7 +3,8 @@
 import asyncio
 import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections import defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -52,7 +53,7 @@ from swarmeval.runtime.records import (
     WebRequest,
 )
 from swarmeval.runtime.specs import AgentSpec, Limits, RunSpec
-from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, SHELL, WEB_REQUEST
+from swarmeval.runtime.tools import BUILTIN_TOOL_NAMES, SHELL, WEB_REQUEST, Tool
 from swarmeval.runtime.writer import RunWriter
 from tests.gateway.mock_backend import completion, tool_call
 
@@ -161,10 +162,15 @@ GATEWAY = GatewayRecord(
 """A gateway record with placeholder hash and raw response; `honest_record` fills them in."""
 
 
+ANY_IMAGE: Mapping[str, bytes] = defaultdict[str, bytes](lambda: b"image")
+"""Image bytes for fakes, which never store any: every image reads the same. Pass it to
+`check_transcript` too, so the request hashes it recomputes match `honest_record`'s."""
+
+
 def honest_record(request: ModelRequest, response: ModelResponse) -> GatewayRecord:
     """What model-gateway records for a call it served faithfully: the hash of the body the
     worker sends, and a backend completion that normalizes to `response`."""
-    body = to_wire(request).model_dump_json(exclude_none=True).encode()
+    body = to_wire(request, ANY_IMAGE).model_dump_json(exclude_none=True).encode()
     message = response.message
     raw = completion(
         message.content,
@@ -328,6 +334,7 @@ def harness(
     fork: ForkStart | None = None,
     turn_policy: Literal["round_robin", "event_driven", "async"] = "round_robin",
     latency: dict[str, float] | None = None,
+    tools: Sequence[Tool] = (SHELL, WEB_REQUEST),
 ) -> Harness:
     store = store or FakeStore()
     pauser = pauser or FakePauser()
@@ -356,7 +363,7 @@ def harness(
         sandbox_executor=sandbox,
         pauser=pauser,
         extensions=loaded,
-        tools=[SHELL, WEB_REQUEST],
+        tools=list(tools),
         web_client=web,
         fork=fork,
     )

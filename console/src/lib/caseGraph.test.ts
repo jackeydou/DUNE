@@ -271,3 +271,32 @@ test("paths expand over the axes they name", () => {
   expect(expandPath("p/${variant.x}_${variant.y}.md", axes)).toEqual(["p/a_1.md", "p/a_2.md", "p/b_1.md", "p/b_2.md"])
   expect(expandPath("p/${variant.z}.md", axes)).toEqual(["p/${variant.z}.md"])
 })
+
+test("a profile's display shows its size and first page", () => {
+  const text = `schema_version: 4
+id: c
+workspace: w
+swarm:
+  agents:
+    - { id: a, prompt: a.md, tools: [browser, computer], sandbox_profile: desk }
+task: { input: t.md }
+`
+  const env = `schema_version: 2
+sandbox_profiles:
+  default: { image: busybox }
+  desk:
+    image: swarmeval/display:dev
+    display: { width: 1280, url: "http://127.0.0.1:8080/" }
+`
+  const g = caseGraph(
+    new Map([
+      ["case.yaml", text],
+      ["env.yaml", env],
+    ])
+  )
+  const desk = g.nodes.find((n) => n.id === "profile:desk")!
+  expect(desk.chips).toContain("display 1280x768")
+  expect(desk.fields).toContainEqual(["display", "1280x768 · http://127.0.0.1:8080/"])
+  const plain = g.nodes.find((n) => n.id === "profile:default")!
+  expect(plain.fields.map(([k]) => k)).not.toContain("display")
+})

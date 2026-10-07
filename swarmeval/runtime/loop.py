@@ -577,7 +577,10 @@ class RunLoop:
         admitted = await d.after_tool_result(agent.info, result, tool_event.event_id)
         txn = admitted.txn
         message = ToolMessage(
-            tool_call_id=call.id, content=admitted.value.content, is_error=admitted.value.is_error
+            tool_call_id=call.id,
+            content=admitted.value.content,
+            is_error=admitted.value.is_error,
+            images=admitted.value.images,
         )
         self._admit(txn, agent, [(message, admitted.intervention_id or tool_event.event_id)])
         await self._writer.commit(txn)

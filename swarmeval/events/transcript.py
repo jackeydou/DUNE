@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from swarmeval.db import events, messages
 from swarmeval.events.convert import from_inspect_assistant
 from swarmeval.events.fork import lineage
-from swarmeval.runtime.messages import AssistantMessage, ChatMessage, RequestOptions
+from swarmeval.runtime.messages import AssistantMessage, ChatMessage, ImageRef, RequestOptions
 from swarmeval.runtime.records import (
     GatewayRecord,
     InterventionRecord,
@@ -31,6 +31,7 @@ from swarmeval.runtime.records import (
 _EVENT = TypeAdapter[Event](Event)
 _TYPES = ("model", "tool", "swarmeval.intervention", "swarmeval.msg.send", "swarmeval.msg.deliver")
 _MESSAGE = TypeAdapter[ChatMessage](ChatMessage)
+_IMAGES = TypeAdapter[list[ImageRef]](list[ImageRef])
 
 
 @dataclass(frozen=True)
@@ -123,14 +124,16 @@ async def load_transcript(engine: AsyncEngine, run_id: str) -> RunTranscript:
                 case ModelEvent() as event:
                     model_calls.append(_model_call(event_id, agent_id, event))
                 case ToolEvent() as event:
+                    assert event.metadata is not None, "stored events carry metadata.swarmeval"
+                    ours = event.metadata["swarmeval"]
                     result = ToolResult(
                         call_id=event.id,
                         tool=event.function,
                         content=str(event.result),
                         is_error=bool(event.failed),
+                        images=tuple(_IMAGES.validate_python(ours.get("images", []))),
                     )
-                    assert event.metadata is not None, "stored events carry metadata.swarmeval"
-                    executed = event.metadata["swarmeval"]["executed_arguments"]
+                    executed = ours["executed_arguments"]
                     tool_results.append(
                         ToolOutcome(event_id, agent_id, parent_id, result, executed)
                     )
@@ -179,6 +182,7 @@ def _model_call(event_id: str, agent_id: str | None, event: ModelEvent) -> Model
             top_p=config.top_p,
             max_output_tokens=config.max_tokens,
             seed=config.seed,
+            **({"max_images": ours["max_images"]} if "max_images" in ours else {}),
         ),
         response=from_inspect_assistant(
             event.output.choices[0].message, ours["raw_tool_arguments"]

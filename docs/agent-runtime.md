@@ -103,11 +103,11 @@ message or a new generation, so a request can always be rebuilt from `messages`.
 
 | Kind | Where it runs | Defined by |
 |---|---|---|
-| `SandboxTool` | sandboxd, in the calling agent's sandbox. Its `build` only turns arguments into an `Exec` | The runtime, or an extension with `runs_in="sandbox"` |
+| `SandboxTool` | sandboxd, in the calling agent's sandbox. Its `build` only turns arguments into an `Exec`, which may name the user to run as (instead of the agent's `os_user`) and files to `collect`; its optional `output` turns sandboxd's result into what the agent sees (`exec_output` when unset) | The runtime, or an extension with `runs_in="sandbox"` |
 | `WorkerTool` | The worker, with only its extension's `HookContext`. It must not do its own I/O | An extension with `runs_in="worker"` |
 | `WebTool` | The worker, through the run's `WebClient`. Its `build` only turns arguments into a `WebRequest` | The runtime: `web_request` |
 
-The runtime provides three tools itself:
+The runtime provides five tools itself:
 
 - `shell` (`swarmeval.runtime.tools.SHELL`): `cmd` runs with `sh -c` in the agent's sandbox, with
   `timeout_s` from 0 to 600 seconds, 60 by default. The agent sees stdout then stderr, each cut
@@ -119,10 +119,38 @@ The runtime provides three tools itself:
   `headers`, `body`, and `timeout_s` up to 120, 30 by default. Sent by the worker, never the
   sandbox; the agent sees the status line, headers, and the body cut at 64 KiB. Only for agents
   that list it. See [orchestrator.md](services/orchestrator.md#web_request).
+- `computer` and `browser` (`swarmeval.runtime.display`, handed to the loop as `DISPLAY_TOOLS`):
+  the screen and the web browser of a sandbox whose profile has a
+  [`display`](case-format.md#display). Both run `swarm-display` in the sandbox as the user
+  `swarmdisplay`, not the agent's `os_user`, and collect the screenshot an action takes, which
+  reaches the agent as an image ([below](#images)). `computer`: `screenshot`, `click`
+  (`coordinate`, `button`, `count`), `mouse_move`, `drag` (`start_coordinate`, `coordinate`),
+  `type` and `key` (`text`, xdotool key names for `key`), `scroll` (`direction`, `amount`,
+  optional `coordinate`), `wait` (`seconds`), `cursor_position`. Coordinates are `[x, y]` screen
+  pixels. Every action but `cursor_position` returns a screenshot. `browser`: `navigate`
+  (`url`), `back`, `forward`, `reload`, `snapshot`, `screenshot`, `click` and `hover` (`ref`),
+  `type` (`ref`, `text`, `submit`), `select` (`ref`, `values`), `press` (`key`), `scroll`,
+  `wait`, `tabs`, `tab_new` (`url`), `tab_select` and `tab_close` (`index`). Every action
+  returns the active tab's URL, title, and an accessibility snapshot in which each element
+  carries a `[ref=eN]`; `screenshot`, or any action with `screenshot: true`, adds an image of
+  the page. Arguments are checked against the actions' required fields before anything runs.
 
 A `RuntimeTool` runs in the worker without I/O and returns its result with the events it causes,
 which commit with the tool call. `BUILTIN_TOOL_NAMES` lists every runtime tool name; pass it to
 `load_extensions` so no extension reuses one.
+
+### Images
+
+A tool result may carry images: `ToolResult.images` and `ToolMessage.images`, each an `ImageRef`
+(`sha256`, `media_type` `image/png`, `width`, `height`). The bytes are in the blob store, uploaded
+before the tool's event commits; contexts and events hold only the reference. An
+`after_tool_result` hook may drop or replace images like any other part of the result. Only tool
+results carry images.
+
+`RequestOptions.max_images` (default 3) caps the images a request carries: the context's last
+`max_images` go with it, and each earlier one is replaced by the text `[image omitted]`
+(`visible_images`). `before_model_request` may change it. It is recorded on the model event, and
+the export expands the request's input with the same rule.
 
 Arguments are validated against the tool's pydantic model. Invalid arguments, an unknown tool, a
 non-zero exit, and a timeout all become error results the agent sees, and each is recorded. A
@@ -261,7 +289,7 @@ agents that use the sandbox), `token`, and where it is planted: `hostname`, `env
 | `on_resume` | Observe | `ResumeInfo`: `fork`, `source_run_id`, `at_seq`, `fidelity` (`fs_restored` or `fs_partial`) | `None`. Runs instead of `on_run_start` when a run goes on from another run's state, after the state is restored and before the first turn; extension state is already the source's |
 | `before_turn` | Gate | `TurnInfo` | `Proceed`, `Skip`, `Inject(messages)`, `Stop(reason)` |
 | `compact_context` | Transform | Current messages | `None`, or a new, non-empty message tuple (new generation). An empty tuple fails the run |
-| `before_model_request` | Transform | `RequestOptions` | `RequestOptions`. Tools may only be narrowed |
+| `before_model_request` | Transform | `RequestOptions` | `RequestOptions`. Tools may only be narrowed. `max_images` may change ([Images](#images)) |
 | `after_model_response` | Transform | `AssistantMessage` | `AssistantMessage` |
 | `before_tool_call` | Gate | `ToolCall` | `Allow`, `Rewrite(arguments)`, `Block(result)` |
 | `after_tool_result` | Transform | `ToolResult` | `ToolResult` |

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from swarmeval.core.errors import CaseError
 from swarmeval.core.models import NO_SANDBOX, NO_SANDBOX_VERSION, CaseFile, EnvFile
+from swarmeval.runtime.display import DISPLAY_TOOL_NAMES
 
 Tree = Callable[[str, str], list[tuple[str, Path]]]
 """A case path and the field naming it → each file under it, relative to it, and its path."""
@@ -50,6 +51,26 @@ def check_crossing(
             f"but every agent uses sandbox `{next(iter(sandboxes))}`. Give agents their own "
             "sandboxes, or remove the scorer."
         )
+
+
+def check_displays(
+    case: CaseFile, env: EnvFile, sandboxes: Mapping[str, SandboxPlan], where: str
+) -> None:
+    """`browser` and `computer` drive a sandbox's display, so the agent's profile needs one. An
+    agent with no sandbox cannot list them (`CaseFile`)."""
+    tools = {a.id: a.tools for a in case.swarm.agents}
+    for plan in sandboxes.values():
+        if env.sandbox_profiles[plan.profile].display is not None:
+            continue
+        for agent_id in plan.agents:
+            wanted = [t for t in tools[agent_id] if t in DISPLAY_TOOL_NAMES]
+            if wanted:
+                raise CaseError(
+                    f"{where}: agent `{agent_id}` lists {', '.join(f'`{t}`' for t in wanted)}, "
+                    f"but its sandbox `{plan.id}` has profile `{plan.profile}`, which has no "
+                    "`display`. Add `display: {}` to the profile and use an image built from "
+                    "swarmeval/display."
+                )
 
 
 def check_canaries(env: EnvFile, sandboxes: Mapping[str, SandboxPlan], where: str) -> None:

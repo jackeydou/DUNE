@@ -29,6 +29,8 @@ class SandboxTool:
     args: type[BaseModel]
     build: Callable[[Any], Exec]
     owner: str | None = None
+    output: Callable[[ToolCall, ExecResult], ToolResult] | None = None
+    """Turns sandboxd's result into what the agent sees; `exec_output` when unset."""
 
 
 @dataclass(frozen=True)
@@ -165,9 +167,10 @@ WEB_REQUEST = WebTool(
 )
 
 BUILTIN_TOOLS: tuple[Tool, ...] = (SHELL, WEB_REQUEST)
-"""Tools the caller hands to `RunLoop`. The loop adds the Message Bus's `send_message` itself."""
+"""Tools the caller hands to `RunLoop`, with `swarmeval.runtime.display.DISPLAY_TOOLS`. The loop
+adds the Message Bus's `send_message` itself."""
 
-BUILTIN_TOOL_NAMES = ("shell", "send_message", "web_request")
+BUILTIN_TOOL_NAMES = ("shell", "send_message", "web_request", "computer", "browser")
 """Every tool name the runtime provides. Extensions may not reuse them."""
 
 

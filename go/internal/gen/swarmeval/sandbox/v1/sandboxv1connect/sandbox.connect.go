@@ -62,7 +62,8 @@ type SandboxServiceClient interface {
 	// ALREADY_EXISTS if the run exists.
 	CreateRun(context.Context, *connect.Request[v1.CreateRunRequest]) (*connect.Response[v1.CreateRunResponse], error)
 	// Creates and starts one sandbox, on its network if CreateRun made one. Each top-level key path starts as a copy of the image's
-	// content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
+	// content at that path, plus any seed files. With `display` set, the image's display stack is
+	// started before the first manifest. Fails with ALREADY_EXISTS if the sandbox exists.
 	CreateSandbox(context.Context, *connect.Request[v1.CreateSandboxRequest]) (*connect.Response[v1.CreateSandboxResponse], error)
 	// Runs one tool call. The stream carries exactly one header first, then the blobs the
 	// header refers to, each as one or more chunks. Calls on one sandbox run one at a time.
@@ -191,7 +192,8 @@ type SandboxServiceHandler interface {
 	// ALREADY_EXISTS if the run exists.
 	CreateRun(context.Context, *connect.Request[v1.CreateRunRequest]) (*connect.Response[v1.CreateRunResponse], error)
 	// Creates and starts one sandbox, on its network if CreateRun made one. Each top-level key path starts as a copy of the image's
-	// content at that path, plus any seed files. Fails with ALREADY_EXISTS if the sandbox exists.
+	// content at that path, plus any seed files. With `display` set, the image's display stack is
+	// started before the first manifest. Fails with ALREADY_EXISTS if the sandbox exists.
 	CreateSandbox(context.Context, *connect.Request[v1.CreateSandboxRequest]) (*connect.Response[v1.CreateSandboxResponse], error)
 	// Runs one tool call. The stream carries exactly one header first, then the blobs the
 	// header refers to, each as one or more chunks. Calls on one sandbox run one at a time.

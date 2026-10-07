@@ -99,7 +99,7 @@ An agent:
 | `model_slot` | no | The [model slot](#model-slots) the agent runs in. Default `default` |
 | `prompt` | yes | System prompt file |
 | `task` | no | First user message file. Overrides `task.input` |
-| `tools` | no | Tool names: `shell`, `send_message`, `web_request`, or one an extension provides. The run fails to start if nothing provides one. `web_request` is the agent's only way to the internet |
+| `tools` | no | Tool names: `shell`, `send_message`, `web_request`, `browser`, `computer`, or one an extension provides. The run fails to start if nothing provides one. `web_request` is the agent's only way to the internet. `browser` and `computer` need a sandbox whose profile has a [`display`](#display) |
 | `sandbox` | no | Join a shared instance from `env.yaml`, or, from version 5, `none` for [no sandbox](#sandboxes) |
 | `sandbox_profile` | no | Profile of the agent's private sandbox. Exclusive with `sandbox` |
 | `os_user` | no | Unix user the agent's commands run as; not with `sandbox: none`. sandboxd adds it to the sandbox's image with a private home under `/home`, unless the image has it already. Where it may write besides its home is up to the image |
@@ -143,8 +143,8 @@ console's run form asks models for.
 
 | Key | Meaning |
 |---|---|
-| `schema_version` | `1` |
-| `sandbox_profiles` | Name → `image`, `fs` mounts (`path`, `mode: rw \| ro`, `protected`), `limits` (`cpu`, `memory`, `pids`, `disk`), `files` (below) |
+| `schema_version` | `1` or `2` |
+| `sandbox_profiles` | Name → `image`, `fs` mounts (`path`, `mode: rw \| ro`, `protected`), `limits` (`cpu`, `memory`, `pids`, `disk`), `files` (below), `display` ([below](#display), version 2) |
 | `sandboxes` | Name → `profile`. Declare only instances that agents share |
 | `canaries` | Files holding a token generated per run, below |
 
@@ -342,6 +342,40 @@ rejects the following:
 - A shared instance named like an agent that has a private sandbox.
 - From version 5, a shared instance named `none`, which no agent can join.
 
+## Display
+
+A profile with `display` gives its sandboxes a virtual screen with a web browser on it, which the
+`browser` and `computer` tools drive ([agent-runtime.md](agent-runtime.md#tools)). It needs
+`env.yaml` version 2 and an image built from `swarmeval/display`
+([deploy/images/display](../deploy/images/display/README.md)).
+
+```yaml
+schema_version: 2
+sandbox_profiles:
+  desktop:
+    image: swarmeval/display:dev        # or an image FROM it, with the case's own apps
+    fs: [{ path: /workspace }]
+    limits: { memory: 2gib, pids: 512 }
+    files: [{ from: site, to: /workspace }]
+    display: { width: 1024, height: 768, url: "file:///workspace/index.html" }
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `width`, `height` | `1024`, `768` | The screen in pixels, 320×240 to 1920×1200. At 1024×768 neither Claude nor GPT scales a screenshot, so the coordinates a model reads off it are screen pixels |
+| `url` | `about:blank` | The page the browser opens first. Sandboxes have no network: pages come from `file://` or a server inside the sandbox |
+
+- The display runs as the user `swarmdisplay` and keeps its state in `/run/swarm-display`. A key
+  path there, above it, or at `/` is rejected. Agents' own users cannot reach the screen or the
+  browser except through the two tools.
+- Programs the case needs on the screen or behind the browser, such as a web shop on
+  `127.0.0.1:8080`, start from executables in the image's `/etc/swarm-display/start.d/`, before
+  the browser opens.
+- Agents sharing a sandbox share its screen.
+- The browser is the memory of the run: a [fork](services/orchestrator.md#forks) restores files
+  but not the screen, so a fork after an agent's first `browser` or `computer` call is refused.
+- Chromium needs memory: give the profile at least `memory: 1gib` and a few hundred `pids`.
+
 ## Variants
 
 The cartesian product of the chosen [models](#model-slots), slot by slot, then of `variants:`
@@ -451,7 +485,10 @@ error says how to move a case: set `schema_version: 4`, remove each agent's `mod
 | 1 | The format as first released; `models` filled each case's `model` variant axis. No longer loads |
 | 2 | `models` fills model slots, as a list (the `default` slot) or by slot; entries take `models` |
 
-`env.yaml` is at version 1.
+| `env.yaml` | Adds |
+|---|---|
+| 1 | The format as first released |
+| 2 | A profile's [`display`](#display) |
 
 ## Not accepted yet
 
