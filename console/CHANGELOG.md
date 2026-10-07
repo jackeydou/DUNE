@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+- A case's Files tab opens on a flow: `case.yaml` and its env file, pending edits included,
+  drawn as variant axes, the task, agents, channels, extensions, sandboxes, profiles, canaries,
+  and scorers, with what connects them. A click shows a part's settings, its connections, its
+  lines of YAML, and the files it names; "Edit" opens those lines in the source view. The view
+  is in the URL (`?view=source`).
+
 ### Changed
+- The file editor: a file tree with folders and icons, the path and actions above the editor,
+  a status bar (language, cursor, lines, saved state), wrapping on a toggle, and syntax colours
+  from the theme.
 - A sidebar replaces the top bar: pages grouped under Evaluate, Investigate, and Admin, the
   account menu and sign-out at its foot, collapsible to icons (`Ctrl/⌘ B`). Each page has
   breadcrumbs, a title with one line about the page, and its actions.

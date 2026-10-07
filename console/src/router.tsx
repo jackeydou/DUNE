@@ -9,7 +9,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Account } from "@/pages/Account"
 import { Analysis } from "@/pages/Analysis"
-import { CaseDetail } from "@/pages/CaseDetail"
+import { CaseDetail, type CaseSearch } from "@/pages/CaseDetail"
 import { Cases } from "@/pages/Cases"
 import { Login } from "@/pages/Login"
 import { NewCase } from "@/pages/NewCase"
@@ -79,7 +79,12 @@ const compareRoute = createRoute({
 })
 const casesRoute = createRoute({ getParentRoute: () => app, path: "/cases", component: Cases })
 const newCaseRoute = createRoute({ getParentRoute: () => app, path: "/cases/new", component: NewCase })
-const caseRoute = createRoute({ getParentRoute: () => app, path: "/cases/$workspace/$caseId", component: CaseDetail })
+const caseRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/cases/$workspace/$caseId",
+  component: CaseDetail,
+  validateSearch: (s: Record<string, unknown>): CaseSearch => ({ view: s.view === "source" ? "source" : undefined }),
+})
 const analysisRoute = createRoute({ getParentRoute: () => app, path: "/analysis", component: Analysis })
 const accountRoute = createRoute({ getParentRoute: () => app, path: "/account", component: Account })
 const usersRoute = createRoute({ getParentRoute: () => app, path: "/users", component: Users })

@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
+import { lazy, Suspense, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { cases, Code, isCode, runs, when } from "@/api"
-import { Archive, ArchiveRestore } from "lucide-react"
+import { Archive, ArchiveRestore, Code as CodeIcon, Workflow } from "lucide-react"
 
 import {
   DANGER_ALERT,
@@ -14,6 +14,7 @@ import {
   TableCard,
   Verbatim,
 } from "@/components/common"
+import type { Reveal } from "@/components/CodeEditor"
 import { FileEditor } from "@/components/FileEditor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -37,9 +38,24 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { diffRevisions, parseOverrides, type Changes } from "@/lib/files"
+import {
+  diffRevisions,
+  parseOverrides,
+  textsWith,
+  type Changes,
+} from "@/lib/files"
 import { ago } from "@/lib/time"
 import { toggled } from "@/lib/models"
+
+// The flow view's libraries (React Flow, dagre, yaml) load with the first case page opened.
+const CaseFlow = lazy(() =>
+  import("@/components/CaseFlow").then((m) => ({ default: m.CaseFlow }))
+)
+
+export interface CaseSearch {
+  /** The Files tab's view; the flow when unset. */
+  view?: "source"
+}
 
 function useRevision(workspace: string, caseId: string, revision: number) {
   return useQuery({
@@ -65,8 +81,22 @@ function Files({
   archived: boolean
 }) {
   const client = useQueryClient()
+  const navigate = useNavigate()
+  const { view } = useSearch({ from: "/app/cases/$workspace/$caseId" })
   const loaded = useRevision(workspace, caseId, revision)
   const [changes, setChanges] = useState<Changes>(new Map())
+  const [open, setOpen] = useState<{ path: string; reveal?: Reveal }>()
+  const texts = useMemo(
+    () => textsWith(loaded.data?.files ?? [], changes),
+    [loaded.data, changes]
+  )
+  const show = (next: CaseSearch["view"]) =>
+    void navigate({
+      to: "/cases/$workspace/$caseId",
+      params: { workspace, caseId },
+      search: { view: next },
+      replace: true,
+    })
   const [note, setNote] = useState("")
   const save = useMutation({
     mutationFn: () =>
@@ -108,13 +138,56 @@ function Files({
           </AlertDescription>
         </Alert>
       )}
-      <FileEditor
-        key={revision}
-        files={loaded.data.files}
-        changes={changes}
-        readOnly={readOnly}
-        onChange={setChanges}
-      />
+      <Tabs
+        value={view ?? "flow"}
+        onValueChange={(v) => show(v === "source" ? "source" : undefined)}
+        className="gap-3"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TabsList>
+            <TabsTrigger value="flow" className="px-3">
+              <Workflow /> Flow
+            </TabsTrigger>
+            <TabsTrigger value="source" className="px-3">
+              <CodeIcon /> Source
+            </TabsTrigger>
+          </TabsList>
+          <span className="text-xs text-muted-foreground">
+            {view === "source"
+              ? "Every file of the revision, as stored."
+              : "Drawn from case.yaml and its env file, with your unsaved edits."}
+          </span>
+        </div>
+        <TabsContent value="flow" className="flex flex-col gap-3">
+          {loaded.data.loadError && changes.size === 0 && (
+            <Alert>
+              <AlertTitle>The loader refuses revision {revision}</AlertTitle>
+              <AlertDescription className="whitespace-pre-wrap">
+                {loaded.data.loadError}
+              </AlertDescription>
+            </Alert>
+          )}
+          <Suspense fallback={<Loading what="the flow" />}>
+            <CaseFlow
+              texts={texts}
+              onOpen={(path, reveal) => {
+                setOpen({ path, reveal })
+                show("source")
+              }}
+            />
+          </Suspense>
+        </TabsContent>
+        <TabsContent value="source">
+          <FileEditor
+            key={`${revision}:${open?.path}:${open?.reveal?.line}`}
+            files={loaded.data.files}
+            changes={changes}
+            readOnly={readOnly}
+            open={open}
+            onChange={setChanges}
+          />
+        </TabsContent>
+      </Tabs>
       {isCode(save.error, Code.Aborted) ? (
         <Alert role="alert" className={DANGER_ALERT}>
           <AlertTitle>Someone else changed this case</AlertTitle>

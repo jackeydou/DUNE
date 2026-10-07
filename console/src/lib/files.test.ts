@@ -2,7 +2,7 @@ import { create } from "@bufbuild/protobuf"
 import { expect, test } from "vitest"
 
 import { CaseFileSchema } from "@/gen/swarmeval/api/v1/case_pb"
-import { diffRevisions, parseOverrides, pathProblem, pathsWith, textOf, type Changes } from "@/lib/files"
+import { diffRevisions, parseOverrides, pathProblem, pathsWith, textOf, textsWith, type Changes } from "@/lib/files"
 
 const bytes = (text: string) => new TextEncoder().encode(text)
 const file = (path: string, text: string, mode = 0o644) => create(CaseFileSchema, { path, content: bytes(text), mode })
@@ -20,6 +20,27 @@ test("the file list follows the pending edits", () => {
     ["prompts/new.md", bytes("c")],
   ])
   expect(pathsWith(files, changes)).toEqual(["case.yaml", "prompts/new.md"])
+})
+
+test("each listed path has its text with the edits, and none for a binary file or a link", () => {
+  const files = [
+    file("case.yaml", "id: a"),
+    file("blob.bin", "x"),
+    create(CaseFileSchema, { path: "link", linkTarget: "case.yaml" }),
+    file("gone.md", "old"),
+  ]
+  files[1].content = new Uint8Array([0xff, 0x00])
+  const changes: Changes = new Map<string, Uint8Array | null>([
+    ["case.yaml", bytes("id: b")],
+    ["gone.md", null],
+    ["new.md", bytes("")],
+  ])
+  expect([...textsWith(files, changes)]).toEqual([
+    ["blob.bin", undefined],
+    ["case.yaml", "id: b"],
+    ["link", undefined],
+    ["new.md", ""],
+  ])
 })
 
 test("new paths must be relative and unused", () => {
