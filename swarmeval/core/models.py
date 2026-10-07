@@ -24,6 +24,7 @@ from pydantic import (
 )
 
 from swarmeval.detect.defs import DetectorDef
+from swarmeval.runtime.display import DISPLAY_STATE, DISPLAY_TOOLS
 from swarmeval.runtime.extensions import ExtensionUse
 from swarmeval.runtime.tools import BUILTIN_TOOLS, SandboxTool
 
@@ -41,7 +42,8 @@ NO_SANDBOX_VERSION = 5
 
 DEFAULT_SLOT = "default"
 """The model slot of an agent that names none."""
-ENV_SCHEMA_VERSIONS = frozenset({1})
+ENV_SCHEMA_VERSIONS = frozenset({1, 2})
+"""`env.yaml` versions read. Version 2 adds a profile's `display`."""
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=63)]
 """Ids of cases, agents, channels, sandboxes, profiles, and variant axes. They end up in
@@ -336,7 +338,9 @@ class CaseFile(Strict):
 
     @model_validator(mode="after")
     def _sandboxless_agents_run_nothing(self) -> Self:
-        sandbox_tools = {t.name for t in BUILTIN_TOOLS if isinstance(t, SandboxTool)}
+        sandbox_tools = {
+            t.name for t in (*BUILTIN_TOOLS, *DISPLAY_TOOLS) if isinstance(t, SandboxTool)
+        }
         for agent in self.swarm.agents:
             if self.has_sandbox(agent):
                 continue
@@ -398,15 +402,45 @@ class FileCopy(Strict):
     """Where it lands. A directory's contents go under it."""
 
 
+class Display(Strict):
+    """A virtual screen with a browser on it (docs/case-format.md#display). Needs an image built
+    from `swarmeval/display`."""
+
+    width: Annotated[int, Field(ge=320, le=1920)] = 1024
+    height: Annotated[int, Field(ge=240, le=1200)] = 768
+    url: Annotated[str, Field(min_length=1, max_length=2048, pattern=r"^[^\x00\r\n]*$")] | None = (
+        None
+    )
+    """Page the browser opens first; `about:blank` when unset."""
+
+
 class SandboxProfile(Strict):
     image: Annotated[str, Field(min_length=1)]
     fs: tuple[Mount, ...] = ()
     limits: ResourceLimits = ResourceLimits()
     files: tuple[FileCopy, ...] = ()
+    display: Display | None = None
 
     @model_validator(mode="after")
     def _unique_mounts(self) -> Self:
         _no_duplicates("mount path", [m.path for m in self.fs])
+        return self
+
+    @model_validator(mode="after")
+    def _display_state_outside_key_paths(self) -> Self:
+        if self.display is None:
+            return self
+        for m in self.fs:
+            p = m.path
+            if (
+                p == "/"
+                or DISPLAY_STATE.startswith(p + "/")
+                or (p + "/").startswith(DISPLAY_STATE + "/")
+            ):
+                raise ValueError(
+                    f"key path `{p}` overlaps `{DISPLAY_STATE}`, where the display keeps its "
+                    "state out of the agent's reach. Mount a path outside it."
+                )
         return self
 
 
@@ -443,6 +477,17 @@ class EnvFile(Strict):
     """Shared instances only. Every agent without `sandbox:` gets a private one; from case
     version 5, one with `sandbox: none` gets none."""
     canaries: tuple[CanaryDef, ...] = ()
+
+    @model_validator(mode="after")
+    def _display_needs_version_2(self) -> Self:
+        if self.schema_version < 2:
+            for name, profile in self.sandbox_profiles.items():
+                if profile.display is not None:
+                    raise ValueError(
+                        f"profile `{name}` has `display`, which `schema_version: 2` added. Set "
+                        "`schema_version: 2`."
+                    )
+        return self
 
     @model_validator(mode="after")
     def _unique_canaries(self) -> Self:

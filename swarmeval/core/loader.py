@@ -35,6 +35,7 @@ from swarmeval.core.topology import (
     SandboxPlan,
     check_canaries,
     check_crossing,
+    check_displays,
     plan_sandboxes,
     seed_files,
 )
@@ -261,6 +262,7 @@ def _variant(
     env_where = f"{env_path}" + (f" (variant {values})" if values else "")
     sandboxes = plan_sandboxes(case, env, env_path)
     check_canaries(env, sandboxes, env_where)
+    check_displays(case, env, sandboxes, where)
     seeds = seed_files(env, sandboxes, files.tree, env_where)
     scripts: dict[str, str] = {}
     for scorer in case.scorers:

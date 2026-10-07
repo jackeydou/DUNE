@@ -41,10 +41,31 @@ class WireAssistantMessage(Wire):
     tool_calls: list[WireToolCall] | None = None
 
 
+class WireTextPart(Wire):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class WireImageURL(Wire):
+    url: Annotated[str, Field(pattern=r"^data:image/png;base64,[A-Za-z0-9+/]+={0,2}$")]
+    """A PNG inline as a `data:` URL; the gateway fetches nothing."""
+
+
+class WireImagePart(Wire):
+    type: Literal["image_url"] = "image_url"
+    image_url: WireImageURL
+
+
+WirePart = Annotated[WireTextPart | WireImagePart, Field(discriminator="type")]
+
+
 class WireToolMessage(Wire):
     role: Literal["tool"] = "tool"
     tool_call_id: str
-    content: str
+    content: str | list[WirePart]
+    """Parts carry the images a tool returned. Chat Completions takes only text in a tool
+    message, so the gateway moves the images into a user message for the backend
+    (`upstream.move_tool_images`)."""
 
 
 WireMessage = Annotated[

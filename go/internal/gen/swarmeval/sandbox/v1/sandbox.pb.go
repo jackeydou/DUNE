@@ -71,7 +71,7 @@ func (x FsChange_Op) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FsChange_Op.Descriptor instead.
 func (FsChange_Op) EnumDescriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{11, 0}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{13, 0}
 }
 
 type FsChange_Kind int32
@@ -127,7 +127,7 @@ func (x FsChange_Kind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FsChange_Kind.Descriptor instead.
 func (FsChange_Kind) EnumDescriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{11, 1}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{13, 1}
 }
 
 type FsChange_Attribution int32
@@ -178,7 +178,7 @@ func (x FsChange_Attribution) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FsChange_Attribution.Descriptor instead.
 func (FsChange_Attribution) EnumDescriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{11, 2}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{13, 2}
 }
 
 type CreateRunRequest struct {
@@ -427,7 +427,10 @@ type CreateSandboxRequest struct {
 	// Written to /etc/machine-id before the sandbox starts, outside every key path, so it is never
 	// diffed. Empty writes nothing. 32 lowercase hex characters, the file's format. The image
 	// must have /etc.
-	MachineId     string `protobuf:"bytes,10,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	MachineId string `protobuf:"bytes,10,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	// Starts the image's display stack (docs/services/sandboxd.md#display). Unset, the sandbox has
+	// no display.
+	Display       *Display `protobuf:"bytes,11,opt,name=display,proto3" json:"display,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -532,6 +535,77 @@ func (x *CreateSandboxRequest) GetMachineId() string {
 	return ""
 }
 
+func (x *CreateSandboxRequest) GetDisplay() *Display {
+	if x != nil {
+		return x.Display
+	}
+	return nil
+}
+
+// A virtual screen with a browser on it, run by the image's `swarm-display` as the user
+// `swarmdisplay`. Its processes are never reported or attributed to a call.
+type Display struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Pixels, 320 to 1920 wide and 240 to 1200 high.
+	Width  uint32 `protobuf:"varint,1,opt,name=width,proto3" json:"width,omitempty"`
+	Height uint32 `protobuf:"varint,2,opt,name=height,proto3" json:"height,omitempty"`
+	// Page the browser opens first. Empty opens about:blank.
+	Url           string `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Display) Reset() {
+	*x = Display{}
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Display) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Display) ProtoMessage() {}
+
+func (x *Display) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Display.ProtoReflect.Descriptor instead.
+func (*Display) Descriptor() ([]byte, []int) {
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *Display) GetWidth() uint32 {
+	if x != nil {
+		return x.Width
+	}
+	return 0
+}
+
+func (x *Display) GetHeight() uint32 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
+func (x *Display) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
 type SeedFile struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Absolute and clean, strictly inside a key path.
@@ -545,7 +619,7 @@ type SeedFile struct {
 
 func (x *SeedFile) Reset() {
 	*x = SeedFile{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[5]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -557,7 +631,7 @@ func (x *SeedFile) String() string {
 func (*SeedFile) ProtoMessage() {}
 
 func (x *SeedFile) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[5]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -570,7 +644,7 @@ func (x *SeedFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SeedFile.ProtoReflect.Descriptor instead.
 func (*SeedFile) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{5}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SeedFile) GetPath() string {
@@ -604,7 +678,7 @@ type CreateSandboxResponse struct {
 
 func (x *CreateSandboxResponse) Reset() {
 	*x = CreateSandboxResponse{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[6]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -616,7 +690,7 @@ func (x *CreateSandboxResponse) String() string {
 func (*CreateSandboxResponse) ProtoMessage() {}
 
 func (x *CreateSandboxResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[6]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -629,7 +703,7 @@ func (x *CreateSandboxResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSandboxResponse.ProtoReflect.Descriptor instead.
 func (*CreateSandboxResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{6}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateSandboxResponse) GetRuntime() string {
@@ -650,14 +724,18 @@ type ExecRequest struct {
 	// Empty runs as the image's user.
 	User string `protobuf:"bytes,6,opt,name=user,proto3" json:"user,omitempty"`
 	// Required. On expiry the command and its descendants are killed.
-	Timeout       *durationpb.Duration `protobuf:"bytes,7,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	Timeout *durationpb.Duration `protobuf:"bytes,7,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	// Absolute paths outside every key path. After the command, sandboxd reads each regular file
+	// there as `user`, removes it, and returns it as a blob. For output a tool writes besides its
+	// text, such as a screenshot.
+	Collect       []string `protobuf:"bytes,8,rep,name=collect,proto3" json:"collect,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecRequest) Reset() {
 	*x = ExecRequest{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[7]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -669,7 +747,7 @@ func (x *ExecRequest) String() string {
 func (*ExecRequest) ProtoMessage() {}
 
 func (x *ExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[7]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -682,7 +760,7 @@ func (x *ExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecRequest.ProtoReflect.Descriptor instead.
 func (*ExecRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{7}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExecRequest) GetRunId() string {
@@ -734,6 +812,13 @@ func (x *ExecRequest) GetTimeout() *durationpb.Duration {
 	return nil
 }
 
+func (x *ExecRequest) GetCollect() []string {
+	if x != nil {
+		return x.Collect
+	}
+	return nil
+}
+
 type ExecResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Item:
@@ -747,7 +832,7 @@ type ExecResponse struct {
 
 func (x *ExecResponse) Reset() {
 	*x = ExecResponse{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[8]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -759,7 +844,7 @@ func (x *ExecResponse) String() string {
 func (*ExecResponse) ProtoMessage() {}
 
 func (x *ExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[8]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -772,7 +857,7 @@ func (x *ExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResponse.ProtoReflect.Descriptor instead.
 func (*ExecResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{8}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExecResponse) GetItem() isExecResponse_Item {
@@ -830,14 +915,16 @@ type ExecHeader struct {
 	// Changed while this call ran.
 	Changes []*FsChange `protobuf:"bytes,7,rep,name=changes,proto3" json:"changes,omitempty"`
 	// Started while this call ran and still alive after it.
-	Processes     []*Process `protobuf:"bytes,8,rep,name=processes,proto3" json:"processes,omitempty"`
+	Processes []*Process `protobuf:"bytes,8,rep,name=processes,proto3" json:"processes,omitempty"`
+	// One per `collect` path, in request order.
+	Collected     []*CollectedFile `protobuf:"bytes,9,rep,name=collected,proto3" json:"collected,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecHeader) Reset() {
 	*x = ExecHeader{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[9]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -849,7 +936,7 @@ func (x *ExecHeader) String() string {
 func (*ExecHeader) ProtoMessage() {}
 
 func (x *ExecHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[9]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -862,7 +949,7 @@ func (x *ExecHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecHeader.ProtoReflect.Descriptor instead.
 func (*ExecHeader) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{9}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ExecHeader) GetExitCode() int32 {
@@ -921,6 +1008,85 @@ func (x *ExecHeader) GetProcesses() []*Process {
 	return nil
 }
 
+func (x *ExecHeader) GetCollected() []*CollectedFile {
+	if x != nil {
+		return x.Collected
+	}
+	return nil
+}
+
+type CollectedFile struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Path  string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// No regular file was there.
+	Missing bool `protobuf:"varint,2,opt,name=missing,proto3" json:"missing,omitempty"`
+	// Bytes of the file. Over sandboxd's collect limit the file is removed but not sent, and
+	// `sha256` is empty.
+	Size int64 `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	// The content follows as a blob with this hash.
+	Sha256        string `protobuf:"bytes,4,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CollectedFile) Reset() {
+	*x = CollectedFile{}
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CollectedFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CollectedFile) ProtoMessage() {}
+
+func (x *CollectedFile) ProtoReflect() protoreflect.Message {
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CollectedFile.ProtoReflect.Descriptor instead.
+func (*CollectedFile) Descriptor() ([]byte, []int) {
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *CollectedFile) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *CollectedFile) GetMissing() bool {
+	if x != nil {
+		return x.Missing
+	}
+	return false
+}
+
+func (x *CollectedFile) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *CollectedFile) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
 type Output struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The first bytes, up to sandboxd's inline limit.
@@ -938,7 +1104,7 @@ type Output struct {
 
 func (x *Output) Reset() {
 	*x = Output{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[10]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -950,7 +1116,7 @@ func (x *Output) String() string {
 func (*Output) ProtoMessage() {}
 
 func (x *Output) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[10]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -963,7 +1129,7 @@ func (x *Output) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Output.ProtoReflect.Descriptor instead.
 func (*Output) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{10}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Output) GetInline() []byte {
@@ -1024,7 +1190,7 @@ type FsChange struct {
 
 func (x *FsChange) Reset() {
 	*x = FsChange{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[11]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1036,7 +1202,7 @@ func (x *FsChange) String() string {
 func (*FsChange) ProtoMessage() {}
 
 func (x *FsChange) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[11]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1049,7 +1215,7 @@ func (x *FsChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FsChange.ProtoReflect.Descriptor instead.
 func (*FsChange) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{11}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *FsChange) GetPath() string {
@@ -1157,7 +1323,7 @@ type Process struct {
 
 func (x *Process) Reset() {
 	*x = Process{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[12]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1169,7 +1335,7 @@ func (x *Process) String() string {
 func (*Process) ProtoMessage() {}
 
 func (x *Process) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[12]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1182,7 +1348,7 @@ func (x *Process) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Process.ProtoReflect.Descriptor instead.
 func (*Process) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{12}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Process) GetPid() int32 {
@@ -1224,7 +1390,7 @@ type BlobChunk struct {
 
 func (x *BlobChunk) Reset() {
 	*x = BlobChunk{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[13]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1236,7 +1402,7 @@ func (x *BlobChunk) String() string {
 func (*BlobChunk) ProtoMessage() {}
 
 func (x *BlobChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[13]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1249,7 +1415,7 @@ func (x *BlobChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobChunk.ProtoReflect.Descriptor instead.
 func (*BlobChunk) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{13}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BlobChunk) GetSha256() string {
@@ -1287,7 +1453,7 @@ type RestoreFilesRequest struct {
 
 func (x *RestoreFilesRequest) Reset() {
 	*x = RestoreFilesRequest{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[14]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1299,7 +1465,7 @@ func (x *RestoreFilesRequest) String() string {
 func (*RestoreFilesRequest) ProtoMessage() {}
 
 func (x *RestoreFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[14]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1312,7 +1478,7 @@ func (x *RestoreFilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreFilesRequest.ProtoReflect.Descriptor instead.
 func (*RestoreFilesRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{14}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RestoreFilesRequest) GetRunId() string {
@@ -1365,7 +1531,7 @@ type RestoreDir struct {
 
 func (x *RestoreDir) Reset() {
 	*x = RestoreDir{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[15]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1377,7 +1543,7 @@ func (x *RestoreDir) String() string {
 func (*RestoreDir) ProtoMessage() {}
 
 func (x *RestoreDir) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[15]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1390,7 +1556,7 @@ func (x *RestoreDir) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreDir.ProtoReflect.Descriptor instead.
 func (*RestoreDir) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{15}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RestoreDir) GetPath() string {
@@ -1430,7 +1596,7 @@ type RestoreFile struct {
 
 func (x *RestoreFile) Reset() {
 	*x = RestoreFile{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[16]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1442,7 +1608,7 @@ func (x *RestoreFile) String() string {
 func (*RestoreFile) ProtoMessage() {}
 
 func (x *RestoreFile) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[16]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1455,7 +1621,7 @@ func (x *RestoreFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreFile.ProtoReflect.Descriptor instead.
 func (*RestoreFile) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{16}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RestoreFile) GetPath() string {
@@ -1497,7 +1663,7 @@ type RestoreFilesResponse struct {
 
 func (x *RestoreFilesResponse) Reset() {
 	*x = RestoreFilesResponse{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[17]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1509,7 +1675,7 @@ func (x *RestoreFilesResponse) String() string {
 func (*RestoreFilesResponse) ProtoMessage() {}
 
 func (x *RestoreFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[17]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1522,7 +1688,7 @@ func (x *RestoreFilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreFilesResponse.ProtoReflect.Descriptor instead.
 func (*RestoreFilesResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{17}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RestoreFilesResponse) GetUnowned() []string {
@@ -1545,7 +1711,7 @@ type ReadFileRequest struct {
 
 func (x *ReadFileRequest) Reset() {
 	*x = ReadFileRequest{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[18]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1557,7 +1723,7 @@ func (x *ReadFileRequest) String() string {
 func (*ReadFileRequest) ProtoMessage() {}
 
 func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[18]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1570,7 +1736,7 @@ func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileRequest.ProtoReflect.Descriptor instead.
 func (*ReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{18}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ReadFileRequest) GetRunId() string {
@@ -1612,7 +1778,7 @@ type ReadFileResponse struct {
 
 func (x *ReadFileResponse) Reset() {
 	*x = ReadFileResponse{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[19]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1624,7 +1790,7 @@ func (x *ReadFileResponse) String() string {
 func (*ReadFileResponse) ProtoMessage() {}
 
 func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[19]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1637,7 +1803,7 @@ func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileResponse.ProtoReflect.Descriptor instead.
 func (*ReadFileResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{19}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ReadFileResponse) GetContent() []byte {
@@ -1670,7 +1836,7 @@ type FinalDiffRequest struct {
 
 func (x *FinalDiffRequest) Reset() {
 	*x = FinalDiffRequest{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[20]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1682,7 +1848,7 @@ func (x *FinalDiffRequest) String() string {
 func (*FinalDiffRequest) ProtoMessage() {}
 
 func (x *FinalDiffRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[20]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1695,7 +1861,7 @@ func (x *FinalDiffRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalDiffRequest.ProtoReflect.Descriptor instead.
 func (*FinalDiffRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{20}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *FinalDiffRequest) GetRunId() string {
@@ -1718,7 +1884,7 @@ type FinalDiffResponse struct {
 
 func (x *FinalDiffResponse) Reset() {
 	*x = FinalDiffResponse{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[21]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1730,7 +1896,7 @@ func (x *FinalDiffResponse) String() string {
 func (*FinalDiffResponse) ProtoMessage() {}
 
 func (x *FinalDiffResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[21]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1743,7 +1909,7 @@ func (x *FinalDiffResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalDiffResponse.ProtoReflect.Descriptor instead.
 func (*FinalDiffResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{21}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *FinalDiffResponse) GetItem() isFinalDiffResponse_Item {
@@ -1797,7 +1963,7 @@ type SandboxChanges struct {
 
 func (x *SandboxChanges) Reset() {
 	*x = SandboxChanges{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[22]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1809,7 +1975,7 @@ func (x *SandboxChanges) String() string {
 func (*SandboxChanges) ProtoMessage() {}
 
 func (x *SandboxChanges) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[22]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1822,7 +1988,7 @@ func (x *SandboxChanges) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SandboxChanges.ProtoReflect.Descriptor instead.
 func (*SandboxChanges) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{22}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *SandboxChanges) GetSandboxId() string {
@@ -1848,7 +2014,7 @@ type DestroyRunRequest struct {
 
 func (x *DestroyRunRequest) Reset() {
 	*x = DestroyRunRequest{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[23]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1860,7 +2026,7 @@ func (x *DestroyRunRequest) String() string {
 func (*DestroyRunRequest) ProtoMessage() {}
 
 func (x *DestroyRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[23]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1873,7 +2039,7 @@ func (x *DestroyRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyRunRequest.ProtoReflect.Descriptor instead.
 func (*DestroyRunRequest) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{23}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *DestroyRunRequest) GetRunId() string {
@@ -1891,7 +2057,7 @@ type DestroyRunResponse struct {
 
 func (x *DestroyRunResponse) Reset() {
 	*x = DestroyRunResponse{}
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[24]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1903,7 +2069,7 @@ func (x *DestroyRunResponse) String() string {
 func (*DestroyRunResponse) ProtoMessage() {}
 
 func (x *DestroyRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[24]
+	mi := &file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1916,7 +2082,7 @@ func (x *DestroyRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyRunResponse.ProtoReflect.Descriptor instead.
 func (*DestroyRunResponse) Descriptor() ([]byte, []int) {
-	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{24}
+	return file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{26}
 }
 
 var File_swarmeval_sandbox_v1_sandbox_proto protoreflect.FileDescriptor
@@ -1938,7 +2104,7 @@ const file_swarmeval_sandbox_v1_sandbox_proto_rawDesc = "" +
 	"\fmemory_bytes\x18\x02 \x01(\x03R\vmemoryBytes\x12\x12\n" +
 	"\x04pids\x18\x03 \x01(\x03R\x04pids\x12\x1d\n" +
 	"\n" +
-	"disk_bytes\x18\x04 \x01(\x03R\tdiskBytes\"\xdc\x03\n" +
+	"disk_bytes\x18\x04 \x01(\x03R\tdiskBytes\"\x95\x04\n" +
 	"\x14CreateSandboxRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
@@ -1952,16 +2118,21 @@ const file_swarmeval_sandbox_v1_sandbox_proto_rawDesc = "" +
 	"\bhostname\x18\t \x01(\tR\bhostname\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\n" +
-	" \x01(\tR\tmachineId\x1a6\n" +
+	" \x01(\tR\tmachineId\x127\n" +
+	"\adisplay\x18\v \x01(\v2\x1d.swarmeval.sandbox.v1.DisplayR\adisplay\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"L\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"I\n" +
+	"\aDisplay\x12\x14\n" +
+	"\x05width\x18\x01 \x01(\rR\x05width\x12\x16\n" +
+	"\x06height\x18\x02 \x01(\rR\x06height\x12\x10\n" +
+	"\x03url\x18\x03 \x01(\tR\x03url\"L\n" +
 	"\bSeedFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12\x12\n" +
 	"\x04mode\x18\x03 \x01(\rR\x04mode\"1\n" +
 	"\x15CreateSandboxResponse\x12\x18\n" +
-	"\aruntime\x18\x01 \x01(\tR\aruntime\"\xcb\x01\n" +
+	"\aruntime\x18\x01 \x01(\tR\aruntime\"\xe5\x01\n" +
 	"\vExecRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
@@ -1970,11 +2141,12 @@ const file_swarmeval_sandbox_v1_sandbox_proto_rawDesc = "" +
 	"\x04argv\x18\x04 \x03(\tR\x04argv\x12\x10\n" +
 	"\x03cwd\x18\x05 \x01(\tR\x03cwd\x12\x12\n" +
 	"\x04user\x18\x06 \x01(\tR\x04user\x123\n" +
-	"\atimeout\x18\a \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x89\x01\n" +
+	"\atimeout\x18\a \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12\x18\n" +
+	"\acollect\x18\b \x03(\tR\acollect\"\x89\x01\n" +
 	"\fExecResponse\x12:\n" +
 	"\x06header\x18\x01 \x01(\v2 .swarmeval.sandbox.v1.ExecHeaderH\x00R\x06header\x125\n" +
 	"\x04blob\x18\x02 \x01(\v2\x1f.swarmeval.sandbox.v1.BlobChunkH\x00R\x04blobB\x06\n" +
-	"\x04item\"\xaf\x03\n" +
+	"\x04item\"\xf2\x03\n" +
 	"\n" +
 	"ExecHeader\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x1b\n" +
@@ -1984,7 +2156,13 @@ const file_swarmeval_sandbox_v1_sandbox_proto_rawDesc = "" +
 	"\x06stderr\x18\x05 \x01(\v2\x1c.swarmeval.sandbox.v1.OutputR\x06stderr\x12M\n" +
 	"\x12background_changes\x18\x06 \x03(\v2\x1e.swarmeval.sandbox.v1.FsChangeR\x11backgroundChanges\x128\n" +
 	"\achanges\x18\a \x03(\v2\x1e.swarmeval.sandbox.v1.FsChangeR\achanges\x12;\n" +
-	"\tprocesses\x18\b \x03(\v2\x1d.swarmeval.sandbox.v1.ProcessR\tprocesses\"m\n" +
+	"\tprocesses\x18\b \x03(\v2\x1d.swarmeval.sandbox.v1.ProcessR\tprocesses\x12A\n" +
+	"\tcollected\x18\t \x03(\v2#.swarmeval.sandbox.v1.CollectedFileR\tcollected\"i\n" +
+	"\rCollectedFile\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
+	"\amissing\x18\x02 \x01(\bR\amissing\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\x03R\x04size\x12\x16\n" +
+	"\x06sha256\x18\x04 \x01(\tR\x06sha256\"m\n" +
 	"\x06Output\x12\x16\n" +
 	"\x06inline\x18\x01 \x01(\fR\x06inline\x12\x12\n" +
 	"\x04size\x18\x02 \x01(\x03R\x04size\x12\x1f\n" +
@@ -2096,7 +2274,7 @@ func file_swarmeval_sandbox_v1_sandbox_proto_rawDescGZIP() []byte {
 }
 
 var file_swarmeval_sandbox_v1_sandbox_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_swarmeval_sandbox_v1_sandbox_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_swarmeval_sandbox_v1_sandbox_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_swarmeval_sandbox_v1_sandbox_proto_goTypes = []any{
 	(FsChange_Op)(0),              // 0: swarmeval.sandbox.v1.FsChange.Op
 	(FsChange_Kind)(0),            // 1: swarmeval.sandbox.v1.FsChange.Kind
@@ -2106,70 +2284,74 @@ var file_swarmeval_sandbox_v1_sandbox_proto_goTypes = []any{
 	(*Mount)(nil),                 // 5: swarmeval.sandbox.v1.Mount
 	(*Resources)(nil),             // 6: swarmeval.sandbox.v1.Resources
 	(*CreateSandboxRequest)(nil),  // 7: swarmeval.sandbox.v1.CreateSandboxRequest
-	(*SeedFile)(nil),              // 8: swarmeval.sandbox.v1.SeedFile
-	(*CreateSandboxResponse)(nil), // 9: swarmeval.sandbox.v1.CreateSandboxResponse
-	(*ExecRequest)(nil),           // 10: swarmeval.sandbox.v1.ExecRequest
-	(*ExecResponse)(nil),          // 11: swarmeval.sandbox.v1.ExecResponse
-	(*ExecHeader)(nil),            // 12: swarmeval.sandbox.v1.ExecHeader
-	(*Output)(nil),                // 13: swarmeval.sandbox.v1.Output
-	(*FsChange)(nil),              // 14: swarmeval.sandbox.v1.FsChange
-	(*Process)(nil),               // 15: swarmeval.sandbox.v1.Process
-	(*BlobChunk)(nil),             // 16: swarmeval.sandbox.v1.BlobChunk
-	(*RestoreFilesRequest)(nil),   // 17: swarmeval.sandbox.v1.RestoreFilesRequest
-	(*RestoreDir)(nil),            // 18: swarmeval.sandbox.v1.RestoreDir
-	(*RestoreFile)(nil),           // 19: swarmeval.sandbox.v1.RestoreFile
-	(*RestoreFilesResponse)(nil),  // 20: swarmeval.sandbox.v1.RestoreFilesResponse
-	(*ReadFileRequest)(nil),       // 21: swarmeval.sandbox.v1.ReadFileRequest
-	(*ReadFileResponse)(nil),      // 22: swarmeval.sandbox.v1.ReadFileResponse
-	(*FinalDiffRequest)(nil),      // 23: swarmeval.sandbox.v1.FinalDiffRequest
-	(*FinalDiffResponse)(nil),     // 24: swarmeval.sandbox.v1.FinalDiffResponse
-	(*SandboxChanges)(nil),        // 25: swarmeval.sandbox.v1.SandboxChanges
-	(*DestroyRunRequest)(nil),     // 26: swarmeval.sandbox.v1.DestroyRunRequest
-	(*DestroyRunResponse)(nil),    // 27: swarmeval.sandbox.v1.DestroyRunResponse
-	nil,                           // 28: swarmeval.sandbox.v1.CreateSandboxRequest.EnvEntry
-	(*durationpb.Duration)(nil),   // 29: google.protobuf.Duration
+	(*Display)(nil),               // 8: swarmeval.sandbox.v1.Display
+	(*SeedFile)(nil),              // 9: swarmeval.sandbox.v1.SeedFile
+	(*CreateSandboxResponse)(nil), // 10: swarmeval.sandbox.v1.CreateSandboxResponse
+	(*ExecRequest)(nil),           // 11: swarmeval.sandbox.v1.ExecRequest
+	(*ExecResponse)(nil),          // 12: swarmeval.sandbox.v1.ExecResponse
+	(*ExecHeader)(nil),            // 13: swarmeval.sandbox.v1.ExecHeader
+	(*CollectedFile)(nil),         // 14: swarmeval.sandbox.v1.CollectedFile
+	(*Output)(nil),                // 15: swarmeval.sandbox.v1.Output
+	(*FsChange)(nil),              // 16: swarmeval.sandbox.v1.FsChange
+	(*Process)(nil),               // 17: swarmeval.sandbox.v1.Process
+	(*BlobChunk)(nil),             // 18: swarmeval.sandbox.v1.BlobChunk
+	(*RestoreFilesRequest)(nil),   // 19: swarmeval.sandbox.v1.RestoreFilesRequest
+	(*RestoreDir)(nil),            // 20: swarmeval.sandbox.v1.RestoreDir
+	(*RestoreFile)(nil),           // 21: swarmeval.sandbox.v1.RestoreFile
+	(*RestoreFilesResponse)(nil),  // 22: swarmeval.sandbox.v1.RestoreFilesResponse
+	(*ReadFileRequest)(nil),       // 23: swarmeval.sandbox.v1.ReadFileRequest
+	(*ReadFileResponse)(nil),      // 24: swarmeval.sandbox.v1.ReadFileResponse
+	(*FinalDiffRequest)(nil),      // 25: swarmeval.sandbox.v1.FinalDiffRequest
+	(*FinalDiffResponse)(nil),     // 26: swarmeval.sandbox.v1.FinalDiffResponse
+	(*SandboxChanges)(nil),        // 27: swarmeval.sandbox.v1.SandboxChanges
+	(*DestroyRunRequest)(nil),     // 28: swarmeval.sandbox.v1.DestroyRunRequest
+	(*DestroyRunResponse)(nil),    // 29: swarmeval.sandbox.v1.DestroyRunResponse
+	nil,                           // 30: swarmeval.sandbox.v1.CreateSandboxRequest.EnvEntry
+	(*durationpb.Duration)(nil),   // 31: google.protobuf.Duration
 }
 var file_swarmeval_sandbox_v1_sandbox_proto_depIdxs = []int32{
 	5,  // 0: swarmeval.sandbox.v1.CreateSandboxRequest.mounts:type_name -> swarmeval.sandbox.v1.Mount
 	6,  // 1: swarmeval.sandbox.v1.CreateSandboxRequest.resources:type_name -> swarmeval.sandbox.v1.Resources
-	8,  // 2: swarmeval.sandbox.v1.CreateSandboxRequest.files:type_name -> swarmeval.sandbox.v1.SeedFile
-	28, // 3: swarmeval.sandbox.v1.CreateSandboxRequest.env:type_name -> swarmeval.sandbox.v1.CreateSandboxRequest.EnvEntry
-	29, // 4: swarmeval.sandbox.v1.ExecRequest.timeout:type_name -> google.protobuf.Duration
-	12, // 5: swarmeval.sandbox.v1.ExecResponse.header:type_name -> swarmeval.sandbox.v1.ExecHeader
-	16, // 6: swarmeval.sandbox.v1.ExecResponse.blob:type_name -> swarmeval.sandbox.v1.BlobChunk
-	29, // 7: swarmeval.sandbox.v1.ExecHeader.duration:type_name -> google.protobuf.Duration
-	13, // 8: swarmeval.sandbox.v1.ExecHeader.stdout:type_name -> swarmeval.sandbox.v1.Output
-	13, // 9: swarmeval.sandbox.v1.ExecHeader.stderr:type_name -> swarmeval.sandbox.v1.Output
-	14, // 10: swarmeval.sandbox.v1.ExecHeader.background_changes:type_name -> swarmeval.sandbox.v1.FsChange
-	14, // 11: swarmeval.sandbox.v1.ExecHeader.changes:type_name -> swarmeval.sandbox.v1.FsChange
-	15, // 12: swarmeval.sandbox.v1.ExecHeader.processes:type_name -> swarmeval.sandbox.v1.Process
-	0,  // 13: swarmeval.sandbox.v1.FsChange.op:type_name -> swarmeval.sandbox.v1.FsChange.Op
-	1,  // 14: swarmeval.sandbox.v1.FsChange.kind:type_name -> swarmeval.sandbox.v1.FsChange.Kind
-	2,  // 15: swarmeval.sandbox.v1.FsChange.attribution:type_name -> swarmeval.sandbox.v1.FsChange.Attribution
-	18, // 16: swarmeval.sandbox.v1.RestoreFilesRequest.dirs:type_name -> swarmeval.sandbox.v1.RestoreDir
-	19, // 17: swarmeval.sandbox.v1.RestoreFilesRequest.files:type_name -> swarmeval.sandbox.v1.RestoreFile
-	25, // 18: swarmeval.sandbox.v1.FinalDiffResponse.changes:type_name -> swarmeval.sandbox.v1.SandboxChanges
-	16, // 19: swarmeval.sandbox.v1.FinalDiffResponse.blob:type_name -> swarmeval.sandbox.v1.BlobChunk
-	14, // 20: swarmeval.sandbox.v1.SandboxChanges.changes:type_name -> swarmeval.sandbox.v1.FsChange
-	3,  // 21: swarmeval.sandbox.v1.SandboxService.CreateRun:input_type -> swarmeval.sandbox.v1.CreateRunRequest
-	7,  // 22: swarmeval.sandbox.v1.SandboxService.CreateSandbox:input_type -> swarmeval.sandbox.v1.CreateSandboxRequest
-	10, // 23: swarmeval.sandbox.v1.SandboxService.Exec:input_type -> swarmeval.sandbox.v1.ExecRequest
-	21, // 24: swarmeval.sandbox.v1.SandboxService.ReadFile:input_type -> swarmeval.sandbox.v1.ReadFileRequest
-	17, // 25: swarmeval.sandbox.v1.SandboxService.RestoreFiles:input_type -> swarmeval.sandbox.v1.RestoreFilesRequest
-	23, // 26: swarmeval.sandbox.v1.SandboxService.FinalDiff:input_type -> swarmeval.sandbox.v1.FinalDiffRequest
-	26, // 27: swarmeval.sandbox.v1.SandboxService.DestroyRun:input_type -> swarmeval.sandbox.v1.DestroyRunRequest
-	4,  // 28: swarmeval.sandbox.v1.SandboxService.CreateRun:output_type -> swarmeval.sandbox.v1.CreateRunResponse
-	9,  // 29: swarmeval.sandbox.v1.SandboxService.CreateSandbox:output_type -> swarmeval.sandbox.v1.CreateSandboxResponse
-	11, // 30: swarmeval.sandbox.v1.SandboxService.Exec:output_type -> swarmeval.sandbox.v1.ExecResponse
-	22, // 31: swarmeval.sandbox.v1.SandboxService.ReadFile:output_type -> swarmeval.sandbox.v1.ReadFileResponse
-	20, // 32: swarmeval.sandbox.v1.SandboxService.RestoreFiles:output_type -> swarmeval.sandbox.v1.RestoreFilesResponse
-	24, // 33: swarmeval.sandbox.v1.SandboxService.FinalDiff:output_type -> swarmeval.sandbox.v1.FinalDiffResponse
-	27, // 34: swarmeval.sandbox.v1.SandboxService.DestroyRun:output_type -> swarmeval.sandbox.v1.DestroyRunResponse
-	28, // [28:35] is the sub-list for method output_type
-	21, // [21:28] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	9,  // 2: swarmeval.sandbox.v1.CreateSandboxRequest.files:type_name -> swarmeval.sandbox.v1.SeedFile
+	30, // 3: swarmeval.sandbox.v1.CreateSandboxRequest.env:type_name -> swarmeval.sandbox.v1.CreateSandboxRequest.EnvEntry
+	8,  // 4: swarmeval.sandbox.v1.CreateSandboxRequest.display:type_name -> swarmeval.sandbox.v1.Display
+	31, // 5: swarmeval.sandbox.v1.ExecRequest.timeout:type_name -> google.protobuf.Duration
+	13, // 6: swarmeval.sandbox.v1.ExecResponse.header:type_name -> swarmeval.sandbox.v1.ExecHeader
+	18, // 7: swarmeval.sandbox.v1.ExecResponse.blob:type_name -> swarmeval.sandbox.v1.BlobChunk
+	31, // 8: swarmeval.sandbox.v1.ExecHeader.duration:type_name -> google.protobuf.Duration
+	15, // 9: swarmeval.sandbox.v1.ExecHeader.stdout:type_name -> swarmeval.sandbox.v1.Output
+	15, // 10: swarmeval.sandbox.v1.ExecHeader.stderr:type_name -> swarmeval.sandbox.v1.Output
+	16, // 11: swarmeval.sandbox.v1.ExecHeader.background_changes:type_name -> swarmeval.sandbox.v1.FsChange
+	16, // 12: swarmeval.sandbox.v1.ExecHeader.changes:type_name -> swarmeval.sandbox.v1.FsChange
+	17, // 13: swarmeval.sandbox.v1.ExecHeader.processes:type_name -> swarmeval.sandbox.v1.Process
+	14, // 14: swarmeval.sandbox.v1.ExecHeader.collected:type_name -> swarmeval.sandbox.v1.CollectedFile
+	0,  // 15: swarmeval.sandbox.v1.FsChange.op:type_name -> swarmeval.sandbox.v1.FsChange.Op
+	1,  // 16: swarmeval.sandbox.v1.FsChange.kind:type_name -> swarmeval.sandbox.v1.FsChange.Kind
+	2,  // 17: swarmeval.sandbox.v1.FsChange.attribution:type_name -> swarmeval.sandbox.v1.FsChange.Attribution
+	20, // 18: swarmeval.sandbox.v1.RestoreFilesRequest.dirs:type_name -> swarmeval.sandbox.v1.RestoreDir
+	21, // 19: swarmeval.sandbox.v1.RestoreFilesRequest.files:type_name -> swarmeval.sandbox.v1.RestoreFile
+	27, // 20: swarmeval.sandbox.v1.FinalDiffResponse.changes:type_name -> swarmeval.sandbox.v1.SandboxChanges
+	18, // 21: swarmeval.sandbox.v1.FinalDiffResponse.blob:type_name -> swarmeval.sandbox.v1.BlobChunk
+	16, // 22: swarmeval.sandbox.v1.SandboxChanges.changes:type_name -> swarmeval.sandbox.v1.FsChange
+	3,  // 23: swarmeval.sandbox.v1.SandboxService.CreateRun:input_type -> swarmeval.sandbox.v1.CreateRunRequest
+	7,  // 24: swarmeval.sandbox.v1.SandboxService.CreateSandbox:input_type -> swarmeval.sandbox.v1.CreateSandboxRequest
+	11, // 25: swarmeval.sandbox.v1.SandboxService.Exec:input_type -> swarmeval.sandbox.v1.ExecRequest
+	23, // 26: swarmeval.sandbox.v1.SandboxService.ReadFile:input_type -> swarmeval.sandbox.v1.ReadFileRequest
+	19, // 27: swarmeval.sandbox.v1.SandboxService.RestoreFiles:input_type -> swarmeval.sandbox.v1.RestoreFilesRequest
+	25, // 28: swarmeval.sandbox.v1.SandboxService.FinalDiff:input_type -> swarmeval.sandbox.v1.FinalDiffRequest
+	28, // 29: swarmeval.sandbox.v1.SandboxService.DestroyRun:input_type -> swarmeval.sandbox.v1.DestroyRunRequest
+	4,  // 30: swarmeval.sandbox.v1.SandboxService.CreateRun:output_type -> swarmeval.sandbox.v1.CreateRunResponse
+	10, // 31: swarmeval.sandbox.v1.SandboxService.CreateSandbox:output_type -> swarmeval.sandbox.v1.CreateSandboxResponse
+	12, // 32: swarmeval.sandbox.v1.SandboxService.Exec:output_type -> swarmeval.sandbox.v1.ExecResponse
+	24, // 33: swarmeval.sandbox.v1.SandboxService.ReadFile:output_type -> swarmeval.sandbox.v1.ReadFileResponse
+	22, // 34: swarmeval.sandbox.v1.SandboxService.RestoreFiles:output_type -> swarmeval.sandbox.v1.RestoreFilesResponse
+	26, // 35: swarmeval.sandbox.v1.SandboxService.FinalDiff:output_type -> swarmeval.sandbox.v1.FinalDiffResponse
+	29, // 36: swarmeval.sandbox.v1.SandboxService.DestroyRun:output_type -> swarmeval.sandbox.v1.DestroyRunResponse
+	30, // [30:37] is the sub-list for method output_type
+	23, // [23:30] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_swarmeval_sandbox_v1_sandbox_proto_init() }
@@ -2177,11 +2359,11 @@ func file_swarmeval_sandbox_v1_sandbox_proto_init() {
 	if File_swarmeval_sandbox_v1_sandbox_proto != nil {
 		return
 	}
-	file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[8].OneofWrappers = []any{
+	file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[9].OneofWrappers = []any{
 		(*ExecResponse_Header)(nil),
 		(*ExecResponse_Blob)(nil),
 	}
-	file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[21].OneofWrappers = []any{
+	file_swarmeval_sandbox_v1_sandbox_proto_msgTypes[23].OneofWrappers = []any{
 		(*FinalDiffResponse_Changes)(nil),
 		(*FinalDiffResponse_Blob)(nil),
 	}
@@ -2191,7 +2373,7 @@ func file_swarmeval_sandbox_v1_sandbox_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_swarmeval_sandbox_v1_sandbox_proto_rawDesc), len(file_swarmeval_sandbox_v1_sandbox_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   26,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

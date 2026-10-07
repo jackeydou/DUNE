@@ -7,6 +7,7 @@ it reaches the blob store.
 """
 
 import hashlib
+import struct
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
@@ -18,7 +19,15 @@ from google.protobuf.duration_pb2 import Duration
 from swarmeval.core.models import SandboxProfile
 from swarmeval.proto.swarmeval.sandbox.v1 import sandbox_pb2 as pb
 from swarmeval.proto.swarmeval.sandbox.v1.sandbox_pb2_grpc import SandboxServiceStub
-from swarmeval.runtime.records import Exec, ExecResult, FsChange, ProcessInfo, Truncated
+from swarmeval.runtime.records import (
+    CollectedFile,
+    Exec,
+    ExecResult,
+    FsChange,
+    PngInfo,
+    ProcessInfo,
+    Truncated,
+)
 from swarmeval.sandbox.blobs import BlobStore
 
 
@@ -147,6 +156,9 @@ class RunSandboxes:
             hostname=hostname,
             machine_id=machine_id,
         )
+        if profile.display is not None:
+            d = profile.display
+            request.display.CopyFrom(pb.Display(width=d.width, height=d.height, url=d.url or ""))
         try:
             response = await self._stub.CreateSandbox(request)
         except grpc.aio.AioRpcError as err:
@@ -162,8 +174,9 @@ class RunSandboxes:
             call_id=call_id,
             argv=command.argv,
             cwd=command.cwd or "",
-            user=os_user or "",
+            user=command.user or os_user or "",
             timeout=_duration(command.timeout_s),
+            collect=command.collect,
         )
         where = f"sandbox `{sandbox_id}` call `{call_id}`"
         stream = self._stub.Exec(request, timeout=command.timeout_s + self._exec_margin_s)
@@ -189,7 +202,8 @@ class RunSandboxes:
                 f"sandboxd Exec for run `{self._run_id}` {where}: the stream ended without a "
                 "header."
             )
-        await self._store(blobs.finish())
+        received = blobs.finish()
+        await self._store(received)
         stdout, stdout_truncated = _output(header.stdout)
         stderr, stderr_truncated = _output(header.stderr)
         return ExecResult(
@@ -205,6 +219,16 @@ class RunSandboxes:
             processes=tuple(
                 ProcessInfo(pid=p.pid, ppid=p.ppid, user=_clean(p.user), cmdline=_clean(p.cmdline))
                 for p in header.processes
+            ),
+            collected=tuple(
+                CollectedFile(
+                    path=c.path,
+                    missing=c.missing,
+                    size=c.size,
+                    sha256=c.sha256 or None,
+                    png=png_info(received[c.sha256]) if c.sha256 else None,
+                )
+                for c in header.collected
             ),
         )
 
@@ -354,6 +378,21 @@ class _BlobCollector:
         return self._done
 
 
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_PNG_MAX_SIDE = 8192
+
+
+def png_info(data: bytes) -> PngInfo | None:
+    """The size a PNG's header declares, or `None` for anything that is not a PNG of at most
+    8192 pixels a side. The content comes from inside a sandbox."""
+    if len(data) < 24 or not data.startswith(_PNG_SIGNATURE) or data[12:16] != b"IHDR":
+        return None
+    width, height = struct.unpack(">II", data[16:24])
+    if not (0 < width <= _PNG_MAX_SIDE and 0 < height <= _PNG_MAX_SIDE):
+        return None
+    return PngInfo(width=width, height=height)
+
+
 def _duration(seconds: float) -> Duration:
     duration = Duration()
     duration.FromTimedelta(timedelta(seconds=seconds))
@@ -365,6 +404,7 @@ def _expected_blobs(header: pb.ExecHeader) -> list[str]:
     for change in (*header.changes, *header.background_changes):
         if change.content:
             hashes.append(change.after_sha256)
+    hashes.extend(c.sha256 for c in header.collected if c.sha256)
     return hashes
 
 

@@ -381,6 +381,11 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
     const mounts = list(p.fs).map(obj)
     const limits = Object.entries(obj(p.limits)).map(([k, v]) => `${k} ${inline(v)}`)
     const copies = list(p.files).map(obj)
+    // A profile's screen, which `browser` and `computer` drive; sizes default to 1024x768.
+    const display =
+      p.display === undefined
+        ? ""
+        : `${inline(obj(p.display).width ?? 1024)}x${inline(obj(p.display).height ?? 768)}`
     nodes.push({
       id: `profile:${name}`,
       kind: "profile",
@@ -389,6 +394,7 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
       chips: [
         ...mounts.map((m) => `${str(m.path)}${m.protected ? " protected" : ""}`),
         ...limits,
+        ...(display ? [`display ${display}`] : []),
       ],
       fields: rows(
         ["image", str(p.image)],
@@ -399,6 +405,7 @@ export function caseGraph(texts: ReadonlyMap<string, string | undefined>): CaseG
             .join(" · "),
         ]),
         ["limits", limits.join(", ")],
+        ["display", display && [display, str(obj(p.display).url)].filter(Boolean).join(" · ")],
         ...copies.map((f): [string, string] => ["copies", `${str(f.from)} → ${str(f.to)}`])
       ),
       source: envYaml?.source(["sandbox_profiles", name]),

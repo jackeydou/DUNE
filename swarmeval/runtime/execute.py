@@ -92,4 +92,5 @@ class ToolRunner:
             ) from err
         assert agent.sandbox_id is not None, "checked in _check_tools"
         result = await self._sandbox.exec(agent.sandbox_id, agent.os_user, command, call_id=call.id)
-        return Execution(exec_output(call, result), call.arguments, exec_result=result)
+        output = tool.output or exec_output
+        return Execution(output(call, result), call.arguments, exec_result=result)

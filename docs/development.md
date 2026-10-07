@@ -31,10 +31,11 @@ mise run sync
 | `mise run lint` | `ruff format --check .` and `ruff check .` |
 | `mise run typecheck` | `pyright` in strict mode over `swarmeval/` and `tests/` |
 | `mise run test` | `pytest` (asyncio mode `auto`), without tests marked `docker` or `browser` |
-| `mise run test:docker` | `pytest -m docker`: the Postgres store, migrations, and export against a throwaway `postgres:18-alpine` and `rustfs/rustfs` from testcontainers, the sandboxd client against a sandboxd it builds from `go/` (needs `busybox:latest`), the public API through an `edge` it builds from `go/`, and mutual TLS between the Go and Python services with certificates from a `swarm-certs` it builds. Run it before a change to `swarmeval/db/`, `swarmeval/events/`, `swarmeval/sandbox/`, `swarmeval/control/`, or edge is done |
+| `mise run test:docker` | `pytest -m docker`: the Postgres store, migrations, and export against a throwaway `postgres:18-alpine` and `rustfs/rustfs` from testcontainers, the sandboxd client against a sandboxd it builds from `go/` (needs `busybox:latest`; the `browser` and `computer` test also needs `swarmeval/display:dev` and skips without it), the public API through an `edge` it builds from `go/`, and mutual TLS between the Go and Python services with certificates from a `swarm-certs` it builds. Run it before a change to `swarmeval/db/`, `swarmeval/events/`, `swarmeval/sandbox/`, `swarmeval/control/`, or edge is done |
 | `mise run go:lint` | `golangci-lint run` over `go/`, integration tests included |
 | `mise run go:test` | `go test ./...` in `go/` |
-| `mise run go:test-integration` | sandboxd against the local docker daemon (needs `busybox:latest` and `python:3.12-slim`), and edge against a throwaway `postgres:18-alpine` from testcontainers-go |
+| `mise run go:test-integration` | sandboxd against the local docker daemon (needs `busybox:latest` and `python:3.12-slim`; the display test also `swarmeval/display:dev`, and skips without it), and edge against a throwaway `postgres:18-alpine` from testcontainers-go |
+| `mise run display:build` | Builds `swarmeval/display:dev`, the [display image](../deploy/images/display/README.md) cases with `browser` and `computer` run on. Downloads Debian packages and Playwright's Chromium |
 | `mise run console:install` | `pnpm install --frozen-lockfile` in `console/`. The other console tasks run it first |
 | `mise run console:check` | The console's `tsc -b`, `eslint`, and `vitest` unit tests |
 | `mise run console:build` | Builds the console into `go/internal/edge/webui/static/` (not committed), where edge embeds it from. Build edge after it; an edge built without it serves the API only |

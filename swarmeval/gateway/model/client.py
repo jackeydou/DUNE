@@ -11,13 +11,14 @@ storable: no NUL, which Postgres `jsonb` rejects.
 """
 
 import asyncio
+import base64
 import hashlib
 import json
 import secrets
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import Literal, Self
+from typing import Literal, Protocol, Self
 
 import grpc
 import httpx2
@@ -30,8 +31,12 @@ from swarmeval.gateway.model.wire import (
     WireAssistantMessage,
     WireFunction,
     WireFunctionCall,
+    WireImagePart,
+    WireImageURL,
     WireMessage,
+    WirePart,
     WireSystemMessage,
+    WireTextPart,
     WireTool,
     WireToolCall,
     WireToolMessage,
@@ -40,6 +45,7 @@ from swarmeval.gateway.model.wire import (
 from swarmeval.proto.swarmeval.modelgw.v1 import recorder_pb2 as pb
 from swarmeval.proto.swarmeval.modelgw.v1.recorder_pb2_grpc import RecorderServiceStub
 from swarmeval.runtime.messages import (
+    IMAGE_OMITTED,
     AssistantMessage,
     ChatMessage,
     ModelRequest,
@@ -49,6 +55,7 @@ from swarmeval.runtime.messages import (
     ToolMessage,
     Usage,
     UserMessage,
+    visible_images,
 )
 from swarmeval.runtime.ports import AgentCaller, Caller, ExtensionCaller, RecordedResponse
 from swarmeval.runtime.records import (
@@ -63,6 +70,12 @@ from swarmeval.runtime.writer import RunWriter
 
 UPSTREAM_ERROR_STATUS = 502
 """model-gateway's status for a call the model backend failed after retries."""
+
+
+class ImageSource(Protocol):
+    async def get(self, sha256: str) -> bytes:
+        """The image stored under `sha256`, checked against it."""
+        ...
 
 
 class ModelGatewayError(Exception):
@@ -106,9 +119,11 @@ class GatewaySession:
         owner_epoch: int,
         callers: Sequence[Caller],
         writer: RunWriter,
+        images: ImageSource,
     ) -> None:
         """`http` is based at the gateway's HTTP address and should have no read timeout: a
-        call lasts as long as the model takes."""
+        call lasts as long as the model takes. `images` holds the images tools returned, which
+        requests carry inline."""
         self._http = http
         self._stub = RecorderServiceStub(channel)
         self._run_id = run_id
@@ -120,6 +135,9 @@ class GatewaySession:
         self._stream: grpc.aio.StreamStreamCall[pb.AttachRequest, pb.AttachResponse] | None = None
         self._reader: asyncio.Task[None] | None = None
         self._broken: BaseException | None = None
+        self._images = images
+        self._sent_images: dict[str, bytes] = {}
+        """The last request's images. The next one mostly carries the same ones."""
 
     async def __aenter__(self) -> Self:
         stream = self._stub.Attach()
@@ -167,7 +185,8 @@ class GatewaySession:
         name = caller_name(caller)
         self._calls += 1
         call_id = f"call_{self._calls}"
-        body = to_wire(request).model_dump_json(exclude_none=True).encode()
+        wire = to_wire(request, await self._fetch_images(request))
+        body = wire.model_dump_json(exclude_none=True).encode()
         pending = _Pending(caller, request, hashlib.sha256(body).hexdigest(), parent_id)
         self._pending[call_id] = pending
         headers = {
@@ -199,6 +218,19 @@ class GatewaySession:
                 "view would split; stopping."
             )
         return RecordedResponse(response=response, event=event)
+
+    async def _fetch_images(self, request: ModelRequest) -> dict[str, bytes]:
+        wanted = {
+            m.images[j].sha256
+            for i, j in visible_images(request.messages, request.options.max_images)
+            if isinstance(m := request.messages[i], ToolMessage)
+        }
+        fetched = {
+            sha256: self._sent_images.get(sha256) or await self._images.get(sha256)
+            for sha256 in sorted(wanted)
+        }
+        self._sent_images = fetched
+        return fetched
 
     async def _read(
         self, stream: grpc.aio.StreamStreamCall[pb.AttachRequest, pb.AttachResponse]
@@ -345,11 +377,36 @@ def _wire_message(message: ChatMessage) -> WireMessage:
             return WireToolMessage(tool_call_id=tool_call_id, content=content)
 
 
-def to_wire(request: ModelRequest) -> ChatRequest:
+def _with_images(
+    message: WireToolMessage, tool: ToolMessage, shown: Sequence[bool], images: Mapping[str, bytes]
+) -> WireToolMessage:
+    parts: list[WirePart] = [WireTextPart(text=tool.content)] if tool.content else []
+    for image, show in zip(tool.images, shown, strict=True):
+        if show:
+            data = base64.b64encode(images[image.sha256]).decode()
+            url = WireImageURL(url=f"data:{image.media_type};base64,{data}")
+            parts.append(WireImagePart(image_url=url))
+        else:
+            parts.append(WireTextPart(text=IMAGE_OMITTED))
+    return message.model_copy(update={"content": parts})
+
+
+def to_wire(request: ModelRequest, images: Mapping[str, bytes] | None = None) -> ChatRequest:
+    """`images` holds the bytes of every image the request shows, by sha256: the context's last
+    `options.max_images`; earlier ones become `IMAGE_OMITTED`."""
     options = request.options
+    keep = visible_images(request.messages, options.max_images)
+    messages: list[WireMessage] = []
+    for i, m in enumerate(request.messages):
+        wire = _wire_message(m)
+        if isinstance(m, ToolMessage) and m.images:
+            assert isinstance(wire, WireToolMessage)
+            shown = [(i, j) in keep for j in range(len(m.images))]
+            wire = _with_images(wire, m, shown, {} if images is None else images)
+        messages.append(wire)
     return ChatRequest(
         model=request.model,
-        messages=[_wire_message(m) for m in request.messages],
+        messages=messages,
         tools=[
             WireTool(
                 function=WireFunction(

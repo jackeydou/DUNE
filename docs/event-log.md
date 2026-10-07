@@ -56,9 +56,13 @@ The hash chain is not in the payload, because the hash covers the payload. It li
 `prev_hash` / `hash` columns and is added to `metadata.swarmeval` on export.
 
 Kind-specific fields also go under `metadata.swarmeval`. A `ModelEvent` carries `input` (the
-`gen` / `len` reference, below), the offered `tools`, and `raw_tool_arguments`, the argument
-text the model produced. A `ToolEvent` carries `raw_arguments`, `executed_arguments`,
-`blocked_by`, and `exec`. Inspect keeps tool arguments as a parsed object. Arguments that are not
+`gen` / `len` reference, below), the offered `tools`, `raw_tool_arguments`, the argument
+text the model produced, and `max_images`, how many of the context's latest images the request
+carried (schema version 10). A `ToolEvent` carries `raw_arguments`, `executed_arguments`,
+`blocked_by`, `exec` (with `collected`, the files sandboxd read out of the sandbox after the call,
+from version 10), and `images` when the result has any: `{sha256, media_type, width, height}`
+each, the bytes in the [blob store](#large-objects). `result` stays the text; the export adds the
+images ([below](#export)). Inspect keeps tool arguments as a parsed object. Arguments that are not
 a JSON object, or hold a value JSON cannot carry exactly (NaN, a number that overflows a 64-bit
 float, an integer beyond ±(2**53 − 1)),
 are stored as `{}`, and the raw text is kept.
@@ -219,7 +223,7 @@ event, `InfoEvent(source="swarmeval.transcript_check")`, so both exports carry i
 | Check | What must hold | Mismatch names |
 |---|---|---|
 | `context` | Walking each agent's generations in `idx` order: generation 0 starts with the case's system prompt and task; a later generation starts with the `after` of a `compact_context` intervention. After that, an assistant message at index *i* of generation *g* is the response of the agent's model call built from `(g, i)`; the tool messages after it are the results of that call's `ToolEvent`s (`parent_id`), in `seq` order, with the call's id; a user message is a `msg.deliver` to this agent (as the bus words it), an injection into it (`ctx.actions.inject`), or a `before_turn` `Inject`. Where an `after_model_response` / `after_tool_result` intervention rewrote the event, the last rewrite's `after` is what must appear instead | The model or tool event the message was compared with; none when no event could explain it. A generation whose start nothing explains is reported once and not walked further |
-| `request` | Each agent model call's request, rebuilt from the stored context (`gen`, `len`), the tools it offered, and its sampling options, hashes (sha256 of the wire body the worker sends) to the gateway's `request_sha256` | The model event |
+| `request` | Each agent model call's request, rebuilt from the stored context (`gen`, `len`), the tools it offered, its sampling options, and the images it carried (read from the blob store, `max_images`), hashes (sha256 of the wire body the worker sends) to the gateway's `request_sha256` | The model event |
 | `response` | Each model call's response equals the gateway's `upstream_response_json` normalized again the way model-gateway normalizes it | The model event |
 | `send` | An agent's `msg.send` has the channel and content its `send_message` call ran with: the `ToolEvent` with the send's `call_id` under the same model event, by its executed arguments. A `msg.send` with no agent has a `post` intervention as parent with the same channel, sender, and content | The `msg.send` |
 | `delivery` | A `msg.deliver` names a recorded send, has its channel and sender, and carries its content, or the content of the last `before_deliver` rewrite (`action` `deliver`) of it for that recipient; and no `drop` for that recipient precedes it | The `msg.deliver` |
@@ -300,8 +304,9 @@ content addresses, a retried upload is harmless *(proposed)*.
 
 Built for sandboxd's blobs: `swarmeval.sandbox.S3BlobStore` writes them, and the sandboxd client
 uploads them before `Exec` or `FinalDiff` returns. In a `ToolEvent`'s `metadata.swarmeval.exec`,
-`stdout_truncated` / `stderr_truncated` name the blob holding the full output, and a change with
-`content_stored` has its new content under `after_sha256`.
+`stdout_truncated` / `stderr_truncated` name the blob holding the full output, a change with
+`content_stored` has its new content under `after_sha256`, and a `collected` file with a
+`sha256` has its content there. A tool's images (`images`) are collected files.
 
 ## Export
 
@@ -309,7 +314,7 @@ At run end the worker writes to the export bucket, which is created with object 
 
 | Object | Content | From |
 |---|---|---|
-| `runs/<run_id>/sample.eval` | Standard Inspect log, readable by `inspect view`. `ModelEvent.input` expanded | M0 |
+| `runs/<run_id>/sample.eval` | Standard Inspect log, readable by `inspect view`. `ModelEvent.input` expanded; a run's images embedded | M0 |
 | `runs/<run_id>/events.parquet` | One row per event: the indexed columns, `prev_hash` / `hash` as hex, and `payload` as JSON text. Written after the `.eval`, so only for runs that verified and ended `done` or `cancelled` | Built |
 | `summaries/<run_id>.parquet` | One row per run: submission and its suite label, case and its hash, variant and `task_args` (JSON, sorted keys), epoch and the epochs requested per variant, `replaces` and `replaced_by` (an interrupted run and its [rerun](services/orchestrator.md#reruns)), status and error, isolation, times, and each scorer's last score. Written for every run that reaches a final status, copying the status `control.runs` holds: by the worker once it has finished a run (a cancel that lands meanwhile wins), by the Control API when it cancels a queued run, by a worker marking its old runs `interrupted` at start, and by a worker that took over a run whose lease ran out. If the worker cannot write one, a `done` run becomes `failed` and an `interrupted` (its rerun stays queued), `failed`, or `cancelled` run keeps its status; either way its error adds why. At start, the worker does not start. Reports read only these. A column added later reads as null in older summaries | Built |
 
@@ -323,7 +328,13 @@ How a run becomes a `.eval` (`swarmeval.events.export_run`):
 1. Read the run's `events` and `messages` rows, and verify the chain. Rows that do not verify
    raise `ChainError`, and nothing is written.
 2. Rebuild each event from its payload. Add `prev_hash` / `hash` (hex) to `metadata.swarmeval`,
-   and expand `ModelEvent.input` from `messages`.
+   and expand `ModelEvent.input` from `messages`. A tool message with images becomes text plus
+   `ContentImage("attachment://<sha256>")` for each image the request carried, and
+   `[image omitted]` for each `max_images` left out; a `ToolEvent` with `images` gets its
+   `result` as text plus the images inline as `data:` URLs, as Inspect writes tool results. Every
+   image is read from the blob store and checked against its hash first, and goes into
+   `EvalSample.attachments` once, as a `data:` URL. A run naming an image the export cannot read
+   is not exported.
 3. Wrap each agent's events in a `SpanBeginEvent` / `SpanEndEvent` with `type="agent"` and id
    `agent:<agent_id>`, and set their `span_id`. Events with no agent stay at the top level.
 4. Build one `EvalSample`: `id` is the case id, `uuid` the run id, `input` the case task. There is

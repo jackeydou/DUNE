@@ -5,14 +5,17 @@ before anything is written, so a log that exists was produced from rows that ver
 """
 
 import asyncio
+import base64
 import copy
+import dataclasses
+import hashlib
 import tempfile
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from inspect_ai.event import (
     Event,
@@ -22,6 +25,7 @@ from inspect_ai.event import (
     ScoreEvent,
     SpanBeginEvent,
     SpanEndEvent,
+    ToolEvent,
 )
 from inspect_ai.log import (
     EvalConfig,
@@ -36,7 +40,7 @@ from inspect_ai.log import (
     EvalSpec,
     write_eval_log,
 )
-from inspect_ai.model import ModelUsage
+from inspect_ai.model import ContentImage, ContentText, ModelUsage
 from inspect_ai.scorer import Score
 from pyarrow import NativeFile
 from pyarrow.fs import S3FileSystem
@@ -46,13 +50,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.db import control_runs, events, messages, run_specs
 from swarmeval.events.chain import ChainRow, ChainStart, verify
-from swarmeval.events.convert import SCHEMA_VERSION, to_inspect_message
-from swarmeval.runtime.messages import ChatMessage
+from swarmeval.events.convert import SCHEMA_VERSION, to_inspect_context
+from swarmeval.runtime.messages import ChatMessage, ImageRef, ToolMessage
 from swarmeval.runtime.records import LifecycleRecord
 
 _EVENT = TypeAdapter[Event](Event)
 _MESSAGE = TypeAdapter[ChatMessage](ChatMessage)
 _LIFECYCLE = TypeAdapter[LifecycleRecord](LifecycleRecord)
+_IMAGES = TypeAdapter[list[ImageRef]](list[ImageRef])
 
 
 @dataclass(frozen=True)
@@ -84,6 +89,8 @@ class StoredRun:
     forked_from: str | None = None
     chain_start: ChainStart | None = None
     """For a fork: where its chain links into its source's."""
+    images: Mapping[str, bytes] = dataclasses.field(default_factory=dict[str, bytes])
+    """Every image `image_hashes` names, by sha256. The export embeds them."""
 
 
 @dataclass(frozen=True)
@@ -126,6 +133,39 @@ class ObjectStore:
 
 def export_key(run_id: str) -> str:
     return f"runs/{run_id}/sample.eval"
+
+
+def blob_key(sha256: str) -> str:
+    """Where the blob store keeps content with this hash (docs/event-log.md#large-objects)."""
+    return f"blobs/sha256/{sha256}"
+
+
+def image_hashes(run: StoredRun) -> set[str]:
+    """Every image a run's contexts or tool events name."""
+    hashes = {
+        i.sha256
+        for context in run.messages.values()
+        for m in context
+        if isinstance(m, ToolMessage)
+        for i in m.images
+    }
+    for row in run.events:
+        ours = cast(dict[str, Any], row.payload)["metadata"]["swarmeval"]
+        hashes.update(i.sha256 for i in _IMAGES.validate_python(ours.get("images", [])))
+    return hashes
+
+
+async def load_images(store: ObjectStore, hashes: Iterable[str]) -> dict[str, bytes]:
+    async def one(sha256: str) -> tuple[str, bytes]:
+        data = await asyncio.to_thread(store.get, blob_key(sha256))
+        if hashlib.sha256(data).hexdigest() != sha256:
+            raise ValueError(
+                f"blob {blob_key(sha256)} does not hash to its name. The object store was "
+                "changed after upload; do not export from it."
+            )
+        return sha256, data
+
+    return dict(await asyncio.gather(*(one(h) for h in sorted(hashes))))
 
 
 async def load_run(engine: AsyncEngine, run_id: str) -> StoredRun:
@@ -185,6 +225,12 @@ def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
             "after the run has started."
         )
     verify(header.run_id, run.events, run.chain_start)
+    missing = image_hashes(run) - run.images.keys()
+    if missing:
+        raise ValueError(
+            f"run {header.run_id} names {len(missing)} image(s) the export was not given, such "
+            f"as {min(missing)}. Load them with `load_images`."
+        )
     stored = [_restore(row, run) for row in run.events]
     sample_events = _with_agent_spans(stored, tuple(header.models))
     first, last = stored[0].timestamp, stored[-1].timestamp
@@ -204,6 +250,7 @@ def assemble(header: RunHeader, run: StoredRun) -> EvalLog:
         error=error,
         limit=_limit(stored),
         scores=scores or None,
+        attachments={sha256: _data_url(data) for sha256, data in run.images.items()},
         metadata={
             "swarmeval": {
                 "schema_version": SCHEMA_VERSION,
@@ -265,7 +312,9 @@ def write_eval(log: EvalLog, path: Path) -> None:
 
 async def export_run(engine: AsyncEngine, header: RunHeader, store: ObjectStore) -> str:
     """Writes the run's `.eval` to `store` and returns its key within the bucket."""
-    log = assemble(header, await load_run(engine, header.run_id))
+    run = await load_run(engine, header.run_id)
+    run = dataclasses.replace(run, images=await load_images(store, image_hashes(run)))
+    log = assemble(header, run)
     key = export_key(header.run_id)
     await asyncio.to_thread(_upload, log, store, key)
     return key
@@ -289,8 +338,19 @@ def _restore(row: ChainRow, run: StoredRun) -> Event:
         ref = ours["input"]
         if ref["gen"] is not None:
             context = run.messages[(ours["agent_id"], ref["gen"])][: ref["len"]]
-            event.input = [to_inspect_message(m) for m in context]
+            event.input = to_inspect_context(context, ours.get("max_images"))
+    if isinstance(event, ToolEvent) and ours.get("images"):
+        # Inline, as Inspect writes tool results: it resolves `attachment://` in messages only.
+        images = _IMAGES.validate_python(ours["images"])
+        event.result = [
+            ContentText(text=str(event.result)),
+            *(ContentImage(image=_data_url(run.images[i.sha256])) for i in images),
+        ]
     return event
+
+
+def _data_url(png: bytes) -> str:
+    return f"data:image/png;base64,{base64.b64encode(png).decode()}"
 
 
 def _agent_of(event: Event) -> str | None:

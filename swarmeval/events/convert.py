@@ -8,6 +8,7 @@ an `InfoEvent` with `source="swarmeval.<kind>"`.
 import json
 import math
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -27,6 +28,7 @@ from inspect_ai.model import (
     ChatMessageTool,
     ChatMessageUser,
     Content,
+    ContentImage,
     ContentReasoning,
     ContentText,
     GenerateConfig,
@@ -42,12 +44,15 @@ from inspect_ai.tool import ToolCallError
 from pydantic import JsonValue
 
 from swarmeval.runtime.messages import (
+    IMAGE_OMITTED,
     AssistantMessage,
     ChatMessage,
+    ImageRef,
     SystemMessage,
     ToolCall,
     ToolMessage,
     UserMessage,
+    visible_images,
 )
 from swarmeval.runtime.records import (
     Exec,
@@ -61,8 +66,13 @@ from swarmeval.runtime.records import (
     ToolCallRecord,
 )
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 """Version of the `metadata.swarmeval` extension. Bump it when any field below changes shape.
+
+10: tool events may carry `images` (`ImageRef`s: a blob hash, media type, and size) from the
+`computer` and `browser` tools; model events carry `max_images`, how many of the context's
+latest images the request sent; `exec` observations carry `collected`, the files sandboxd read
+out of the sandbox after the call. Version 9 runs have none of these and read as before.
 
 9: a fork's `intervention` (`hook: fork`) may be `replace_model`, whose `after` names the model
 slot and the models before and after; such a fork's agents of that slot run the new model. A
@@ -245,6 +255,7 @@ def _model_event(record: ModelCallRecord) -> tuple[ModelEvent, dict[str, JsonVal
         # What the model produced, byte for byte: Inspect's tool calls hold parsed arguments.
         "raw_tool_arguments": {c.id: c.arguments for c in record.response.tool_calls},
         "gateway": record.gateway.model_dump(mode="json"),
+        "max_images": options.max_images,
     }
     return event, extra
 
@@ -273,6 +284,8 @@ def _tool_event(record: ToolCallRecord) -> tuple[ToolEvent, dict[str, JsonValue]
         extra["exec"] = _exec_observations(record.exec_result)
     if record.web is not None:
         extra["web"] = record.web.model_dump(mode="json", exclude={"body"})
+    if result.images:
+        extra["images"] = [i.model_dump(mode="json") for i in result.images]
     return event, extra
 
 
@@ -362,7 +375,24 @@ def from_inspect_assistant(
     )
 
 
-def to_inspect_message(message: ChatMessage) -> InspectMessage:
+ATTACHMENT = "attachment://"
+"""Inspect's reference into `EvalSample.attachments`. Images are keyed by their sha256, and the
+export puts each one's bytes there once."""
+
+
+def image_content(
+    images: Sequence[ImageRef], shown: Sequence[bool]
+) -> list[ContentText | ContentImage]:
+    """Images as Inspect content; one not `shown` to the model is the text it saw instead."""
+    return [
+        ContentImage(image=f"{ATTACHMENT}{i.sha256}") if show else ContentText(text=IMAGE_OMITTED)
+        for i, show in zip(images, shown, strict=True)
+    ]
+
+
+def to_inspect_message(message: ChatMessage, shown: Sequence[bool] = ()) -> InspectMessage:
+    """`shown` says, per image of a tool message, whether the request carried it; images past
+    its end were carried."""
     match message:
         case SystemMessage():
             return ChatMessageSystem(content=message.content)
@@ -372,6 +402,28 @@ def to_inspect_message(message: ChatMessage) -> InspectMessage:
             return to_inspect_assistant(message)
         case ToolMessage():
             error = ToolCallError("unknown", message.content) if message.is_error else None
-            return ChatMessageTool(
-                content=message.content, tool_call_id=message.tool_call_id, error=error
-            )
+            content: str | list[Content] = message.content
+            if message.images:
+                visible = [*shown, *([True] * (len(message.images) - len(shown)))]
+                content = [
+                    ContentText(text=message.content),
+                    *image_content(message.images, visible),
+                ]
+            return ChatMessageTool(content=content, tool_call_id=message.tool_call_id, error=error)
+
+
+def to_inspect_context(
+    messages: Sequence[ChatMessage], max_images: int | None
+) -> list[InspectMessage]:
+    """A request's context as the model saw it: with `max_images`, only the latest images; `None`
+    (events before schema 10) shows every image."""
+    if max_images is None:
+        return [to_inspect_message(m) for m in messages]
+    keep = visible_images(messages, max_images)
+    return [
+        to_inspect_message(
+            m,
+            [(i, j) in keep for j in range(len(m.images))] if isinstance(m, ToolMessage) else (),
+        )
+        for i, m in enumerate(messages)
+    ]

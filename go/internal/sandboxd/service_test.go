@@ -35,6 +35,10 @@ type fakeDriver struct {
 	networks []driver.NetworkSpec
 	netsGone []driver.NetworkID
 	failNet  string // CreateNetwork fails for this name
+	// files are regular files outside the key paths, for collectScript.
+	files map[string][]byte
+	// display plays `swarm-display start`: its output and the processes it leaves.
+	display func(stdout io.Writer) (int, error)
 }
 
 func (f *fakeDriver) Runtimes(context.Context) ([]string, error) { return f.runtimes, nil }
@@ -100,8 +104,23 @@ func (f *fakeDriver) CreateContainer(_ context.Context, spec driver.ContainerSpe
 }
 
 func (f *fakeDriver) Exec(ctx context.Context, _ driver.ContainerID, spec driver.ExecSpec, stdout, stderr io.Writer) (int, error) {
+	if spec.Argv[0] == "swarm-display" {
+		f.mu.Lock()
+		f.execs = append(f.execs, spec)
+		f.mu.Unlock()
+		return f.display(stdout)
+	}
 	if spec.Argv[2] == processScript {
 		return f.listing(stdout)
+	}
+	if spec.Argv[2] == collectScript {
+		data, ok := f.files[spec.Argv[4]]
+		if !ok {
+			return 4, nil
+		}
+		delete(f.files, spec.Argv[4])
+		_, err := stdout.Write(data)
+		return 0, err
 	}
 	f.mu.Lock()
 	f.execs = append(f.execs, spec)

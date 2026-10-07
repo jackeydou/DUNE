@@ -41,7 +41,14 @@ Sandboxes cannot reach model-gateway, and neither can [net-gateway](net-gateway.
 - `POST /v1/chat/completions`, the subset of the OpenAI Chat Completions protocol SwarmEval uses
   (`swarmeval/gateway/model/wire.py`): messages, function tools, `temperature`, `top_p`,
   `max_completion_tokens`, `seed`. Any other field is refused, and so is `stream: true`. Past
-  reasoning travels as `reasoning_content` on assistant messages.
+  reasoning travels as `reasoning_content` on assistant messages. A tool message's `content` may
+  be a list of parts, `text` and `image_url`, for the images a tool returned; an image must be
+  an inline `data:image/png;base64,` URL, so the gateway fetches nothing. Chat Completions takes
+  only text in a tool message, so before sending upstream, and after reasoning passback, the
+  gateway turns each such message into its text and moves its images into one user message
+  after the run of tool messages, each image under `Images from tool call <id>:`. Doing it after
+  passback keeps the added user message from moving the `within_turn` boundary. The worker sends
+  only the images the request's `max_images` keeps ([agent-runtime.md](../agent-runtime.md#images)).
 - `GET /v1/models`: the model names runs may use. The control plane checks every submission
   against it, and lists it to users ([orchestrator](orchestrator.md#models)). No virtual key.
 - Authentication is `Authorization: Bearer <virtual key>`. Each call also carries the caller's

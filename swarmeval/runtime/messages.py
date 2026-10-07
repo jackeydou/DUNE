@@ -6,6 +6,7 @@ All models are frozen: a hook that changes one returns a copy (`model_copy(updat
 is how the dispatcher detects an intervention.
 """
 
+from collections.abc import Sequence
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -39,11 +40,22 @@ class AssistantMessage(Frozen):
     tool_calls: tuple[ToolCall, ...] = ()
 
 
+class ImageRef(Frozen):
+    """An image a tool returned. The bytes are in the blob store under `sha256`; messages and
+    events hold only the reference."""
+
+    sha256: str
+    media_type: Literal["image/png"] = "image/png"
+    width: int
+    height: int
+
+
 class ToolMessage(Frozen):
     role: Literal["tool"] = "tool"
     tool_call_id: str
     content: str
     is_error: bool = False
+    images: tuple[ImageRef, ...] = ()
 
 
 ChatMessage = Annotated[
@@ -71,6 +83,24 @@ class RequestOptions(Frozen):
     top_p: float | None = None
     max_output_tokens: int | None = None
     seed: int | None = None
+    max_images: int = Field(default=3, ge=0)
+    """Images sent with the request: the context's last `max_images`; earlier ones are replaced
+    by `IMAGE_OMITTED` (`visible_images`)."""
+
+
+IMAGE_OMITTED = "[image omitted]"
+
+
+def visible_images(messages: Sequence[ChatMessage], max_images: int) -> set[tuple[int, int]]:
+    """`(message index, image index)` of the images a request with `max_images` carries: the
+    last ones in the context."""
+    every = [
+        (i, j)
+        for i, m in enumerate(messages)
+        if isinstance(m, ToolMessage)
+        for j in range(len(m.images))
+    ]
+    return set(every[max(0, len(every) - max_images) :]) if max_images else set()
 
 
 class ModelRequest(Frozen):

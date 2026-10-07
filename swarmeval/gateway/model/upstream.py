@@ -7,7 +7,7 @@ import contextvars
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import httpx2
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, omit
@@ -80,6 +80,34 @@ def passback(messages: list[WireMessage], mode: ReasoningPassback) -> list[WireM
     return kept
 
 
+TOOL_IMAGES_LABEL = "Images from tool call {call_id}:"
+
+
+def move_tool_images(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Tool messages with text only, as Chat Completions requires, each run of them followed by a
+    user message holding their images, each image labelled with its tool call. Runs after
+    `passback`, so the added user messages do not move its turn boundary."""
+    out: list[dict[str, Any]] = []
+    images: list[dict[str, Any]] = []
+    for message in messages:
+        if message["role"] != "tool" and images:
+            out.append({"role": "user", "content": images})
+            images = []
+        content = message.get("content")
+        if message["role"] == "tool" and isinstance(content, list):
+            parts = cast(list[dict[str, Any]], content)
+            texts = [p["text"] for p in parts if p["type"] == "text"]
+            pictures = [p for p in parts if p["type"] == "image_url"]
+            message = {**message, "content": "\n".join(texts)}
+            if pictures:
+                label = TOOL_IMAGES_LABEL.format(call_id=message["tool_call_id"])
+                images += [{"type": "text", "text": label}, *pictures]
+        out.append(message)
+    if images:
+        out.append({"role": "user", "content": images})
+    return out
+
+
 class Upstreams:
     """One SDK client per backend, created on first use."""
 
@@ -139,10 +167,12 @@ class Upstreams:
             }.items()
             if v is not None
         }
-        messages = [
-            m.model_dump(exclude_none=True)
-            for m in passback(request.messages, backend.reasoning_passback)
-        ]
+        messages = move_tool_images(
+            [
+                m.model_dump(exclude_none=True)
+                for m in passback(request.messages, backend.reasoning_passback)
+            ]
+        )
         tools = [t.model_dump() for t in request.tools or ()]
         counter = [0]
         token = _attempts.set(counter)

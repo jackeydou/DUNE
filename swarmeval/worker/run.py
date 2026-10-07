@@ -34,6 +34,7 @@ from swarmeval.gateway.model.client import (
 )
 from swarmeval.honeypot import PlacedCanary, place, place_sandboxes
 from swarmeval.runtime import RunConfigError, RunLoop, RunSpec
+from swarmeval.runtime.display import DISPLAY_TOOLS
 from swarmeval.runtime.extensions import (
     ExtensionError,
     ExtensionLoadError,
@@ -53,7 +54,7 @@ from swarmeval.web import HttpWebClient
 from swarmeval.worker.fork import last_changes, lineage_views, load_fork, restore
 from swarmeval.worker.pause import CANCELLED, QueuePauser
 from swarmeval.worker.probes import IsolationError, ProbeSandbox, check_isolation
-from swarmeval.worker.transcript import check_transcript
+from swarmeval.worker.transcript import check_transcript, transcript_images
 
 log = logging.getLogger(__name__)
 
@@ -232,6 +233,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     owner_epoch=run.owner_epoch,
                     callers=callers,
                     writer=writer,
+                    images=blobs,
                 )
             )
             web = await stack.enter_async_context(HttpWebClient(blobs))
@@ -242,7 +244,7 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                 sandbox_executor=sandboxes,
                 pauser=QueuePauser(deps.queue, run.run_id, run.owner_epoch, deps.cancel_poll_s),
                 extensions=extensions,
-                tools=BUILTIN_TOOLS,
+                tools=(*BUILTIN_TOOLS, *DISPLAY_TOOLS),
                 web_client=web,
                 fork=fork,
             )
@@ -265,7 +267,9 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
                     writer=writer,
                     prior=prior,
                 ).run(committed)
-            await _check_transcript(deps.engine, spec, loop, writer, last_lifecycle(committed))
+            await _check_transcript(
+                deps.engine, spec, loop, writer, blobs, last_lifecycle(committed)
+            )
     except (ExtensionError, RunConfigError, ScoringError) as err:
         return Outcome("failed", str(err))
     except IsolationError as err:
@@ -280,15 +284,23 @@ async def execute(run: RunRow, deps: WorkerDeps) -> Outcome:
 
 
 async def _check_transcript(
-    engine: AsyncEngine, spec: RunSpec, loop: RunLoop, writer: RunWriter, end: str
+    engine: AsyncEngine,
+    spec: RunSpec,
+    loop: RunLoop,
+    writer: RunWriter,
+    blobs: S3BlobStore,
+    end: str,
 ) -> None:
     """Commits the transcript check as the run's last event before export, so the exports
     carry it. A mismatch is a finding about the run, not a failure of it. Its parent is the
-    last event a mismatch names, or else `end`, the loop's last lifecycle event."""
+    last event a mismatch names, or else `end`, the loop's last lifecycle event. Every image
+    the contexts hold is read into memory for it, since requests carried them inline."""
+    transcript = await load_transcript(engine, spec.run_id)
     check = check_transcript(
-        await load_transcript(engine, spec.run_id),
+        transcript,
         prompts={a.id: initial_context(a) for a in spec.agents},
         tools=loop.tool_schemas(),
+        images={h: await blobs.get(h) for h in sorted(transcript_images(transcript))},
     )
     parent = check.event_ids[-1] if check.event_ids else end
     await writer.commit(Transaction(events=[EventDraft(record=check, parent_id=parent)]))

@@ -1,7 +1,8 @@
 import asyncio
+import hashlib
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import grpc
 import httpx2
@@ -25,6 +26,7 @@ from swarmeval.proto.swarmeval.modelgw.v1.recorder_pb2_grpc import (
 from swarmeval.runtime.loop import RunLoop
 from swarmeval.runtime.messages import (
     AssistantMessage,
+    ImageRef,
     ModelRequest,
     RequestOptions,
     SystemMessage,
@@ -59,6 +61,16 @@ DEV = AgentCaller("dev")
 CALLERS: tuple[Caller, ...] = (DEV, ExtensionCaller("acme.judge"))
 
 
+class MemoryImages:
+    def __init__(self) -> None:
+        self.data: dict[str, bytes] = {}
+        self.reads: list[str] = []
+
+    async def get(self, sha256: str) -> bytes:
+        self.reads.append(sha256)
+        return self.data[sha256]
+
+
 @dataclass
 class Rig:
     backend: MockBackend
@@ -67,6 +79,7 @@ class Rig:
     http: httpx2.AsyncClient
     channel: grpc.aio.Channel
     attachments: Attachments
+    images: MemoryImages = field(default_factory=MemoryImages)
 
     def session(self, *, run_id: str = "run_1", owner_epoch: int = 1) -> GatewaySession:
         return GatewaySession(
@@ -76,6 +89,7 @@ class Rig:
             owner_epoch=owner_epoch,
             callers=CALLERS,
             writer=self.writer,
+            images=self.images,
         )
 
 
@@ -379,3 +393,98 @@ async def test_a_call_waiting_for_its_ack_fails_when_the_stream_goes() -> None:
     with pytest.raises(NotAttachedError, match="closed \\(stream ended\\) before it acknowledged"):
         await waiting
     assert attachments.lookup("k") is None
+
+
+def _image(rig: Rig, data: bytes) -> ImageRef:
+    sha = hashlib.sha256(data).hexdigest()
+    rig.images.data[sha] = data
+    return ImageRef(sha256=sha, width=1024, height=768)
+
+
+async def test_tool_images_reach_the_backend_in_a_user_message_after_the_tools(rig: Rig) -> None:
+    rig.backend.reply(completion("done"))
+    first, second = _image(rig, b"first png"), _image(rig, b"second png")
+    current = AssistantMessage(
+        reasoning="current thoughts",
+        tool_calls=(
+            ToolCall(id="c1", name="computer", arguments="{}"),
+            ToolCall(id="c2", name="computer", arguments="{}"),
+        ),
+    )
+
+    async with rig.session() as session:
+        await session.generate(
+            DEV,
+            request(
+                UserMessage(content="go"),
+                current,
+                ToolMessage(tool_call_id="c1", content="clicked", images=(first,)),
+                ToolMessage(tool_call_id="c2", content="", images=(second,)),
+            ),
+            parent_id=None,
+        )
+
+    sent = rig.backend.requests[0]["messages"]
+    assert [m["role"] for m in sent] == ["user", "assistant", "tool", "tool", "user"]
+    assert sent[2]["content"] == "clicked"
+    assert sent[3]["content"] == ""
+    assert sent[4]["content"] == [
+        {"type": "text", "text": "Images from tool call c1:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,Zmlyc3QgcG5n"}},
+        {"type": "text", "text": "Images from tool call c2:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,c2Vjb25kIHBuZw=="}},
+    ]
+    # The user message carrying the images comes after `passback`: the turn is still current.
+    assert sent[1]["reasoning_content"] == "current thoughts"
+
+
+async def test_only_the_latest_images_are_sent(rig: Rig) -> None:
+    rig.backend.reply(completion("done"))
+    rig.backend.reply(completion("done"))
+    old, new = _image(rig, b"old"), _image(rig, b"new")
+    calls = (ToolCall(id="c1", name="computer", arguments="{}"),)
+    messages = (
+        UserMessage(content="go"),
+        AssistantMessage(tool_calls=calls),
+        ToolMessage(tool_call_id="c1", content="one", images=(old,)),
+        AssistantMessage(tool_calls=(ToolCall(id="c2", name="computer", arguments="{}"),)),
+        ToolMessage(tool_call_id="c2", content="two", images=(new,)),
+    )
+    base = request(*messages)
+    one = base.model_copy(update={"options": base.options.model_copy(update={"max_images": 1})})
+
+    async with rig.session() as session:
+        await session.generate(DEV, one, parent_id=None)
+        await session.generate(DEV, one, parent_id=None)
+
+    sent = rig.backend.requests[0]["messages"]
+    assert sent[2]["content"] == "one\n[image omitted]"
+    assert [m["role"] for m in sent] == ["user", "assistant", "tool", "assistant", "tool", "user"]
+    assert sent[4]["content"] == "two"
+    assert sent[5]["content"][1]["image_url"]["url"] == "data:image/png;base64,bmV3"
+    assert rig.images.reads == [new.sha256], "the second request reuses the first's images"
+
+
+async def test_a_tool_image_that_is_not_an_inline_png_is_refused(rig: Rig) -> None:
+    wire = {
+        "model": "qwen-test",
+        "messages": [
+            {"role": "user", "content": "go"},
+            {
+                "role": "tool",
+                "tool_call_id": "c1",
+                "content": [{"type": "image_url", "image_url": {"url": "http://evil/x.png"}}],
+            },
+        ],
+    }
+
+    async with rig.session() as session:
+        key = session._keys["agent:dev"]  # pyright: ignore[reportPrivateUsage]
+        reply = await rig.http.post(
+            "/v1/chat/completions",
+            json=wire,
+            headers={"Authorization": f"Bearer {key}", CALL_ID_HEADER: "call_1"},
+        )
+
+    assert reply.json()["error"]["code"] == "invalid_request"
+    assert rig.backend.requests == []

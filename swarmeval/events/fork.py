@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from swarmeval.db import canaries, checkpoints, events, messages, run_specs
 from swarmeval.events.seal import ChainHead
+from swarmeval.runtime.display import DISPLAY_TOOL_NAMES
 from swarmeval.runtime.extensions import CanaryInfo, SandboxCanaryInfo
 from swarmeval.runtime.messages import ChatMessage
 from swarmeval.runtime.records import Checkpoint
@@ -73,6 +74,29 @@ async def point_at(engine: AsyncEngine, run_id: str, seq: int, what: str = "") -
                 "comes before the first turn, the run's turn policy is `async`, which takes no "
                 "checkpoints, or the run was recorded before forks were possible. Fork at a "
                 "later event of a `round_robin` or `event_driven` run."
+            )
+        display = (
+            await conn.execute(
+                select(events.c.event_id, events.c.payload["function"].astext)
+                .where(
+                    events.c.run_id == run_id,
+                    events.c.seq <= row.seq,
+                    events.c.type == "tool",
+                    events.c.payload["function"].astext.in_(DISPLAY_TOOL_NAMES),
+                    events.c.payload["metadata"]["swarmeval"]["executed_arguments"].astext.is_not(
+                        None
+                    ),
+                )
+                .order_by(events.c.seq)
+                .limit(1)
+            )
+        ).one_or_none()
+        if display is not None:
+            raise ForkPointError(
+                f"run `{run_id}` used `{display[1]}` (event `{display[0]}`) before the turn "
+                f"holding {what or f'seq {seq + 1}'}. A fork restores files but not a browser or "
+                "a screen, so it cannot go on from there. Fork at an event before the first "
+                "`browser` or `computer` call."
             )
         checkpoint = Checkpoint.model_validate(row.state)
         if checkpoint.spawned:
