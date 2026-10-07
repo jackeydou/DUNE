@@ -30,6 +30,19 @@ export function pathsWith(files: readonly CaseFile[], changes: Changes): string[
   return [...paths].sort()
 }
 
+/** Each path the editor lists, with its text, or `undefined` for a binary file or a link. */
+export function textsWith(files: readonly CaseFile[], changes: Changes): Map<string, string | undefined> {
+  const stored = new Map(files.map((f) => [f.path, f]))
+  return new Map(
+    pathsWith(files, changes).map((path) => {
+      const edited = changes.get(path)
+      const file = stored.get(path)
+      if (edited) return [path, textOf(edited)]
+      return [path, file && !file.linkTarget ? textOf(file.content) : undefined]
+    })
+  )
+}
+
 export function pathProblem(path: string, existing: readonly string[]): string | undefined {
   if (!path) return "Give the file a path."
   if (path.startsWith("/") || path.split("/").some((p) => p === "" || p === "." || p === ".."))

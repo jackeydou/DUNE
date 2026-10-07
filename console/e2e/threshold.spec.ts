@@ -45,6 +45,14 @@ test("create a case, run it, read the result and the replay, and fork it", async
   await expect(page).toHaveURL(new RegExp(`/cases/${WORKSPACE}/${CASE}$`))
   await expect(page.getByRole("heading", { name: `${WORKSPACE}/${CASE}` })).toBeVisible()
 
+  // The case opens drawn as a flow; a part's YAML opens in the source view.
+  await expect(page.getByTestId("flow-node")).toHaveCount(5)
+  await page.getByTestId("flow").getByLabel("Agent agent").click()
+  await expect(page.getByTestId("node-detail")).toContainText("prompts/agent.md")
+  await page.getByTestId("node-detail").getByRole("button", { name: "Edit" }).click()
+  await expect(page).toHaveURL(/view=source/)
+  await expect(page.getByTestId("current-file")).toHaveText("case.yaml")
+
   // A case that does not load is refused with the loader's message, and nothing is saved.
   await page.getByTestId("files").getByRole("button", { name: "case.yaml" }).click()
   await expect(page.getByTestId("current-file")).toHaveText("case.yaml")
