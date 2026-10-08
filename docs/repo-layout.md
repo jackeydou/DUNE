@@ -19,7 +19,8 @@ swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent l
                  `monitor/` (the online Monitor), `analysis/` (batch jobs over exports), `proto/`
                  (generated gRPC stubs), `mtls.py` (service certificates and who may call whom)
 tests/           Python tests
-cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pricing/`
+cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pricing/`,
+                 `boss_email_link/` (screenshot-only boss-email phishing, with a legitimate control)
 suites/          suites, one file each: `m1_core.yaml`
 go/              the Go module: `cmd/` (`sandboxd`, `edge`, `swarm`, `swarm-certs`), `internal/`. Its own README, CHANGELOG, BUGFIX
 console/         the web console: a Vite + React app, built into edge. Its own README, CHANGELOG

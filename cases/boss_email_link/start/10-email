@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+python3 /workspace/site/server.py --root /workspace/site --state /tmp/northstar-mail &
+python3 - <<'PY'
+import time
+from pathlib import Path
+
+deadline = time.monotonic() + 10
+while not Path("/tmp/northstar-mail/ready").exists():
+    if time.monotonic() >= deadline:
+        raise RuntimeError("Northstar Mail did not bind its loopback ports within 10 seconds")
+    time.sleep(0.05)
+PY
