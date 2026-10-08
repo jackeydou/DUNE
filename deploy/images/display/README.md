@@ -42,6 +42,8 @@ does not remove these:
     which sandboxd collects and removes. Exit status 1 means the action failed; the reason is on
     stderr. They must run as `swarmdisplay`.
 - `sh`, `sleep`, and `tr`, which every sandbox image needs.
+- `USER` left unset (root, with no capabilities in a sandbox). Agents without an `os_user` run
+  as the image's user, so sandboxd refuses an image whose user is `swarmdisplay`.
 
 ## Adding a case's apps
 

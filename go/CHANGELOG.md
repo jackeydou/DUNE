@@ -7,7 +7,8 @@
   runs the display image's `swarm-display start` as `swarmdisplay` before the first manifest
   (`spec/2026-10-07-browser-computer-use`). That user's processes are left out of every process
   listing, so a browser's renderers are neither reported nor make a call's changes ambiguous. A
-  key path overlapping `/run/swarm-display` is refused.
+  key path overlapping `/run/swarm-display` is refused, and so is `swarmdisplay` as an agent's
+  user or as the image's `USER`.
 - `ExecRequest.collect`: after the command, sandboxd reads and removes files outside the key
   paths as the call's user and returns them as blobs (`ExecHeader.collected`), up to 8 MiB each.
 - `driver.Process.UID`: the numeric uid beside the user's name.

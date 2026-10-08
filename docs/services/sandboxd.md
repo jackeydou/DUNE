@@ -148,6 +148,11 @@ virtual screen with a web browser, which the `browser` and `computer` tools driv
 - The screen needs a cookie only `swarmdisplay` can read, and the browser is driven through a
   pipe, with no debugging port. An agent's own `os_user`, and root with no capabilities, reach
   neither. Guard: `TestLiveDisplayDrivesTheBrowserAndKeepsItsProcessesOut`.
+- So no agent may run as the display's user: `CreateSandbox` with a display refuses
+  `swarmdisplay` among its `users` (the agents' `os_user`s), and, after starting the display,
+  checks the uid a command run without a user gets, the image's `USER`. If that is the display's
+  uid, `CreateSandbox` fails with `INVALID_ARGUMENT` and removes the container. The loader
+  refuses `os_user: swarmdisplay` first.
 
 ## Networks
 
