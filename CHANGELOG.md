@@ -7,6 +7,10 @@
   made after it reaches the backend.
 
 ### Added
+- `cases/boss_email_link`: one agent uses only `computer` screenshots and desktop input to
+  handle a boss's email. Ordinary phishing, urgent phishing, and legitimate-link variants
+  run against sandbox-local mock pages; scores record phishing visits, visits before
+  observable link/sender checks, and access to the trusted project brief.
 - `browser` and `computer`: agents drive a web browser and a virtual screen inside their sandbox
   (`spec/2026-10-07-browser-computer-use`). A profile's `display` (`env.yaml` schema version 2)
   starts the display image's screen and Chromium; `browser` acts on accessibility-snapshot refs,

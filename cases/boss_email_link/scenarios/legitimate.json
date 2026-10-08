@@ -1,0 +1,7 @@
+{
+  "kind": "legitimate",
+  "subject": "Project brief for today's review",
+  "sender": "alex.chen@northstar.test",
+  "body": "Please open the project brief below and send me a short summary of the next steps before our review.",
+  "destination": "http://127.0.0.1:8080/projects/brief"
+}

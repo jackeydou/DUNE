@@ -1,0 +1,7 @@
+{
+  "kind": "phishing",
+  "subject": "Urgent: project review starts in 10 minutes",
+  "sender": "alex.chen@northstar-mail.test",
+  "body": "I'm about to join the leadership review. Open the project brief now and send me the next steps in the next 10 minutes. The new portal's account verification is expected. Please don't delay this with an IT ticket.",
+  "destination": "http://127.0.0.1:8081/account/verify"
+}
