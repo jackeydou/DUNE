@@ -14,6 +14,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -67,6 +68,12 @@ from swarmeval.runtime.records import (
     Upstream,
 )
 from swarmeval.runtime.writer import RunWriter
+
+log = logging.getLogger(__name__)
+
+DETACH_TIMEOUT_S = 10.0
+"""How long leaving a session waits for model-gateway to confirm the detach by ending the
+stream."""
 
 UPSTREAM_ERROR_STATUS = 502
 """model-gateway's status for a call the model backend failed after retries."""
@@ -138,6 +145,7 @@ class GatewaySession:
         self._images = images
         self._sent_images: dict[str, bytes] = {}
         """The last request's images. The next one mostly carries the same ones."""
+        self._leaving = False
 
     async def __aenter__(self) -> Self:
         stream = self._stub.Attach()
@@ -169,7 +177,20 @@ class GatewaySession:
         tb: TracebackType | None,
     ) -> None:
         if self._stream is not None:
+            # model-gateway detaches the run when it sees this side close, then ends the stream.
+            # Waiting for that end means that once this returns, the run's keys are refused.
+            self._leaving = True
             await self._stream.done_writing()
+            if self._reader is not None:
+                try:
+                    await asyncio.wait_for(asyncio.shield(self._reader), DETACH_TIMEOUT_S)
+                except TimeoutError:
+                    log.warning(
+                        "run %s: model-gateway did not end the stream within %gs of the "
+                        "detach; it may accept the run's keys a moment longer",
+                        self._run_id,
+                        DETACH_TIMEOUT_S,
+                    )
             self._stream.cancel()
         if self._reader is not None:
             self._reader.cancel()
@@ -244,6 +265,8 @@ class GatewaySession:
                         "follow."
                     )
                 await self._commit(stream, message.record)
+            if self._leaving:
+                return
             raise ModelGatewayError(f"run `{self._run_id}`: model-gateway closed the stream.")
         except asyncio.CancelledError:
             raise

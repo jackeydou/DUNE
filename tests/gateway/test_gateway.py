@@ -11,7 +11,7 @@ import pytest
 from swarmeval.gateway.model.app import create_app
 from swarmeval.gateway.model.client import GatewaySession, ModelGatewayError
 from swarmeval.gateway.model.config import GatewayConfig, ReasoningPassback
-from swarmeval.gateway.model.recorder import Attachments, NotAttachedError, Recorder
+from swarmeval.gateway.model.recorder import Attachment, Attachments, NotAttachedError, Recorder
 from swarmeval.gateway.model.upstream import Upstreams, passback
 from swarmeval.gateway.model.wire import (
     CALL_ID_HEADER,
@@ -269,6 +269,24 @@ async def test_without_an_attached_stream_the_backend_is_never_called(rig: Rig) 
     assert info.value.status == 503
     assert "run_not_attached" in str(info.value)
     assert rig.backend.requests == []
+
+
+async def test_leaving_a_session_returns_after_model_gateway_detached_the_run(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    detach = rig.attachments.detach
+
+    def slow(attachment: Attachment, reason: str) -> None:
+        """A loaded gateway: it gets to the detach a while after the worker's side closed."""
+        asyncio.get_running_loop().call_later(0.2, detach, attachment, reason)
+
+    monkeypatch.setattr(rig.attachments, "detach", slow)
+    session = rig.session()
+    async with session:
+        key = session._keys["agent:dev"]  # pyright: ignore[reportPrivateUsage]
+        assert rig.attachments.lookup(key) is not None
+
+    assert rig.attachments.lookup(key) is None
 
 
 async def test_a_record_the_worker_cannot_commit_fails_the_call(rig: Rig) -> None:
