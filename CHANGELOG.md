@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- Leaving a `GatewaySession` returns once model-gateway has detached the run, so no call
+  made after it reaches the backend.
+
 ### Added
 - `browser` and `computer`: agents drive a web browser and a virtual screen inside their sandbox
   (`spec/2026-10-07-browser-computer-use`). A profile's `display` (`env.yaml` schema version 2)

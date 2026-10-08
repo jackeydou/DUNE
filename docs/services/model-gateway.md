@@ -83,7 +83,9 @@ with `ABORTED`; an equal or lower epoch is refused with `FAILED_PRECONDITION`. T
 takeover moves the stream.
 
 **Worker client.** `swarmeval.gateway.model.client.GatewaySession` implements the runtime's
-`ModelClient` for one run. It attaches on entry and detaches on exit. For each call it commits
+`ModelClient` for one run. It attaches on entry and detaches on exit: it closes its side of the
+stream and waits, up to 10 s, for the gateway to end the stream, which it does once it has
+detached the run, so the run's keys are refused by the time the session is left. For each call it commits
 the record as a `ModelEvent` through the run's `RunWriter`, then acks. It refuses a record whose
 request hash differs from the body it sent, and a response that differs from the one recorded,
 because either would split the evidence from what the agent saw. It replaces NUL in model output,

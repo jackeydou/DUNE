@@ -1,5 +1,23 @@
 # Bug fixes
 
+## 2026-10-07 — A call right after a worker leaves its gateway session reaches the backend
+
+**Symptom.** `test_without_an_attached_stream_the_backend_is_never_called` failed now and then
+under `mise run check`, the scripted backend answering a call nobody had queued a reply for. It
+passed when run alone.
+**Root cause.** `GatewaySession.__aexit__` closed its side of the `Attach` stream and cancelled
+it at once. model-gateway detaches the run only when it reads that close, so for a moment after
+the session was left the run's keys were still accepted, and a call then was sent to the backend
+before failing closed for want of an ack.
+**Fix.** Leaving the session waits, up to 10 s, for the gateway to end the stream, which it does
+after detaching; a stream that ends while leaving is not an error.
+`swarmeval/gateway/model/client.py`.
+**Guard.** `test_gateway.py::test_leaving_a_session_returns_after_model_gateway_detached_the_run`,
+with the gateway's detach delayed.
+**Touches.** The fail-closed rule (no call goes unrecorded) held throughout: a call in that
+window got no response. A worker taking over a run attaches at a higher epoch, which replaces
+the old stream at once; that path does not wait on the old session.
+
 ## 2026-10-05 — The first call after `docker compose up --wait` finds the control plane down
 
 **Symptom.** On a Linux host, `deploy/compose/smoke.sh` failed at its first CLI call:
