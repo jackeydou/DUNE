@@ -186,7 +186,7 @@ func (s *Service) CreateSandbox(ctx context.Context, req CreateRequest) (string,
 	if err := checkIdentity(req, mounts); err != nil {
 		return "", fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
 	}
-	if err := checkDisplay(req.Display, mounts); err != nil {
+	if err := checkDisplay(req.Display, mounts, req.Users); err != nil {
 		return "", fmt.Errorf("sandbox %s of run %s: %w", req.SandboxID, req.RunID, err)
 	}
 	net, err := s.network(req.RunID, req.SandboxID)

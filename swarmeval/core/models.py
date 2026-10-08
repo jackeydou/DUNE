@@ -24,7 +24,7 @@ from pydantic import (
 )
 
 from swarmeval.detect.defs import DetectorDef
-from swarmeval.runtime.display import DISPLAY_STATE, DISPLAY_TOOLS
+from swarmeval.runtime.display import DISPLAY_STATE, DISPLAY_TOOLS, DISPLAY_USER
 from swarmeval.runtime.extensions import ExtensionUse
 from swarmeval.runtime.tools import BUILTIN_TOOLS, SandboxTool
 
@@ -335,6 +335,17 @@ class CaseFile(Strict):
 
     def has_sandbox(self, agent: AgentDef) -> bool:
         return self.schema_version < NO_SANDBOX_VERSION or agent.sandbox != NO_SANDBOX
+
+    @model_validator(mode="after")
+    def _display_user_is_reserved(self) -> Self:
+        for agent in self.swarm.agents:
+            if agent.os_user == DISPLAY_USER:
+                raise ValueError(
+                    f"agent `{agent.id}` sets `os_user: {DISPLAY_USER}`, the user that runs a "
+                    "sandbox's display: its commands could reach the screen and the browser "
+                    "around the `browser` and `computer` tools. Pick another user."
+                )
+        return self
 
     @model_validator(mode="after")
     def _sandboxless_agents_run_nothing(self) -> Self:

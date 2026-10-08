@@ -8,6 +8,7 @@
   starts the display image's screen and Chromium; `browser` acts on accessibility-snapshot refs,
   `computer` on screen pixels, both run as the display's own user, and their screenshots reach
   the model as images. The sandbox keeps no network: the browser reaches loopback and files only.
+  No agent may set `os_user: swarmdisplay`, the display's own user.
   `deploy/images/display` builds the image (`mise run display:build`).
 - Tool results may carry images (`ToolResult.images`, `ToolMessage.images`, `ImageRef`), stored
   as blobs and referenced by hash. `RequestOptions.max_images` (default 3) keeps a request to

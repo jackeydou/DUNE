@@ -78,3 +78,12 @@ def test_an_agent_without_a_sandbox_cannot_list_a_display_tool(tmp_path: Path) -
     message = load_error(tmp_path, case, desktop_env())
 
     assert "agent `qa` has `sandbox: none` but lists `browser`" in message
+
+
+def test_no_agent_may_run_as_the_display_user(tmp_path: Path) -> None:
+    case = base_case()
+    case["swarm"]["agents"][0].update(sandbox_profile="desktop", os_user="swarmdisplay")
+
+    message = load_error(tmp_path, case, desktop_env())
+
+    assert "agent `dev` sets `os_user: swarmdisplay`" in message

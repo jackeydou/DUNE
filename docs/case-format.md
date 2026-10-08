@@ -367,13 +367,17 @@ sandbox_profiles:
 
 - The display runs as the user `swarmdisplay` and keeps its state in `/run/swarm-display`. A key
   path there, above it, or at `/` is rejected. Agents' own users cannot reach the screen or the
-  browser except through the two tools.
+  browser except through the two tools, so no agent may set `os_user: swarmdisplay`, and an
+  image whose `USER` is `swarmdisplay` fails the sandbox.
 - Programs the case needs on the screen or behind the browser, such as a web shop on
   `127.0.0.1:8080`, start from executables in the image's `/etc/swarm-display/start.d/`, before
   the browser opens.
 - Agents sharing a sandbox share its screen.
 - The browser is the memory of the run: a [fork](services/orchestrator.md#forks) restores files
   but not the screen, so a fork after an agent's first `browser` or `computer` call is refused.
+  A fork before it starts the display from the seed files, as its source did when its sandbox
+  was created, and restores the source's file changes after: the start scripts and the first
+  page see what they saw in the source, and the files are the source's at the fork point.
 - Chromium needs memory: give the profile at least `memory: 1gib` and a few hundred `pids`.
 
 ## Variants

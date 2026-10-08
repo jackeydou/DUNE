@@ -102,6 +102,7 @@ func TestDisplayIsRefusedWhenItCannotWork(t *testing.T) {
 		"key path at its dir": {Display: &Display{Width: 1024, Height: 768}, Mounts: []Mount{{Path: DisplayDir}}},
 		"key path above it":   {Display: &Display{Width: 1024, Height: 768}, Mounts: []Mount{{Path: "/run"}}},
 		"key path at root":    {Display: &Display{Width: 1024, Height: 768}, Mounts: []Mount{{Path: "/"}}},
+		"agent as display":    {Display: &Display{Width: 1024, Height: 768}, Users: []string{"qa", DisplayUser}},
 	}
 	for name, req := range cases {
 		svc := New(DefaultConfig(t.TempDir()), &fakeDriver{}, slog.New(slog.DiscardHandler))
@@ -172,5 +173,29 @@ func TestExecRefusesCollectPathsInKeyPaths(t *testing.T) {
 		if !errors.Is(err, ErrInvalid) {
 			t.Errorf("collect %q: err = %v, want ErrInvalid", p, err)
 		}
+	}
+}
+
+func TestDisplayIsRefusedWhenTheImageRunsAsTheDisplayUser(t *testing.T) {
+	f := newFixture(t)
+	f.drv.defaultUID = "1000" // the fake lists the first user it meets, swarmdisplay, as 1000
+	f.drv.procs = nil
+	f.drv.display = func(stdout io.Writer) (int, error) {
+		f.drv.procs = []driver.Process{{PID: 50, PPID: 1, User: DisplayUser, Cmdline: "swarm-display daemon"}}
+		_, err := io.WriteString(stdout, "50\n")
+		return 0, err
+	}
+	if err := f.svc.CreateRun(context.Background(), "run_2", []string{"desk"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.svc.CreateSandbox(context.Background(), CreateRequest{
+		RunID: "run_2", SandboxID: "desk", Image: "img", Display: &Display{Width: 1024, Height: 768},
+	})
+
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid: agents without an os_user would run as the display", err)
+	}
+	if !slices.Contains(f.drv.removed, driver.ContainerID("c_desk")) {
+		t.Fatal("container not removed")
 	}
 }

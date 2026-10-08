@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,9 +31,14 @@ type Display struct {
 	URL string
 }
 
-func checkDisplay(d *Display, mounts []Mount) error {
+func checkDisplay(d *Display, mounts []Mount, users []string) error {
 	if d == nil {
 		return nil
+	}
+	// Users are the agents' users. The display's runs the screen and the browser, so an agent
+	// running as it would reach both around the tools.
+	if slices.Contains(users, DisplayUser) {
+		return fmt.Errorf("%w: user %s runs the display and cannot be an agent's user", ErrInvalid, DisplayUser)
 	}
 	if d.Width < 320 || d.Width > 1920 || d.Height < 240 || d.Height > 1200 {
 		return fmt.Errorf("%w: display %dx%d is outside 320x240 to 1920x1200", ErrInvalid, d.Width, d.Height)
@@ -79,12 +86,36 @@ func (s *Service) startDisplay(ctx context.Context, sb *sandbox, d *Display) (st
 	if err != nil {
 		return "", err
 	}
-	for _, p := range procs {
-		if p.PID == int32(pid) {
-			return p.UID, nil
-		}
+	i := slices.IndexFunc(procs, func(p driver.Process) bool { return p.PID == int32(pid) })
+	if i < 0 {
+		return "", fmt.Errorf("start the display in container %s: its pid %d is not running after `swarm-display start` returned", sb.container, pid)
 	}
-	return "", fmt.Errorf("start the display in container %s: its pid %d is not running after `swarm-display start` returned", sb.container, pid)
+	uid := procs[i].UID
+	// An agent without an os_user runs as the image's user; that must not be the display's.
+	fallback, err := s.defaultUID(ctx, sb)
+	if err != nil {
+		return "", err
+	}
+	if fallback == uid {
+		return "", fmt.Errorf("%w: the image's default user is uid %s, which runs the display, so agents without an os_user would reach the screen and the browser around the tools. Leave `USER` unset in an image built from swarmeval/display", ErrInvalid, uid)
+	}
+	return uid, nil
+}
+
+// defaultUIDScript prints the uid it runs as, with builtins only.
+const defaultUIDScript = `while read -r k v _; do case $k in Uid:) echo "$v"; exit 0 ;; esac; done < /proc/self/status
+exit 3`
+
+// defaultUID is the uid a command run without a user gets: the image's `USER`.
+func (s *Service) defaultUID(ctx context.Context, sb *sandbox) (string, error) {
+	idCtx, cancel := context.WithTimeout(ctx, s.cfg.HelperTimeout)
+	defer cancel()
+	stdout := &capBuffer{limit: 64}
+	code, err := s.drv.Exec(idCtx, sb.container, driver.ExecSpec{Argv: []string{"/bin/sh", "-c", defaultUIDScript}}, stdout, io.Discard)
+	if err != nil || code != 0 {
+		return "", fmt.Errorf("read the default user of container %s: exit %d: %w", sb.container, code, err)
+	}
+	return strings.TrimSpace(string(stdout.buf)), nil
 }
 
 // collectScript prints the regular file $1 and removes it; exit 4 when there is none. A

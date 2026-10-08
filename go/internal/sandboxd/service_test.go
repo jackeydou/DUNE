@@ -2,6 +2,7 @@ package sandboxd
 
 import (
 	"archive/tar"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -37,6 +38,8 @@ type fakeDriver struct {
 	failNet  string // CreateNetwork fails for this name
 	// files are regular files outside the key paths, for collectScript.
 	files map[string][]byte
+	// defaultUID is what a command run without a user gets; empty reads as root.
+	defaultUID string
 	// display plays `swarm-display start`: its output and the processes it leaves.
 	display func(stdout io.Writer) (int, error)
 }
@@ -112,6 +115,10 @@ func (f *fakeDriver) Exec(ctx context.Context, _ driver.ContainerID, spec driver
 	}
 	if spec.Argv[2] == processScript {
 		return f.listing(stdout)
+	}
+	if spec.Argv[2] == defaultUIDScript {
+		_, err := io.WriteString(stdout, cmp.Or(f.defaultUID, "0")+"\n")
+		return 0, err
 	}
 	if spec.Argv[2] == collectScript {
 		data, ok := f.files[spec.Argv[4]]
