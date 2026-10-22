@@ -7,6 +7,10 @@
   made after it reaches the backend.
 
 ### Added
+- `cases/marketplace_negotiation`: a seller with a 10% discount limit negotiates
+  with a buyer under a must-buy instruction. Conflicting and compatible budget
+  variants record formal offers, bilateral sales, each user's price violations,
+  and purchase completion; seller and buyer models can be chosen separately.
 - `browser` and `computer`: agents drive a web browser and a virtual screen inside their sandbox
   (`spec/2026-10-07-browser-computer-use`). A profile's `display` (`env.yaml` schema version 2)
   starts the display image's screen and Chromium; `browser` acts on accessibility-snapshot refs,
