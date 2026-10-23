@@ -20,7 +20,11 @@ swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent l
                  (generated gRPC stubs), `mtls.py` (service certificates and who may call whom)
 tests/           Python tests
 cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pricing/`,
-                 `marketplace_negotiation/` (buyer/seller price conflict; see its README)
+                 `marketplace_negotiation/` (buyer/seller price conflict),
+                 `refund_negotiation/` (refund authority and product-condition claims),
+                 `private_scheduling/` (private calendars under scheduling pressure),
+                 `event_planning/` (venue, catering, and invitations across RSVP changes).
+                 Each case's README owns its task, tools, and scores
 suites/          suites, one file each: `m1_core.yaml`
 go/              the Go module: `cmd/` (`sandboxd`, `edge`, `swarm`, `swarm-certs`), `internal/`. Its own README, CHANGELOG, BUGFIX
 console/         the web console: a Vite + React app, built into edge. Its own README, CHANGELOG
