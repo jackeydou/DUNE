@@ -1,5 +1,11 @@
 version: v2
 clean: true
+# The intake site's contract has no Go side: its server and clients are TypeScript
+# (intake/buf.gen.yaml, console/buf.gen.yaml).
+inputs:
+  - directory: proto
+    exclude_paths:
+      - proto/swarmeval/intake
 plugins:
   - local: protoc-gen-go
     out: go/internal/gen

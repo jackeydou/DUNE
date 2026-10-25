@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+package swarmeval.intake.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// SubmissionService is a signed-in submitter's own cases. A submission is one case directory with
+// an append-only list of revisions; a submitter reads and changes only their own, and another's
+// is NOT_FOUND. A save that fails a check is INVALID_ARGUMENT with every problem in the message;
+// CheckFiles returns the same problems without saving. Behavior: docs/services/intake.md.
+service SubmissionService {
+  // Saves a new submission as its revision 1. A case id another live submission holds is
+  // ALREADY_EXISTS. Too many saves in a day is RESOURCE_EXHAUSTED.
+  rpc CreateSubmission(CreateSubmissionRequest) returns (CreateSubmissionResponse);
+  // Saves changes against `base_revision` as the next revision. A base that is not the newest
+  // revision is ABORTED, with the newest revision's number in the message. A withdrawn
+  // submission is FAILED_PRECONDITION.
+  rpc UpdateSubmission(UpdateSubmissionRequest) returns (UpdateSubmissionResponse);
+  rpc GetSubmission(GetSubmissionRequest) returns (GetSubmissionResponse);
+  // One revision with its files. Revision 0 is the newest.
+  rpc GetSubmissionRevision(GetSubmissionRevisionRequest) returns (GetSubmissionRevisionResponse);
+  // The caller's submissions, newest change first, withdrawn ones included.
+  rpc ListMySubmissions(ListMySubmissionsRequest) returns (ListMySubmissionsResponse);
+  // Marks the submission withdrawn. Nothing is deleted, and its case id is free again.
+  rpc WithdrawSubmission(WithdrawSubmissionRequest) returns (WithdrawSubmissionResponse);
+  // Checks files as a save would, and saves nothing.
+  rpc CheckFiles(CheckFilesRequest) returns (CheckFilesResponse);
+}
+
+enum ReviewState {
+  REVIEW_STATE_UNSPECIFIED = 0;
+  // Waiting for the maintainers' checks. Every new revision comes back here.
+  REVIEW_STATE_SUBMITTED = 1;
+  // The maintainers' automatic checks passed; waiting for a person.
+  REVIEW_STATE_TRIAGED = 2;
+  // Taken into an evaluation round.
+  REVIEW_STATE_ACCEPTED = 3;
+  // Not taken; `review_note` says why.
+  REVIEW_STATE_REJECTED = 4;
+  // The submitter withdrew it.
+  REVIEW_STATE_WITHDRAWN = 5;
+}
+
+message Submission {
+  // `sub_` and 26 base32 characters.
+  string submission_id = 1;
+  // The `id` of its `case.yaml`.
+  string case_id = 2;
+  // `category` and `description` of the newest revision's `case.yaml`, as written; may be empty.
+  string category = 3;
+  string description = 4;
+  ReviewState state = 5;
+  // Why it was rejected, or what the maintainers want changed. Plain text.
+  string review_note = 6;
+  // The evaluation round it was accepted into, such as `2026q4`.
+  string round = 7;
+  // The revision that was accepted; 0 when none was.
+  int32 accepted_revision = 8;
+  int32 newest_revision = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message SubmissionRevision {
+  int32 revision = 1;
+  // What changed, as the submitter wrote it. At most 1,000 characters.
+  string note = 2;
+  // sha256 of the revision's files in canonical form: hex.
+  string content_sha256 = 3;
+  // The terms version and license the submitter accepted for this revision.
+  string terms_version = 4;
+  string license = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// A file of a submission. Text only: UTF-8 without NUL. Every file is stored with mode 0644;
+// there are no links.
+message SubmissionFile {
+  // Relative to the case directory, with `/` separators.
+  string path = 1;
+  bytes content = 2;
+}
+
+message FileChange {
+  string path = 1;
+  oneof change {
+    // The file's new content. Creates the file if it is new.
+    bytes content = 2;
+    // Removes the file. Must be true.
+    bool delete = 3;
+  }
+}
+
+// One thing a check found.
+message Problem {
+  // The file it is in; empty when it is about the submission as a whole.
+  string path = 1;
+  // What is wrong and what to change.
+  string message = 2;
+}
+
+message CreateSubmissionRequest {
+  repeated SubmissionFile files = 1;
+  string note = 2;
+  // Must be the site's current terms version (GetSiteConfig); an older one is
+  // FAILED_PRECONDITION.
+  string accepted_terms = 3;
+  // The Turnstile widget's response for this save.
+  string turnstile_token = 4;
+}
+
+message CreateSubmissionResponse {
+  Submission submission = 1;
+  SubmissionRevision revision = 2;
+}
+
+message UpdateSubmissionRequest {
+  string submission_id = 1;
+  int32 base_revision = 2;
+  repeated FileChange changes = 3;
+  string note = 4;
+  string accepted_terms = 5;
+  string turnstile_token = 6;
+}
+
+message UpdateSubmissionResponse {
+  Submission submission = 1;
+  SubmissionRevision revision = 2;
+  // False when the changes left every file as it was; `revision` is then the newest one.
+  bool created = 3;
+}
+
+message GetSubmissionRequest {
+  string submission_id = 1;
+}
+
+message GetSubmissionResponse {
+  Submission submission = 1;
+  // Newest first.
+  repeated SubmissionRevision revisions = 2;
+}
+
+message GetSubmissionRevisionRequest {
+  string submission_id = 1;
+  int32 revision = 2;
+}
+
+message GetSubmissionRevisionResponse {
+  SubmissionRevision revision = 1;
+  // Sorted by path.
+  repeated SubmissionFile files = 2;
+}
+
+message ListMySubmissionsRequest {}
+
+message ListMySubmissionsResponse {
+  repeated Submission submissions = 1;
+}
+
+message WithdrawSubmissionRequest {
+  string submission_id = 1;
+}
+
+message WithdrawSubmissionResponse {
+  Submission submission = 1;
+}
+
+message CheckFilesRequest {
+  repeated SubmissionFile files = 1;
+}
+
+message CheckFilesResponse {
+  // Empty when the files would be saved.
+  repeated Problem problems = 1;
+}

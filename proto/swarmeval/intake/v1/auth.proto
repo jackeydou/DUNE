@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package swarmeval.intake.v1;
+
+// IntakeAuthService is the intake site's session surface. Signing in is not an RPC: it is
+// GitHub's OAuth flow through `/auth/github/start` and `/auth/github/callback`, which sets the
+// session cookie. Every RPC here needs that cookie. Behavior: docs/services/intake.md.
+service IntakeAuthService {
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+  // Ends the calling session and clears its cookie.
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+}
+
+// A person who submits cases: one GitHub account.
+message Submitter {
+  // GitHub's login at the last sign-in. It can change on GitHub; `github_id` cannot.
+  string github_login = 1;
+  int64 github_id = 2;
+  // GitHub's display name at the last sign-in; may be empty.
+  string name = 3;
+}
+
+message WhoAmIRequest {}
+
+message WhoAmIResponse {
+  Submitter submitter = 1;
+}
+
+message LogoutRequest {}
+
+message LogoutResponse {}
