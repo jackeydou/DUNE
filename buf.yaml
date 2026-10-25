@@ -7,8 +7,8 @@ lint:
 breaking:
   use:
     - FILE
-  # Only the public API (swarmeval/api) is a contract with outside clients. Internal services
-  # change together with their callers in one commit.
+  # Only the public APIs (swarmeval/api, and swarmeval/intake, the intake site's) are contracts
+  # with outside clients. Internal services change together with their callers in one commit.
   ignore:
     - proto/swarmeval/analysis
     - proto/swarmeval/control
