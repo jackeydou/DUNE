@@ -11,3 +11,9 @@ build/
 # The console's build, embedded into edge (`mise run console:build`).
 go/internal/edge/webui/static/*
 !go/internal/edge/webui/static/.gitkeep
+# The intake pages' build, served by the intake Worker (`mise run intake:build`).
+intake/public/*
+!intake/public/.gitkeep
+# The intake Worker's local secrets for `wrangler dev`.
+intake/.dev.vars
+intake/.wrangler/
