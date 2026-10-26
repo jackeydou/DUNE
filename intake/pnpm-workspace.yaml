@@ -1,0 +1,10 @@
+packages: []
+
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: false
+  cpu-features: false
+  ssh2: false
+  protobufjs: false
+
