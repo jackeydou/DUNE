@@ -25,5 +25,7 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  // The intake pages register a router of their own: tsconfig.intake.json.
+  "exclude": ["src/intake"]
 }

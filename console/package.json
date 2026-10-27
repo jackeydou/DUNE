@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:intake": "vite --config vite.intake.config.ts",
     "build": "tsc -b && rm -rf ../go/internal/edge/webui/static/assets ../go/internal/edge/webui/static/index.html && vite build",
+    "build:intake": "tsc -b && rm -rf ../intake/public/assets ../intake/public/index.html ../intake/public/_headers && vite build --config vite.intake.config.ts",
     "test": "vitest run",
     "e2e": "playwright test",
     "lint": "eslint .",
