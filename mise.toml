@@ -78,13 +78,53 @@ description = "Playwright walks the console's threshold flow against a local sta
 depends = ["console:install"]
 run = "uv run pytest -m browser"
 
-[tasks."proto:gen"]
-description = "Generate gRPC stubs from proto/: Go with buf, Python with grpcio-tools, the console's client with protoc-gen-es"
+[tasks."intake:install"]
+description = "Install the intake Worker's dependencies from pnpm-lock.yaml"
+dir = "intake"
+run = "pnpm install --frozen-lockfile"
+
+[tasks."intake:check"]
+description = "The intake Worker's typecheck, lint, and unit tests"
+dir = "intake"
+depends = ["intake:install"]
+run = ["pnpm typecheck", "pnpm lint", "pnpm test"]
+
+[tasks."intake:test-integration"]
+description = "The intake Worker in workerd against a throwaway Postgres (testcontainers). Needs docker"
+dir = "intake"
+depends = ["intake:install"]
+run = "pnpm test:integration"
+
+[tasks."intake:build"]
+description = "Build the intake pages (console/src/intake/) into intake/public, which the Worker serves"
+dir = "console"
 depends = ["console:install"]
+run = "pnpm build:intake"
+
+[tasks."intake:dev"]
+description = "The intake Worker on http://127.0.0.1:8787 with wrangler dev; needs intake/.dev.vars and a local Postgres (docs/services/intake.md)"
+dir = "intake"
+depends = ["intake:install", "intake:build"]
+run = "pnpm dev"
+
+[tasks."intake:migrate"]
+description = "Apply intake/migrations to $INTAKE_MIGRATE_URL with goose, as `intake_owner` (intake/setup.sql makes the role and the schema)"
+run = "go run github.com/pressly/goose/v3/cmd/goose@v3.28.0 -dir intake/migrations -table intake.goose_db_version postgres \"$INTAKE_MIGRATE_URL\" up"
+
+[tasks."intake:deploy"]
+description = "Build the pages and deploy the intake Worker with wrangler. Needs Cloudflare credentials"
+dir = "intake"
+depends = ["intake:install", "intake:build"]
+run = "pnpm run deploy"
+
+[tasks."proto:gen"]
+description = "Generate gRPC stubs from proto/: Go with buf, Python with grpcio-tools, the console's and the intake Worker's TypeScript with protoc-gen-es"
+depends = ["console:install", "intake:install"]
 run = [
   "buf generate",
-  "buf generate --template console/buf.gen.yaml --path proto/swarmeval/api",
-  "rm -rf swarmeval/proto && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=. --grpc_python_out=. --mypy_out=quiet:. --mypy_grpc_out=quiet:. $(find proto -name '*.proto' -not -path 'proto/swarmeval/api/*')",
+  "buf generate --template console/buf.gen.yaml --path proto/swarmeval/api --path proto/swarmeval/intake",
+  "buf generate --template intake/buf.gen.yaml --path proto/swarmeval/intake",
+  "rm -rf swarmeval/proto && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=. --grpc_python_out=. --mypy_out=quiet:. --mypy_grpc_out=quiet:. $(find proto -name '*.proto' -not -path 'proto/swarmeval/api/*' -not -path 'proto/swarmeval/intake/*')",
 ]
 
 [tasks."proto:lint"]
@@ -93,18 +133,23 @@ run = [
   "buf lint",
   "buf format --diff --exit-code",
   "tmp=$(mktemp -d) && buf generate -o \"$tmp\" && diff -r \"$tmp/go/internal/gen\" go/internal/gen && rm -rf \"$tmp\"",
-  "tmp=$(mktemp -d) && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=\"$tmp\" --grpc_python_out=\"$tmp\" --mypy_out=quiet:\"$tmp\" --mypy_grpc_out=quiet:\"$tmp\" $(find proto -name '*.proto' -not -path 'proto/swarmeval/api/*') && diff -r -x __pycache__ \"$tmp/swarmeval/proto\" swarmeval/proto && rm -rf \"$tmp\"",
+  "tmp=$(mktemp -d) && uv run python -m grpc_tools.protoc -Iswarmeval/proto=proto --python_out=\"$tmp\" --grpc_python_out=\"$tmp\" --mypy_out=quiet:\"$tmp\" --mypy_grpc_out=quiet:\"$tmp\" $(find proto -name '*.proto' -not -path 'proto/swarmeval/api/*' -not -path 'proto/swarmeval/intake/*') && diff -r -x __pycache__ \"$tmp/swarmeval/proto\" swarmeval/proto && rm -rf \"$tmp\"",
 ]
 
 [tasks."proto:lint:console"]
 description = "A check that the console's generated client matches proto/"
 depends = ["console:install"]
-run = "tmp=$(mktemp -d) && sed \"s|out: console/src/gen|out: $tmp|\" console/buf.gen.yaml > \"$tmp.yaml\" && buf generate --template \"$tmp.yaml\" --path proto/swarmeval/api && diff -r \"$tmp\" console/src/gen && rm -rf \"$tmp\" \"$tmp.yaml\""
+run = "tmp=$(mktemp -d) && sed \"s|out: console/src/gen|out: $tmp|\" console/buf.gen.yaml > \"$tmp.yaml\" && buf generate --template \"$tmp.yaml\" --path proto/swarmeval/api --path proto/swarmeval/intake && diff -r \"$tmp\" console/src/gen && rm -rf \"$tmp\" \"$tmp.yaml\""
+
+[tasks."proto:lint:intake"]
+description = "A check that the intake Worker's generated code matches proto/"
+depends = ["intake:install"]
+run = "tmp=$(mktemp -d) && sed \"s|out: intake/src/gen|out: $tmp|\" intake/buf.gen.yaml > \"$tmp.yaml\" && buf generate --template \"$tmp.yaml\" --path proto/swarmeval/intake && diff -r \"$tmp\" intake/src/gen && rm -rf \"$tmp\" \"$tmp.yaml\""
 
 [tasks."proto:breaking"]
-description = "buf breaking against the local main branch. Only the public API (proto/swarmeval/api) is checked"
+description = "buf breaking against the local main branch. Only the public APIs (proto/swarmeval/api, proto/swarmeval/intake) are checked"
 run = "buf breaking --against '.git#branch=main'"
 
 [tasks.check]
 description = "Everything that must pass before a change is done"
-depends = ["lint", "typecheck", "test", "go:lint", "go:test", "proto:lint", "proto:lint:console", "proto:breaking", "console:check"]
+depends = ["lint", "typecheck", "test", "go:lint", "go:test", "proto:lint", "proto:lint:console", "proto:lint:intake", "proto:breaking", "console:check", "intake:check"]
