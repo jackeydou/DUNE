@@ -2,7 +2,7 @@ import type { JsonValue } from "@bufbuild/protobuf"
 import { Check, Copy } from "lucide-react"
 import { Fragment, useState, type ReactNode } from "react"
 
-import { errorText } from "@/api"
+import { errorText } from "@/lib/errors"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Breadcrumb,

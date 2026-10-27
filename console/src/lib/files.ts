@@ -3,8 +3,6 @@
 import type { JsonObject, JsonValue } from "@bufbuild/protobuf"
 import { createTwoFilesPatch } from "diff"
 
-import type { CaseFile } from "@/gen/swarmeval/api/v1/case_pb"
-
 const utf8 = new TextDecoder("utf-8", { fatal: true })
 
 /** The file's text, or `undefined` for content that is not UTF-8 (shown as binary). */
@@ -17,11 +15,20 @@ export function textOf(content: Uint8Array): string | undefined {
   }
 }
 
+/** A stored file as the editor reads it: edge's `CaseFile` and the intake site's files both fit.
+ * `linkTarget` is empty for anything but a symbolic link. */
+export interface FileLike {
+  path: string
+  content: Uint8Array
+  mode: number
+  linkTarget: string
+}
+
 /** A pending edit: new content, or `null` for a delete. */
 export type Changes = Map<string, Uint8Array | null>
 
 /** The paths the editor lists: the revision's files with the pending edits applied. */
-export function pathsWith(files: readonly CaseFile[], changes: Changes): string[] {
+export function pathsWith(files: readonly FileLike[], changes: Changes): string[] {
   const paths = new Set(files.map((f) => f.path))
   for (const [path, content] of changes) {
     if (content === null) paths.delete(path)
@@ -51,7 +58,7 @@ function linkPath(link: string, target: string): string | undefined {
  * in the case, a directory link on the way included, as the loader reads it. `undefined` for a
  * binary file, a link that leaves the case or goes nowhere, and a link chain that loops.
  */
-export function textsWith(files: readonly CaseFile[], changes: Changes): Map<string, string | undefined> {
+export function textsWith(files: readonly FileLike[], changes: Changes): Map<string, string | undefined> {
   const stored = new Map(files.map((f) => [f.path, f]))
   // A pending edit replaces a link with content, or deletes it.
   const linkOf = (path: string) => (changes.has(path) ? undefined : stored.get(path)?.linkTarget || undefined)
@@ -98,14 +105,14 @@ export interface FileDiff {
   patch: string
 }
 
-function describe(file: CaseFile): string {
+function describe(file: FileLike): string {
   if (file.linkTarget) return `link to ${file.linkTarget}\n`
   return textOf(file.content) ?? `binary, ${file.content.length} bytes\n`
 }
 
 /** Equal by what is stored: the bytes, the link, and the mode. Never by `describe`, which says
  * the same of any two binary files of one length. */
-function sameFile(a: CaseFile, b: CaseFile): boolean {
+function sameFile(a: FileLike, b: FileLike): boolean {
   return (
     a.mode === b.mode &&
     a.linkTarget === b.linkTarget &&
@@ -115,12 +122,12 @@ function sameFile(a: CaseFile, b: CaseFile): boolean {
 }
 
 /** A line for a file whose description is the same on both sides though its content is not. */
-function note(a: CaseFile | undefined, b: CaseFile | undefined, left: string, right: string): string {
+function note(a: FileLike | undefined, b: FileLike | undefined, left: string, right: string): string {
   return a && b && left === right && a.mode === b.mode ? "binary content differs\n" : ""
 }
 
 /** Files that differ between two revisions, by path. */
-export function diffRevisions(from: readonly CaseFile[], to: readonly CaseFile[]): FileDiff[] {
+export function diffRevisions(from: readonly FileLike[], to: readonly FileLike[]): FileDiff[] {
   const before = new Map(from.map((f) => [f.path, f]))
   const after = new Map(to.map((f) => [f.path, f]))
   const out: FileDiff[] = []

@@ -1,8 +1,7 @@
 // The console's clients of edge's public API. Same origin, Connect's JSON protocol, and the
 // session cookie the browser attaches by itself.
-import { Code, ConnectError, createClient } from "@connectrpc/connect"
+import { createClient } from "@connectrpc/connect"
 import { createConnectTransport } from "@connectrpc/connect-web"
-import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt"
 
 import { AnalysisService } from "@/gen/swarmeval/api/v1/analysis_pb"
 import { AuthService } from "@/gen/swarmeval/api/v1/auth_pb"
@@ -18,18 +17,5 @@ export const runs = createClient(RunService, transport)
 export const cases = createClient(CaseService, transport)
 export const analysis = createClient(AnalysisService, transport)
 
-/** edge's own message for a failed call, without Connect's `[code]` prefix. */
-export function errorText(err: unknown): string {
-  if (err instanceof ConnectError) return err.rawMessage
-  return err instanceof Error ? err.message : String(err)
-}
-
-export function isCode(err: unknown, code: Code): boolean {
-  return err instanceof ConnectError && err.code === code
-}
-
-export { Code }
-
-export function when(ts: Timestamp | undefined): string {
-  return ts ? timestampDate(ts).toLocaleString() : "—"
-}
+export { Code, errorText, isCode } from "@/lib/errors"
+export { when } from "@/lib/time"

@@ -15,8 +15,7 @@ import { FileIcon } from "@/components/FileIcon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { CaseFile } from "@/gen/swarmeval/api/v1/case_pb"
-import { pathProblem, pathsWith, textOf, type Changes } from "@/lib/files"
+import { pathProblem, pathsWith, textOf, type Changes, type FileLike } from "@/lib/files"
 import { cn } from "@/lib/utils"
 
 const encoder = new TextEncoder()
@@ -73,7 +72,7 @@ export function FileEditor({
   open,
   onChange,
 }: {
-  files: readonly CaseFile[]
+  files: readonly FileLike[]
   changes: Changes
   readOnly?: boolean
   open?: { path: string; reveal?: Reveal }

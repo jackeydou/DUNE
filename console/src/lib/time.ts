@@ -2,6 +2,11 @@
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt"
 import { formatDistanceStrict, intervalToDuration } from "date-fns"
 
+/** The time in the reader's locale; "—" for none. */
+export function when(ts: Timestamp | undefined): string {
+  return ts ? timestampDate(ts).toLocaleString() : "—"
+}
+
 /** "3 minutes ago"; "—" for a time that has not happened. `now` is for tests. */
 export function ago(ts: Timestamp | undefined, now: Date = new Date()): string {
   return ts

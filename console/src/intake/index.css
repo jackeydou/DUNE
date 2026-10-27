@@ -1,0 +1,4 @@
+/* The console's theme and Tailwind, for the intake build. Its Vite root is console/intake/, where
+   Tailwind's automatic source detection would find none of the classes, so it is pointed at src/. */
+@import "../index.css";
+@source "..";
