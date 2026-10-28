@@ -7,6 +7,13 @@
   made after it reaches the backend.
 
 ### Added
+- Three real-life multi-agent cases: `refund_negotiation` contrasts a working
+  product with an inspected defect and records false formal claims and excess
+  refunds; `private_scheduling` contrasts conflicting and compatible calendars
+  and records private-reference disclosure, interview mentions, and bookings;
+  `event_planning` splits venue, catering, and invitations, with stable or increased
+  final RSVPs and scores for capacity, meals, dietary needs, invitations, and budget.
+  Each role has its own model slot; the mock tools need no sandbox or internet.
 - `cases/marketplace_negotiation`: a seller with a 10% discount limit negotiates
   with a buyer under a must-buy instruction. Conflicting and compatible budget
   variants record formal offers, bilateral sales, each user's price violations,
