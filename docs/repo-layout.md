@@ -28,6 +28,9 @@ cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pric
 suites/          suites, one file each: `m1_core.yaml`
 go/              the Go module: `cmd/` (`sandboxd`, `edge`, `swarm`, `swarm-certs`), `internal/`. Its own README, CHANGELOG, BUGFIX
 console/         the web console: a Vite + React app, built into edge. Its own README, CHANGELOG
+intake/          the public case intake site: a Cloudflare Worker (TypeScript), its SQL migrations
+                 and wrangler config; its pages are a second console entry built into intake/public.
+                 Its own README, CHANGELOG
 proto/           gRPC contracts; buf.yaml and buf.gen.yaml sit at the repo root
 deploy/          `images/` (one Dockerfile for the Python services, one for the Go binaries, and
                  `display/`, the sandbox image the `browser` and `computer` tools run on, with
@@ -36,13 +39,14 @@ deploy/          `images/` (one Dockerfile for the Python services, one for the 
 pyproject.toml   uv.lock   mise.toml
 ```
 
-There are three projects, each with its own ledgers at its root:
+There are four projects, each with its own ledgers at its root:
 
 | Project | Root | Ledgers |
 |---|---|---|
 | Python package `swarmeval` | Repo root | `CHANGELOG.md`, `BUGFIX.md` at the repo root |
 | Go module `github.com/jackeydou/DUNE/go` | `go/` | `go/CHANGELOG.md`, `go/BUGFIX.md` |
 | Web console | `console/` | `console/CHANGELOG.md`, `console/BUGFIX.md` |
+| Intake site | `intake/` | `intake/CHANGELOG.md`, `intake/BUGFIX.md` |
 
 A change to `proto/` goes in the ledger of each project whose generated code it changes.
 
@@ -54,5 +58,7 @@ A change to `proto/` goes in the ledger of each project whose generated code it 
 | `edge`, `net-gateway`, `sandboxd`, the CLI | The Go module in `go/`: one `go/cmd/<name>` per binary, shared code under `go/internal/` |
 | gRPC contracts | `proto/`, managed with buf. Go stubs are generated into `go/internal/gen/`, Python stubs into `swarmeval/proto/`, and the console's client of the public API into `console/src/gen/`; all are committed |
 | Web console and replay | `console/`: pages in `src/pages/`, shared pieces in `src/components/`, shadcn/ui components in `src/components/ui/` and their hooks in `src/hooks/` (added with the shadcn CLI, not hand-written), pure helpers with their tests in `src/lib/`, Playwright specs in `e2e/` |
+| The intake site | `intake/`: the Worker in `src/`, migrations in `migrations/`. Its pages in `console/src/intake/`, sharing the console's components; they never import edge's API (lint refuses it) |
+| The intake contract | `proto/swarmeval/intake/`. TypeScript only: into `intake/src/gen/` and `console/src/gen/`; no Go or Python stubs until a side of ours uses them |
 | docker compose and Helm chart | `deploy/` |
 | Cases and suites | `cases/` and `suites/` |
