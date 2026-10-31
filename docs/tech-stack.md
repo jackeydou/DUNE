@@ -56,6 +56,7 @@ shaped this way is in the v1 spec's 技术选型 table and the
 | `net-gateway` | [services/net-gateway.md](services/net-gateway.md#tech-choices) |
 | `analysis` | [services/analysis.md](services/analysis.md#tech-choices) |
 | `edge`, `swarm` CLI, web console | [services/edge.md](services/edge.md#tech-choices) |
+| `intake` | [services/intake.md](services/intake.md#tech-choices) |
 
 ## Shared infrastructure
 

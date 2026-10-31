@@ -26,7 +26,7 @@ mise run sync
 
 | Task | What it runs |
 |---|---|
-| `mise run check` | `lint`, `typecheck`, `test`, `go:lint`, `go:test`, `proto:lint`, `proto:lint:console`, `proto:breaking`, `console:check`. Must pass before a change is done |
+| `mise run check` | `lint`, `typecheck`, `test`, `go:lint`, `go:test`, `proto:lint`, `proto:lint:console`, `proto:lint:intake`, `proto:breaking`, `console:check`, `intake:check`. Must pass before a change is done |
 | `mise run fmt` | `ruff format`, `golangci-lint fmt`, and `buf format` in place |
 | `mise run lint` | `ruff format --check .` and `ruff check .` |
 | `mise run typecheck` | `pyright` in strict mode over `swarmeval/` and `tests/` |
@@ -40,11 +40,13 @@ mise run sync
 | `mise run console:check` | The console's `tsc -b`, `eslint`, and `vitest` unit tests |
 | `mise run console:build` | Builds the console into `go/internal/edge/webui/static/` (not committed), where edge embeds it from. Build edge after it; an edge built without it serves the API only |
 | `mise run console:e2e` | `pytest -m browser`: builds the console and edge, starts the stack `test:docker` uses plus a worker and the analysis service, and has Playwright walk the threshold flow in Chromium: sign in, create a case, edit, run, scores, replay, fork. Needs docker and a Chromium: Playwright's own (`pnpm exec playwright install chromium` in `console/`), or the binary `PLAYWRIGHT_CHROMIUM` names. Run it before a change to `console/` or to the API it calls is done |
+| `mise run intake:check`, `intake:test-integration`, `intake:build`, `intake:dev`, `intake:migrate`, `intake:deploy` | The intake site: [services/intake.md](services/intake.md#developing). `intake:test-integration` needs docker; run it before a change to `intake/` is done |
 | `mise run deploy:smoke` | `deploy/compose/smoke.sh`: builds both images, brings the compose stack up with a recorded model backend, and runs a case through the CLI and the API ([deployment.md](deployment.md#smoke-test)). Needs docker with `python:3.12-slim`, `busybox:latest`, `postgres:18-alpine`, and `rustfs/rustfs:latest` already pulled. Run it before a change to `deploy/`, a service's flags, or its start-up is done |
-| `mise run proto:gen` | Go stubs (grpc-go and connect-go) into `go/internal/gen/` with `buf generate`, Python stubs with typed `.pyi` into `swarmeval/proto/` with grpcio-tools and mypy-protobuf, and the console's Connect-ES client of the public API into `console/src/gen/` with protoc-gen-es. Commit all three. The public API (`proto/swarmeval/api/`) gets no Python stubs: only edge and its clients use it |
+| `mise run proto:gen` | Go stubs (grpc-go and connect-go) into `go/internal/gen/` with `buf generate`, Python stubs with typed `.pyi` into `swarmeval/proto/` with grpcio-tools and mypy-protobuf, the console's Connect-ES client of the public API and of the intake site into `console/src/gen/`, and the intake Worker's code into `intake/src/gen/`, with protoc-gen-es. Commit them all. The public API (`proto/swarmeval/api/`) gets no Python stubs: only edge and its clients use it |
 | `mise run proto:lint` | `buf lint`, `buf format --diff`, and a check that the committed stubs match `proto/` |
 | `mise run proto:lint:console` | The same check for the console's generated client |
-| `mise run proto:breaking` | `buf breaking` against the local `main` branch. Only the public API, `proto/swarmeval/api/`, is checked; `buf.yaml` lists the internal packages it ignores, and a new internal package goes on that list |
+| `mise run proto:lint:intake` | The same check for the intake Worker's generated code |
+| `mise run proto:breaking` | `buf breaking` against the local `main` branch. Only the public APIs, `proto/swarmeval/api/` and the intake site's `proto/swarmeval/intake/`, are checked; `buf.yaml` lists the internal packages it ignores, and a new internal package goes on that list |
 
 ## CI
 

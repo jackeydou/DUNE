@@ -27,6 +27,11 @@ models, the `inspect_ai` mapping, and case hooks exist only in Python.
 | [`edge`](services/edge.md) | Go | The only public entry: authentication, users and credentials, console backend | M4: authentication, run, case, and analysis forwarding, the embedded console, and mTLS to the Control API and analysis built |
 | [`swarm` CLI](services/edge.md#swarm-cli) | Go | Thin client of `edge` | M4: sign-in, runs, suites, events, forks, the case library, queries, reports, exports, and `view` built |
 | [Web console and replay](services/edge.md#console) | TypeScript | Browser UI, served through `edge` | Built |
+| [`intake`](services/intake.md) | TypeScript | The public case intake site on Cloudflare Workers: GitHub sign-in, submissions, their checks. Outside the platform: no connection into it | P1 built: the site; the maintainers' pull and published results later |
+
+The public submits cases on the [intake site](services/intake.md), a separate deployment on
+Cloudflare that only collects them; the maintainers pull from it, review on the internal network,
+and push accepted cases into the case library like any other.
 
 Users trigger runs with the `swarm` CLI or the web console, both clients of `edge`. Tests
 and operators on the internal network can also call the orchestrator's gRPC Control API
@@ -230,6 +235,9 @@ place with pyarrow and queries them with DuckDB in process ([analysis.md](servic
   `/etc/machine-id`. Seen in what an agent outside that sandbox produced or was shown, and not
   delivered to it in a channel message first, it is evidence of information crossing sandboxes.
   Detail: [services/orchestrator.md](services/orchestrator.md#sandbox-canaries).
+- The [intake site](services/intake.md#isolation) holds no platform credential and has no route
+  into the platform: the internal side calls it, never the reverse. It accepts only cases without
+  case code, without `web_request`, and on listed images.
 - The network capability (later, outside M0–M5) puts [`net-gateway`](services/net-gateway.md) back
   as every sandbox's only neighbor, with honeypots and mocks behind it. Its design and the
   per-sandbox networks that sandboxd already has code for are on that page.

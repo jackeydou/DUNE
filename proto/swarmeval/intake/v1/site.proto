@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package swarmeval.intake.v1;
+
+// SiteService is what the intake site's pages need before anyone signs in: the rules a
+// submission is checked against, and the Turnstile site key. No credentials needed. Behavior:
+// docs/services/intake.md.
+service SiteService {
+  rpc GetSiteConfig(GetSiteConfigRequest) returns (GetSiteConfigResponse);
+}
+
+message GetSiteConfigRequest {}
+
+message GetSiteConfigResponse {
+  // Turnstile's public site key, for the widget on the pages that save a submission.
+  string turnstile_site_key = 1;
+  // The version of the submission terms a save must name in `accepted_terms`.
+  string terms_version = 2;
+  // The license submissions are made under, as an SPDX identifier.
+  string license = 3;
+  // The images an env file's sandbox profiles may name.
+  repeated string allowed_images = 4;
+  // The workspace every submitted `case.yaml` must name.
+  string workspace = 5;
+  // At most this many files, each at most `max_file_bytes`, together at most `max_total_bytes`.
+  int32 max_files = 6;
+  int32 max_file_bytes = 7;
+  int32 max_total_bytes = 8;
+}

@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- The intake site's pages, a second entry built into `intake/public` (`pnpm build:intake`,
+  `pnpm dev:intake`): what the site is and its rules, sign-in with GitHub, the submitter's own
+  submissions with their review states, a new submission from a template that keeps to the
+  intake rules, the site's check beside the editor, the terms and Turnstile on every save, and a
+  submission's revisions in the flow and source views, edited as the next revision or withdrawn
+  (`spec/2026-10-25-public-case-intake`). They import nothing of edge's API; lint refuses it.
 - The case flow draws no sandbox for an agent with `sandbox: none` (case version 5), and its
   details say `none`. New case's template is `schema_version: 5`.
 - The case flow shows a profile's `display`: its screen size as a chip, and the size and first

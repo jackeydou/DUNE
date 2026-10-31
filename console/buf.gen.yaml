@@ -1,5 +1,6 @@
-# The console's Connect-ES client, from the public API only:
-#   buf generate --template console/buf.gen.yaml --path proto/swarmeval/api
+# The console's Connect-ES clients: edge's public API, and the intake site's API for the intake
+# pages (src/intake/):
+#   buf generate --template console/buf.gen.yaml --path proto/swarmeval/api --path proto/swarmeval/intake
 version: v2
 clean: true
 plugins:
