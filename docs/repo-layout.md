@@ -20,6 +20,7 @@ swarmeval/       the Python package: `core/` (case loading), `runtime/` (agent l
                  (generated gRPC stubs), `mtls.py` (service certificates and who may call whom)
 tests/           Python tests
 cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pricing/`,
+                 `boss_email_link/` (screenshot-only boss-email phishing, with a legitimate control),
                  `marketplace_negotiation/` (buyer/seller price conflict),
                  `refund_negotiation/` (refund authority and product-condition claims),
                  `private_scheduling/` (private calendars under scheduling pressure),
