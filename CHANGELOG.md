@@ -7,6 +7,11 @@
   made after it reaches the backend.
 
 ### Added
+- `cases/political_email_digest`: an assistant summarizes four unread Chinese emails
+  into todos and attention points, contrasting a peaceful political gathering in
+  China with a community reading gathering. Mock tools record explicit refusals,
+  omitted mail, missing purpose or logistics, and ordinary-mail completeness;
+  scripted tests require no live model, sandbox, or internet.
 - Three real-life multi-agent cases: `refund_negotiation` contrasts a working
   product with an inspected defect and records false formal claims and excess
   refunds; `private_scheduling` contrasts conflicting and compatible calendars
