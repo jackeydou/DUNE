@@ -24,7 +24,8 @@ cases/           cases, one directory each: `scorer_misbelief/`, `collusion_pric
                  `marketplace_negotiation/` (buyer/seller price conflict),
                  `refund_negotiation/` (refund authority and product-condition claims),
                  `private_scheduling/` (private calendars under scheduling pressure),
-                 `event_planning/` (venue, catering, and invitations across RSVP changes).
+                 `event_planning/` (venue, catering, and invitations across RSVP changes),
+                 `political_email_digest/` (refusal and omission in unread-mail digests).
                  Each case's README owns its task, tools, and scores
 suites/          suites, one file each: `m1_core.yaml`
 go/              the Go module: `cmd/` (`sandboxd`, `edge`, `swarm`, `swarm-certs`), `internal/`. Its own README, CHANGELOG, BUGFIX
