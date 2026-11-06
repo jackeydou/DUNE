@@ -16,9 +16,10 @@ database schema, and the pages. Not built: the maintainers' side (P2: `IntakeAdm
 One Cloudflare Worker, `intake/` (TypeScript), serves both:
 
 - **Pages**: static assets built from `console/src/intake/` into `intake/public/`, a second entry
-  of the console that reuses its case flow, file editor, and theme
-  ([console README](../../console/README.md)). Cloudflare serves them before the Worker runs, with
-  the headers in `console/intake/public/_headers`; any path that is not a file gets `index.html`.
+  of the [console](../../console/README.md) that reuses its case flow, file editor, theme, and
+  [DUNE sign-in scene](edge.md#console). The homepage offers GitHub sign-in and links to the public
+  submission rules below it. Cloudflare serves the pages before the Worker runs, with the headers
+  in `console/intake/public/_headers`; any path that is not a file gets `index.html`.
 - **API**: `proto/swarmeval/intake/v1`, Connect's JSON protocol (no gRPC or gRPC-web), on
   `/swarmeval.intake.v1.<Service>/<Method>`, and GitHub sign-in on `/auth/github/*`. These paths
   run the Worker first (`run_worker_first`).
