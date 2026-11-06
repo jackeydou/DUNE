@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- The public homepage uses the DUNE ASCII scene and links to the submission rules below GitHub sign-in.
+
 ### Added
 - The intake site's Worker (`spec/2026-10-25-public-case-intake`, P1): GitHub sign-in with no
   scopes and `SameSite=Strict` sessions; `SiteService`, `IntakeAuthService`, and
