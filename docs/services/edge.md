@@ -236,8 +236,8 @@ stubs), with Connect's JSON protocol and the session cookie.
   the console answers page requests with a 404 that says how to build it, and serves the API
   as usual.
 - **No credentials for pages, credentials for data.** The pages are static and public; every
-  call they make is an API call behind the authenticator. With no session the app shows the
-  sign-in form and nothing else. Signing out reloads the app, so nothing the user read stays
+  call they make is an API call behind the authenticator. With no session the app shows the DUNE
+  sign-in home. Signing out reloads the app, so nothing the user read stays
   in memory. When any call comes back `UNAUTHENTICATED`, because the session ran out or was
   ended elsewhere, the app drops the session and shows the sign-in form at once, without a
   reload.
@@ -256,7 +256,7 @@ stubs), with Connect's JSON protocol and the session cookie.
 
 | Page | Shows |
 |---|---|
-| Sign-in | Username and password |
+| Sign-in | Username and password on the DUNE home. The desert scene is drawn in ASCII characters. Moving the pointer or tapping displaces the characters with a WebGL shader. Pausing, reduced motion, and browsers without WebGL show a still character scene. |
 | Runs | The newest 500 runs that match, counted by status (a count filters to its status), grouped by submission, each with its duration and how long ago it finished; filtered by workspace, case, suite, submission, and status, all on the server, so a filter reaches runs that are not among the newest overall; the workspace list comes from the case library; refreshed every 5 seconds; each submission's trigger rates on demand (`Report`) |
 | Run | Status, case revision, variant values, isolation, times, who submitted, cancelled, and resumed; cancel and resume; each scorer's last score, from the run's `score` events; the replay |
 | Replay | The run's events from `StreamEvents`, in order, one lane per agent and one for events no agent caused, appended live while the run goes on, in a panel of fixed height beside the chosen event's detail; each event is tagged with its type's colour and shows its first four lines. Types can be hidden. Clicking an event shows its stored payload and its causal chain (`GetTrace`, so only once the run is exported; a fork's chain goes on into its source), and, for a run that ended `done` or `cancelled`, forks from it with edits given as JSON and, per model slot, another model to run from there |

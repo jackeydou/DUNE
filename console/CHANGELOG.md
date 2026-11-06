@@ -20,6 +20,8 @@
   is in the URL (`?view=source`).
 
 ### Changed
+- The DUNE sign-in home draws a desert eclipse in ASCII. Moving the pointer or tapping sends
+  ripples through the characters. The effect can be paused.
 - The file editor: a file tree with folders and icons, the path and actions above the editor,
   a status bar (language, cursor, lines, saved state), wrapping on a toggle, and syntax colours
   from the theme.
