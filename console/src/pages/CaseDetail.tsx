@@ -4,7 +4,7 @@ import { lazy, Suspense, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { cases, Code, isCode, runs, when } from "@/api"
-import { Archive, ArchiveRestore, Code as CodeIcon, Workflow } from "lucide-react"
+import { Archive, ArchiveRestore } from "lucide-react"
 
 import {
   DANGER_ALERT,
@@ -144,12 +144,12 @@ function Files({
         className="gap-3"
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList>
+          <TabsList variant="line">
             <TabsTrigger value="flow" className="px-3">
-              <Workflow /> Flow
+              Flow
             </TabsTrigger>
             <TabsTrigger value="source" className="px-3">
-              <CodeIcon /> Source
+              Source
             </TabsTrigger>
           </TabsList>
           <span className="text-xs text-muted-foreground">
@@ -200,7 +200,7 @@ function Files({
         <ErrorAlert title="The case was not saved" error={save.error} />
       )}
       {!readOnly && (
-        <div className="flex items-end gap-3 rounded-xl border bg-card p-4 shadow-xs">
+        <div className="flex items-end gap-3 border-t py-4">
           <Field className="max-w-md">
             <FieldLabel htmlFor="save-note">Note</FieldLabel>
             <Input
@@ -365,7 +365,7 @@ function Submit({
     )
   const ready = slots.every((slot) => (chosen[slot] ?? []).length > 0)
   return (
-    <FieldGroup className="max-w-xl rounded-xl border bg-card p-6 shadow-xs">
+    <FieldGroup className="max-w-xl py-2">
       {slots.map((slot) => (
         <Field key={slot}>
           <FieldLabel>

@@ -1,310 +1,156 @@
-import { useMutation, useQuery } from "@tanstack/react-query"
-import { Link, useNavigate } from "@tanstack/react-router"
-import { GitFork, MousePointerClick, X } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { analysis, runs } from "@/api"
-import { ErrorAlert, Id, Loading, Verbatim } from "@/components/common"
+import { ErrorAlert } from "@/components/common"
+import { ReplayCausality } from "@/components/ReplayCausality"
+import { ReplayInspector } from "@/components/ReplayInspector"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import { Spinner } from "@/components/ui/spinner"
-import { Textarea } from "@/components/ui/textarea"
-import { fromJson } from "@bufbuild/protobuf"
-import { ForkEditSchema } from "@/gen/swarmeval/api/v1/run_pb"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { agentsOf, typesOf } from "@/lib/events"
 import {
-  lanesOf,
-  prettyPayload,
-  RUN_LANE,
-  typesOf,
-  type RunEvent,
-} from "@/lib/events"
-import { modelsOf } from "@/lib/models"
+  describeEvent,
+  elapsedLabel,
+  replayPhases,
+  type ReplayEvent,
+} from "@/lib/replay"
 import { useRunEvents, type RunEvents } from "@/lib/useRunEvents"
 import { cn } from "@/lib/utils"
 
-/** A colour per family of event types, as the dot before the type's name. */
-function tone(type: string): string {
-  if (type === "model") return "bg-chart-2"
-  if (type === "tool") return "bg-info"
-  if (type === "score") return "bg-success"
-  if (type === "error" || type.endsWith("alert")) return "bg-danger"
-  if (type.startsWith("swarmeval.")) return "bg-primary"
-  return "bg-muted-foreground/50"
-}
-
-function TypeTag({ type }: { type: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-muted-foreground">
-      <i className={cn("size-2 rounded-full", tone(type))} aria-hidden />
-      {type}
-    </span>
-  )
-}
-
-/** The chain of causes of one event, from the analysis service: exported runs only. */
-function Trace({ runId, eventId }: { runId: string; eventId: string }) {
-  const trace = useQuery({
-    queryKey: ["trace", runId, eventId],
-    queryFn: () => analysis.getTrace({ runId, eventId }),
-    retry: false,
-  })
-  if (trace.isPending) return <Loading what="the causal chain" />
-  if (trace.error)
-    return (
-      <ErrorAlert
-        title="No causal chain yet: it is read from the run's export, written when the run ends"
-        error={trace.error}
-      />
-    )
-  return (
-    <ol
-      className="relative flex flex-col gap-2 border-l pl-4 text-xs"
-      data-testid="trace"
-    >
-      {trace.data.links.map((link) => (
-        <li
-          key={`${link.runId}:${link.eventId}`}
-          className="relative rounded-md border bg-background p-2 font-mono"
-        >
-          <i
-            className="absolute top-3 -left-[1.3rem] size-2 rounded-full border-2 border-background bg-primary"
-            aria-hidden
-          />
-          <div className="mb-1 text-muted-foreground">
-            {link.runId !== runId && (
-              <Link
-                to="/runs/$runId"
-                params={{ runId: link.runId }}
-                className="underline"
-              >
-                {link.runId}
-              </Link>
-            )}{" "}
-            #{String(link.seq)} · {link.agentId || RUN_LANE}
-          </div>
-          <div className="break-words whitespace-pre-wrap">{link.line}</div>
-        </li>
-      ))}
-    </ol>
-  )
-}
-
-/** One select per model slot of the source run: keep its model, or run the slot on another
- * from the fork point. */
-function ModelSwaps({
-  runId,
-  swaps,
-  onChange,
+function TimelineRow({
+  item,
+  selected,
+  onSelect,
 }: {
-  runId: string
-  swaps: Record<string, string>
-  onChange: (swaps: Record<string, string>) => void
+  item: ReplayEvent
+  selected: string | undefined
+  onSelect: ((id: string) => void) | undefined
 }) {
-  const source = useQuery({
-    queryKey: ["run", runId],
-    queryFn: () => runs.getRun({ runId }),
-  })
-  const served = useQuery({
-    queryKey: ["models"],
-    queryFn: () => runs.listModels({}),
-  })
-  if (source.error ?? served.error)
-    return (
-      <ErrorAlert
-        title="The models did not load"
-        error={source.error ?? served.error}
-      />
-    )
-  if (!source.data || !served.data) return <Loading what="the run's models" />
-  const current = modelsOf(source.data.run?.variantValues)
+  const { event, title, summary } = item
+  const Component = onSelect ? "button" : "div"
   return (
-    <>
-      {Object.entries(current).map(([slot, model]) => (
-        <Field key={slot}>
-          <FieldLabel htmlFor={`fork-model-${slot}`}>
-            Model for slot <span className="font-mono">{slot}</span>
-          </FieldLabel>
-          <NativeSelect
-            id={`fork-model-${slot}`}
-            value={swaps[slot] ?? ""}
-            onChange={(e) => onChange({ ...swaps, [slot]: e.target.value })}
-          >
-            <NativeSelectOption value="">keep {model}</NativeSelectOption>
-            {served.data.models
-              .filter((m) => m !== model)
-              .map((m) => (
-                <NativeSelectOption key={m} value={m}>
-                  {m}
-                </NativeSelectOption>
-              ))}
-          </NativeSelect>
-        </Field>
-      ))}
-    </>
-  )
-}
-
-function ForkDialog({
-  runId,
-  event,
-  onClose,
-}: {
-  runId: string
-  event: RunEvent
-  onClose: () => void
-}) {
-  const navigate = useNavigate()
-  const [edits, setEdits] = useState("[]")
-  const [swaps, setSwaps] = useState<Record<string, string>>({})
-  const fork = useMutation({
-    mutationFn: async () => {
-      const parsed: unknown = JSON.parse(edits)
-      if (!Array.isArray(parsed))
-        throw new Error("The edits must be a JSON list.")
-      const replacements = Object.entries(swaps)
-        .filter(([, model]) => model)
-        .map(([slot, model]) => ({
-          edit: { case: "replaceModel" as const, value: { slot, model } },
-        }))
-      return runs.forkRun({
-        runId,
-        atEventId: event.eventId,
-        edits: [
-          ...parsed.map((edit) => fromJson(ForkEditSchema, edit)),
-          ...replacements,
-        ],
-      })
-    },
-    onSuccess: (res) => {
-      if (res.run)
-        void navigate({ to: "/runs/$runId", params: { runId: res.run.runId } })
-    },
-  })
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Fork from event #{String(event.seq)}</DialogTitle>
-          <DialogDescription>
-            A new run goes on from this run's state at the start of the turn
-            this event happened in, with the edits applied.
-          </DialogDescription>
-        </DialogHeader>
-        <Field>
-          <FieldLabel htmlFor="fork-edits">Edits</FieldLabel>
-          <Textarea
-            id="fork-edits"
-            className="font-mono text-xs"
-            rows={8}
-            value={edits}
-            onChange={(e) => setEdits(e.target.value)}
-          />
-          <FieldDescription>
-            A JSON list. Each item is one of{" "}
-            {`{"replaceMessage": {"agentId", "index", "content"}}`},{" "}
-            {`{"deleteMessage": {"agentId", "index"}}`},{" "}
-            {`{"replaceDelivery": {"sendEventId", "recipient", "content"}}`}. An
-            empty list reruns from here unchanged.
-          </FieldDescription>
-        </Field>
-        <ModelSwaps runId={runId} swaps={swaps} onChange={setSwaps} />
-        <ErrorAlert title="The run was not forked" error={fork.error} />
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={() => fork.mutate()} disabled={fork.isPending}>
-            Fork
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function EventDetail({
-  runId,
-  event,
-  canFork,
-  onClose,
-}: {
-  runId: string
-  event: RunEvent
-  canFork: boolean
-  onClose: () => void
-}) {
-  const [forking, setForking] = useState(false)
-  return (
-    <aside
-      className="absolute inset-0 z-20 flex flex-col overflow-hidden bg-background @3xl:static @3xl:w-[28rem] @3xl:shrink-0 @3xl:border-l"
-      data-testid="event-detail"
-    >
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="flex min-w-0 items-center gap-3 text-sm">
-          <span className="font-mono font-medium">#{String(event.seq)}</span>
-          <TypeTag type={event.type} />
-          <span className="truncate text-muted-foreground">
-            {event.agentId || "run"}
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          {canFork && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setForking(true)}
-            >
-              <GitFork /> Fork from here
-            </Button>
-          )}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <X />
-          </Button>
-        </div>
-      </div>
-      <div className="flex flex-col gap-4 overflow-auto p-4">
-        <Id value={event.eventId} className="text-xs text-muted-foreground" />
-        <div className="flex flex-col gap-2">
-          <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Causal chain
-          </h3>
-          <Trace runId={runId} eventId={event.eventId} />
-        </div>
-        <div className="flex flex-col gap-2">
-          <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Stored event
-          </h3>
-          <Verbatim>{prettyPayload(event)}</Verbatim>
-        </div>
-      </div>
-      {forking && (
-        <ForkDialog
-          runId={runId}
-          event={event}
-          onClose={() => setForking(false)}
-        />
+    <Component
+      type={onSelect ? "button" : undefined}
+      aria-pressed={onSelect ? selected === event.eventId : undefined}
+      data-testid="event"
+      data-type={event.type}
+      className={cn(
+        "relative grid w-full grid-cols-[3.9rem_minmax(0,1fr)] items-baseline gap-2 rounded-md px-2 py-1.5 text-left",
+        "before:absolute before:top-[1rem] before:left-[3.95rem] before:size-1 before:rounded-full before:bg-muted-foreground/60",
+        onSelect &&
+          "hover:bg-muted/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+        selected === event.eventId && "bg-accent before:bg-primary"
       )}
-    </aside>
+      onClick={onSelect ? () => onSelect(event.eventId) : undefined}
+    >
+      <span
+        className="truncate font-mono text-[11px] text-muted-foreground tabular-nums"
+        title={`Event #${event.seq}`}
+      >
+        {elapsedLabel(item)}
+      </span>
+      <span className="min-w-0">
+        <span className="flex flex-wrap items-baseline gap-x-2">
+          <strong className="text-sm font-medium break-all">{title}</strong>
+          <span className="text-xs break-all text-muted-foreground">
+            · {event.agentId || "Run"}
+          </span>
+        </span>
+        {summary && (
+          <span className="block truncate text-xs text-muted-foreground">
+            {summary}
+          </span>
+        )}
+      </span>
+    </Component>
   )
 }
 
-/** One run's events in order, a lane per agent, appended live while the run goes on. The lanes
- * and the chosen event's detail scroll apart, in a panel of fixed height. */
+function Conversation({
+  items,
+  selected,
+  onSelect,
+}: {
+  items: ReplayEvent[]
+  selected: string | undefined
+  onSelect: (id: string) => void
+}) {
+  const chunks: ReplayEvent[][] = []
+  for (const item of items) {
+    const last = chunks.at(-1)
+    if (!last || item.message || last[0].message) chunks.push([item])
+    else last.push(item)
+  }
+  return (
+    <div className="flex flex-col gap-3 pb-4">
+      {chunks.map((chunk) => {
+        const item = chunk[0]
+        const { event, message } = item
+        return message ? (
+          <div
+            key={event.eventId}
+            className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2"
+          >
+            <div className="py-1">
+              <p className="text-xs font-medium break-all">{message.sender}</p>
+              <p className="font-mono text-[11px] text-muted-foreground">
+                {elapsedLabel(item)}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="event"
+              data-type={event.type}
+              aria-pressed={selected === event.eventId}
+              onClick={() => onSelect(event.eventId)}
+              className={cn(
+                "rounded-md px-2 py-1 text-left text-sm break-words whitespace-pre-wrap hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring",
+                selected === event.eventId && "bg-accent"
+              )}
+            >
+              {message.channel && (
+                <span className="block text-xs text-muted-foreground">
+                  # {message.channel}
+                </span>
+              )}
+              {message.content || "(Empty message)"}
+            </button>
+          </div>
+        ) : (
+          <details
+            key={event.eventId}
+            className="ml-[5.5rem]"
+            open={
+              chunk.some((item) => item.event.eventId === selected) || undefined
+            }
+          >
+            <summary className="cursor-pointer py-1 text-xs text-muted-foreground hover:text-foreground">
+              {chunk.length} background{" "}
+              {chunk.length === 1 ? "event" : "events"}
+            </summary>
+            {chunk.map((entry) => (
+              <TimelineRow
+                key={entry.event.eventId}
+                item={entry}
+                selected={selected}
+                onSelect={onSelect}
+              />
+            ))}
+          </details>
+        )
+      })}
+    </div>
+  )
+}
+
+type View = "timeline" | "conversation" | "map"
+
 export function Replay({
   runId,
   stream,
@@ -317,129 +163,252 @@ export function Replay({
   detail?: boolean
 }) {
   const { events, live, error } = stream
+  const [view, setView] = useState<View>("timeline")
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [actor, setActor] = useState<string>()
   const [selected, setSelected] = useState<string>()
-  const lanes = useMemo(() => lanesOf(events), [events])
-  const types = useMemo(() => typesOf(events), [events])
-  const shown = useMemo(
-    () => events.filter((e) => !hidden.has(e.type)),
-    [events, hidden]
+  const [inspector, setInspector] = useState<"closed" | "wide" | "open">(
+    "closed"
   )
-  const current = events.find((e) => e.eventId === selected)
+  const items = useMemo(() => events.map(describeEvent), [events])
+  const byId = useMemo(
+    () => new Map(items.map((item) => [item.event.eventId, item])),
+    [items]
+  )
+  const phases = useMemo(() => replayPhases(items), [items])
+  const types = useMemo(() => typesOf(events), [events])
+  const agents = useMemo(() => agentsOf(events), [events])
+  const visible = (item: ReplayEvent) =>
+    !hidden.has(item.event.type) &&
+    (actor === undefined || actor === item.event.agentId)
+  const current = selected ? byId.get(selected) : undefined
+  const index = current ? items.indexOf(current) : -1
+  const messages = items.some((item) => item.message)
+  const select = (id: string) => {
+    setSelected(id)
+    setInspector("open")
+  }
+  const exported = canFork && !live
+
+  function switchView(value: string) {
+    if (value === "map") {
+      if (!current) setSelected(items.at(-1)?.event.eventId)
+      setInspector("wide")
+    }
+    if (value === "timeline" || value === "conversation" || value === "map")
+      setView(value)
+  }
 
   return (
-    <div className="flex flex-col gap-3" data-testid="replay">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
+    <Tabs
+      value={view}
+      onValueChange={switchView}
+      className="gap-0"
+      data-testid="replay"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b">
+        <TabsList
+          variant="line"
+          aria-label="Replay view"
+          className="gap-5 px-0"
+        >
+          <TabsTrigger value="timeline" className="px-0">
+            Timeline
+          </TabsTrigger>
+          {detail && (
+            <TabsTrigger value="conversation" className="px-0">
+              Conversation
+            </TabsTrigger>
+          )}
+          {detail && (
+            <TabsTrigger value="map" className="px-0">
+              Causal map
+            </TabsTrigger>
+          )}
+        </TabsList>
         <span
-          className="mr-1 font-medium tabular-nums"
+          className="pb-1.5 text-xs text-muted-foreground"
           data-testid="event-count"
         >
-          {events.length} events
+          {events.length} {events.length === 1 ? "event" : "events"}
+          {live && " · Live"}
         </span>
-        {live && (
-          <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-info/10 px-2 py-0.5 text-xs font-medium text-info">
-            <Spinner className="size-3" /> live
-          </span>
-        )}
-        {types.map((type) => (
-          <label
-            key={type}
-            className={cn(
-              "flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-colors hover:bg-accent",
-              hidden.has(type) && "text-muted-foreground opacity-60"
-            )}
-          >
-            <Checkbox
-              className="size-3.5"
-              checked={!hidden.has(type)}
-              onCheckedChange={(on) => {
-                const next = new Set(hidden)
-                if (on === true) next.delete(type)
-                else next.add(type)
-                setHidden(next)
-              }}
-            />
-            <i className={cn("size-2 rounded-full", tone(type))} aria-hidden />
-            {type}
-          </label>
-        ))}
       </div>
       <ErrorAlert title="The event stream stopped" error={error} />
-      <div className="@container relative flex h-[calc(100svh-12rem)] min-h-[28rem] overflow-hidden rounded-xl border bg-card shadow-xs">
-        <div className="min-w-0 flex-1 overflow-auto">
-          <div
-            className="grid text-xs"
-            style={{
-              gridTemplateColumns: `4rem repeat(${lanes.length}, minmax(14rem, 1fr))`,
-              minWidth: `${4 + lanes.length * 14}rem`,
-            }}
-          >
-            <div className="sticky top-0 z-10 border-b bg-muted px-3 py-2 font-medium text-muted-foreground">
-              seq
-            </div>
-            {lanes.map((lane) => (
-              <div
-                key={lane}
-                className="sticky top-0 z-10 border-b border-l bg-muted px-3 py-2 font-medium"
-                data-testid="lane"
-              >
-                {lane === RUN_LANE ? "run" : lane}
-              </div>
-            ))}
-            {shown.map((e) => {
-              const column = lanes.indexOf(e.agentId || RUN_LANE)
-              return (
-                <div key={e.eventId} className="contents">
-                  <div className="border-b px-3 py-2 font-mono text-muted-foreground tabular-nums">
-                    #{String(e.seq)}
-                  </div>
-                  {lanes.map((lane, i) => (
-                    <div key={lane} className="min-w-0 border-b border-l p-1">
-                      {i === column && (
-                        <button
-                          type="button"
-                          data-testid="event"
-                          data-type={e.type}
-                          onClick={() => detail && setSelected(e.eventId)}
-                          className={cn(
-                            "flex w-full flex-col gap-1 rounded-md px-2 py-1.5 text-left hover:bg-accent",
-                            selected === e.eventId &&
-                              "bg-primary/10 ring-1 ring-primary"
-                          )}
-                        >
-                          <TypeTag type={e.type} />
-                          <span className="line-clamp-4 font-mono break-words whitespace-pre-wrap">
-                            {e.line}
-                          </span>
-                        </button>
-                      )}
-                    </div>
+      <div
+        className="@container relative flex min-h-80"
+        style={{ height: "clamp(24rem, 68dvh, 48rem)" }}
+      >
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 flex-col",
+            current && inspector === "open" && "invisible @3xl:visible"
+          )}
+        >
+          {view !== "map" && (
+            <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 py-1 pr-1 @3xl:pr-4">
+              <span className="text-xs text-muted-foreground">
+                {view === "timeline" ? "Recorded events" : "Channel messages"}
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <NativeSelect
+                  size="sm"
+                  className="console-quiet-select max-w-36"
+                  aria-label="Filter by agent"
+                  value={actor === undefined ? "" : `agent:${actor}`}
+                  onChange={(e) =>
+                    setActor(
+                      e.target.value ? e.target.value.slice(6) : undefined
+                    )
+                  }
+                >
+                  <NativeSelectOption value="">All agents</NativeSelectOption>
+                  {agents.map((agent) => (
+                    <NativeSelectOption key={agent} value={`agent:${agent}`}>
+                      {agent || "Run"}
+                    </NativeSelectOption>
                   ))}
-                </div>
-              )
-            })}
-          </div>
+                </NativeSelect>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-xs text-muted-foreground"
+                    >
+                      Event types{hidden.size > 0 && ` (${hidden.size} hidden)`}{" "}
+                      <ChevronDown />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="max-h-72 overflow-auto"
+                  >
+                    {types.map((type) => (
+                      <DropdownMenuCheckboxItem
+                        key={type}
+                        checked={!hidden.has(type)}
+                        onSelect={(e) => e.preventDefault()}
+                        onCheckedChange={(checked) =>
+                          setHidden((current) => {
+                            const next = new Set(current)
+                            if (checked) next.delete(type)
+                            else next.add(type)
+                            return next
+                          })
+                        }
+                      >
+                        {type}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          )}
+          <TabsContent
+            value="timeline"
+            className="min-h-0 overflow-auto pr-1 @3xl:pr-4"
+          >
+            {items.length === 0 ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                {live ? "Waiting for events…" : "No events recorded."}
+              </p>
+            ) : !items.some(visible) ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                No events match these filters.
+              </p>
+            ) : (
+              phases.map((phase) => {
+                const entries = phase.events.filter(visible)
+                if (!entries.length) return null
+                return (
+                  <section key={phase.events[0].event.eventId} className="mb-5">
+                    <h3 className="mb-1 pl-[4.9rem] text-sm font-semibold">
+                      {phase.title}
+                    </h3>
+                    <div className="relative before:absolute before:top-4 before:bottom-4 before:left-16 before:w-px before:bg-border">
+                      {entries.map((item) => (
+                        <TimelineRow
+                          key={item.event.eventId}
+                          item={item}
+                          selected={selected}
+                          onSelect={detail ? select : undefined}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )
+              })
+            )}
+          </TabsContent>
+          <TabsContent
+            value="conversation"
+            className="min-h-0 overflow-auto pr-1 @3xl:pr-4"
+          >
+            {!messages ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                No channel messages recorded.
+              </p>
+            ) : (
+              <Conversation
+                items={items.filter(visible)}
+                selected={selected}
+                onSelect={select}
+              />
+            )}
+          </TabsContent>
+          <TabsContent
+            value="map"
+            className="flex min-h-0 flex-col pt-3 pr-1 @3xl:pr-4"
+          >
+            {current ? (
+              <ReplayCausality
+                map
+                runId={runId}
+                event={current}
+                byId={byId}
+                firstId={events[0]?.eventId}
+                exported={exported}
+                onSelect={select}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Select a timeline event to follow its parents.
+              </p>
+            )}
+          </TabsContent>
         </div>
-        {detail &&
-          (current ? (
-            <EventDetail
-              runId={runId}
-              event={current}
-              canFork={canFork}
-              onClose={() => setSelected(undefined)}
-            />
-          ) : (
-            <aside className="hidden w-72 shrink-0 flex-col items-center justify-center gap-2 border-l p-6 text-center text-sm text-muted-foreground @5xl:flex">
-              <MousePointerClick className="size-5" />
-              Pick an event to see its stored payload and what caused it.
+        {current && inspector !== "closed" ? (
+          <ReplayInspector
+            runId={runId}
+            event={current}
+            byId={byId}
+            firstId={events[0]?.eventId}
+            canFork={canFork}
+            exported={exported}
+            previous={items[index - 1]}
+            next={items[index + 1]}
+            wideOnly={inspector === "wide"}
+            onSelect={select}
+            onClose={() => {
+              setInspector("closed")
+              if (view !== "map") setSelected(undefined)
+            }}
+          />
+        ) : (
+          detail && (
+            <aside className="hidden w-[34%] min-w-64 shrink-0 border-l py-3 pl-5 text-xs text-muted-foreground @3xl:block">
+              Select an event to see its details and causes.
             </aside>
-          ))}
+          )
+        )}
       </div>
-    </div>
+    </Tabs>
   )
 }
 
-/** `Replay` with a stream of its own, for a page that shows nothing else of the run. */
 export function StreamedReplay({ runId }: { runId: string }) {
   return (
     <Replay

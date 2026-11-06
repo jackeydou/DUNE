@@ -136,10 +136,10 @@ function Submission({ id, items }: { id: string; items: Run[] }) {
   const first = items[0]
   return (
     <section
-      className="overflow-hidden rounded-xl border bg-card shadow-xs"
+      className="min-w-0"
       data-testid="submission"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <Link
@@ -171,7 +171,7 @@ function Submission({ id, items }: { id: string; items: Run[] }) {
           </div>
         </div>
         <Button
-          variant={rates ? "secondary" : "outline"}
+          variant="ghost"
           size="sm"
           onClick={() => setRates(!rates)}
         >
@@ -179,12 +179,12 @@ function Submission({ id, items }: { id: string; items: Run[] }) {
         </Button>
       </div>
       {rates && (
-        <div className="border-t bg-muted/30">
+        <div className="border-t">
           <SubmissionRates submissionId={id} />
         </div>
       )}
-      <Table className="border-t">
-        <TableHeader className="bg-muted/40">
+      <Table>
+        <TableHeader>
           <TableRow>
             <TableHead className="pl-4">Run</TableHead>
             <TableHead>Status</TableHead>
@@ -233,7 +233,7 @@ function Submission({ id, items }: { id: string; items: Run[] }) {
   )
 }
 
-/** The runs listed, counted by state. A state's tile filters to it; the chosen one clears it. */
+/** The runs listed, counted by state. A state filters the list; selecting it again clears it. */
 function Summary({
   all,
   status,
@@ -252,15 +252,16 @@ function Summary({
     ),
   ]
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-x-5 gap-y-1 border-b">
       {tiles.map(([value, n]) => (
         <button
           key={value ?? ""}
           type="button"
           onClick={() => onStatus(value === status ? undefined : value)}
+          aria-pressed={value === status}
           className={cn(
-            "flex min-w-28 flex-col items-start gap-1 rounded-lg border bg-card px-3 py-2 text-left shadow-xs transition-colors hover:bg-accent",
-            value === status && "border-primary ring-1 ring-primary"
+            "inline-flex items-baseline gap-2 border-b-2 border-transparent py-2 text-left text-muted-foreground hover:text-foreground",
+            value === status && "border-foreground text-foreground"
           )}
         >
           {value ? (
@@ -270,7 +271,7 @@ function Summary({
               All runs
             </span>
           )}
-          <span className="text-xl font-semibold tabular-nums">{n}</span>
+          <span className="text-xs font-medium tabular-nums">{n}</span>
         </button>
       ))}
     </div>
@@ -411,7 +412,7 @@ export function Runs() {
       {list.isPending ? (
         <Loading what="runs" />
       ) : groups.length === 0 ? (
-        <Empty className="border">
+        <Empty>
           <EmptyHeader>
             <EmptyTitle>No runs match</EmptyTitle>
             <EmptyDescription>
@@ -420,7 +421,7 @@ export function Runs() {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-7">
           {groups.map(([id, items]) => (
             <Submission key={id} id={id} items={items} />
           ))}
