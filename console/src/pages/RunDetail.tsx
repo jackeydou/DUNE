@@ -17,7 +17,7 @@ import {
 import { Replay, StreamedReplay } from "@/components/Replay"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { scoresOf, type RunEvent } from "@/lib/events"
+import { scoresOf, type Score } from "@/lib/events"
 import { ago, duration } from "@/lib/time"
 import { modelsOf } from "@/lib/models"
 import { useRunEvents } from "@/lib/useRunEvents"
@@ -27,8 +27,7 @@ const FINISHED = ["done", "failed", "cancelled", "interrupted"]
 
 const runsCrumb = <Link to="/runs">Runs</Link>
 
-function Scores({ events }: { events: readonly RunEvent[] }) {
-  const scores = useMemo(() => scoresOf(events), [events])
+function Scores({ scores }: { scores: Score[] }) {
   if (scores.length === 0)
     return (
       <p className="text-sm text-muted-foreground">
@@ -40,7 +39,7 @@ function Scores({ events }: { events: readonly RunEvent[] }) {
       {scores.map((s) => (
         <div
           key={s.scorer}
-          className="flex flex-col gap-1 rounded-lg border bg-background p-3"
+          className="flex flex-col gap-1 border-b py-2 last:border-b-0"
         >
           <div className="flex items-baseline justify-between gap-3">
             <span className="truncate text-sm font-medium">{s.scorer}</span>
@@ -61,11 +60,16 @@ function Scores({ events }: { events: readonly RunEvent[] }) {
 
 export function RunDetail() {
   const { runId } = useParams({ from: "/app/runs/$runId" })
+  return <RunPage key={runId} runId={runId} />
+}
+
+function RunPage({ runId }: { runId: string }) {
   const client = useQueryClient()
   const navigate = useNavigate()
   const [other, setOther] = useState("")
   // One stream for the scores and the replay.
   const stream = useRunEvents(runId)
+  const scores = useMemo(() => scoresOf(stream.events), [stream.events])
   const run = useQuery({
     queryKey: ["run", runId],
     queryFn: async () => (await runs.getRun({ runId })).run,
@@ -95,6 +99,7 @@ export function RunDetail() {
       </Page>
     )
   const r = run.data
+  const triggered = scores.filter((score) => score.value === "1").length
   const at = (ts: typeof r.createdAt) => <span title={when(ts)}>{ago(ts)}</span>
   const facts: [string, React.ReactNode][] = [
     [
@@ -155,11 +160,22 @@ export function RunDetail() {
   return (
     <Page
       title={
-        <span className="flex items-center gap-3 text-lg">
-          <Id value={r.runId} /> <StatusBadge status={r.status} />
+        <span className="block break-words first-letter:uppercase">
+          {r.caseId.replaceAll("_", " ")}
         </span>
       }
       label={r.runId}
+      description={
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="run-meta">
+          <Id value={r.runId} className="max-w-full text-xs" />
+          <StatusBadge status={r.status} />
+          {r.finishedAt && (
+            <span className="text-xs">
+              {duration(r.startedAt, r.finishedAt)}
+            </span>
+          )}
+        </div>
+      }
       crumbs={[
         runsCrumb,
         <Link
@@ -172,6 +188,15 @@ export function RunDetail() {
       ]}
       actions={
         <>
+          {scores.length > 0 && (
+            <a
+              href="#run-scores"
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              {triggered} of {scores.length}{" "}
+              {scores.length === 1 ? "scorer" : "scorers"} triggered
+            </a>
+          )}
           {r.status === "paused" && (
             <Button onClick={() => resume.mutate()} disabled={resume.isPending}>
               <Play /> Resume
@@ -199,20 +224,12 @@ export function RunDetail() {
           error={r.error}
         />
       )}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Section title="Overview" className="lg:col-span-2">
-          <Facts items={facts} />
-        </Section>
-        <Section title="Scores" description="Each scorer's last score.">
-          <Scores events={stream.events} />
-        </Section>
-      </div>
       <Section
         title="Replay"
-        description="Every event in order, one lane per agent. Pick one to see its payload and causes."
+        description="Follow the run in order and select an event to inspect it."
         actions={
           <form
-            className="flex items-center gap-2"
+            className="flex flex-wrap items-center gap-2"
             onSubmit={(e) => {
               e.preventDefault()
               if (other)
@@ -224,12 +241,12 @@ export function RunDetail() {
           >
             <Input
               aria-label="Run to compare with"
-              placeholder="another run id"
-              className="h-8 w-64 font-mono text-xs"
+              placeholder="Another run ID"
+              className="h-8 w-48 max-w-full font-mono text-xs"
               value={other}
               onChange={(e) => setOther(e.target.value)}
             />
-            <Button type="submit" variant="outline" size="sm">
+            <Button type="submit" variant="ghost" size="sm">
               <Columns2 /> Compare side by side
             </Button>
           </form>
@@ -241,6 +258,16 @@ export function RunDetail() {
           canFork={FORKABLE.includes(r.status)}
         />
       </Section>
+      <div className="grid gap-x-8 gap-y-5 lg:grid-cols-3">
+        <Section title="Overview" className="lg:col-span-2">
+          <Facts items={facts} />
+        </Section>
+        <div id="run-scores" className="min-w-0 scroll-mt-14">
+          <Section title="Scores" description="Each scorer's last score.">
+            <Scores scores={scores} />
+          </Section>
+        </div>
+      </div>
     </Page>
   )
 }
@@ -253,7 +280,7 @@ export function Compare() {
       crumbs={[runsCrumb]}
       description="Two runs' replays side by side."
     >
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-6 md:grid-cols-2 md:divide-x [&>section+section]:md:pl-6">
         {[a, b].map((runId) => (
           <Section
             key={runId}

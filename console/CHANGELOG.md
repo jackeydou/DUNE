@@ -20,6 +20,11 @@
   is in the URL (`?view=source`).
 
 ### Changed
+- Run Replay and Compare open on a chronological timeline of streamed events. Replay also
+  shows channel messages and the selected event's causal map, with a text inspector for its
+  summary, stored payload, score evidence, and recorded causes.
+- Console pages use open sections and lighter table headers, text tabs and status filters,
+  with a quieter keyboard focus indicator on dropdowns and tabs.
 - The DUNE sign-in home draws a desert eclipse in ASCII. Moving the pointer or tapping sends
   ripples through the characters. The effect can be paused.
 - The file editor: a file tree with folders and icons, the path and actions above the editor,

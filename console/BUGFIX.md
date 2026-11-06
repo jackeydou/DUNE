@@ -1,5 +1,15 @@
 # Bug fixes
 
+## 2026-11-06 — Opening the fork dialog can break the Run page
+
+**Symptom.** Opening the model picker for a fork can clear the source run's details or crash its page.
+**Root cause.** The picker and page shared one query key. The picker cached the response envelope,
+while the page read the cached value as a run.
+**Fix.** Both callers cache the run itself. `src/components/ReplayInspector.tsx`.
+**Guard.** `e2e/threshold.spec.ts` checks the Run heading while the fork model picker is open,
+then submits the fork with a replacement model.
+**Touches.** The same key is invalidated after cancel and resume in `src/pages/RunDetail.tsx`.
+
 ## 2026-10-06 — The sidebar sheet stays open over the page it opened
 
 **Symptom.** Below 768px, picking a page in the sidebar navigated behind the sheet, which

@@ -85,7 +85,7 @@ export function NewCase() {
       description="Name it, start from a template that loads and scores, then edit the files."
     >
       <form
-        className="flex flex-wrap items-start gap-3 rounded-xl border bg-card p-4 shadow-xs"
+        className="flex flex-wrap items-start gap-3 border-y py-4"
         onSubmit={(e) => {
           e.preventDefault()
           setChanges(starter(workspace, caseId))

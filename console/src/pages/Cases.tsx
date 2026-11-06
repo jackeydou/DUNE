@@ -80,7 +80,7 @@ export function Cases() {
       {list.isPending ? (
         <Loading what="cases" />
       ) : shown.length === 0 ? (
-        <Empty className="border">
+        <Empty>
           <EmptyHeader>
             <EmptyTitle>No cases yet</EmptyTitle>
             <EmptyDescription>

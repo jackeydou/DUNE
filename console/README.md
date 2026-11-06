@@ -62,6 +62,5 @@ The Worker must take `http://127.0.0.1:5174` as its public URL, for the same rea
 
 ## Limits
 
-- The replay renders every event of a run at once; past a few thousand events it is slow.
-- A causal chain is read from the run's export, so it is there only once the run has ended.
+- Replay behaviour and limits are in the [console reference](../docs/services/edge.md#console).
 - The SQL page shows at most 1,000 rows; `swarm query` returns up to 10,000.

@@ -62,10 +62,10 @@ export function Page({
           </BreadcrumbList>
         </Breadcrumb>
       </header>
-      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 p-6">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-7 px-4 py-6 sm:px-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="font-heading text-2xl font-medium tracking-tight">
+            <h1 className="font-heading text-3xl leading-tight font-medium tracking-tight">
               {title}
             </h1>
             {description && (
@@ -99,12 +99,12 @@ export function Section({
   return (
     <section
       className={cn(
-        "flex flex-col rounded-xl border bg-card shadow-xs",
+        "console-section flex flex-col rounded-xl border bg-card shadow-xs",
         className
       )}
       {...rest}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+      <div className="console-section-heading flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex min-w-0 flex-col gap-0.5">
           <h2 className="text-sm font-semibold">{title}</h2>
           {description && (
@@ -115,7 +115,7 @@ export function Section({
           <div className="flex flex-wrap items-center gap-2">{actions}</div>
         )}
       </div>
-      <div className="flex flex-col gap-3 p-4">{children}</div>
+      <div className="console-section-content flex flex-col gap-3 p-4">{children}</div>
     </section>
   )
 }
@@ -181,6 +181,7 @@ const STATUS_TONE: Record<string, string> = {
 export function StatusBadge({ status }: { status: string }) {
   return (
     <span
+      data-slot="status-badge"
       data-status={status}
       className={cn(
         "inline-flex h-5 w-fit shrink-0 items-center gap-1.5 rounded-full px-2 font-sans text-xs font-medium whitespace-nowrap",
@@ -230,7 +231,7 @@ export function VariantChips({
       {entries.map(([axis, value]) => (
         <span
           key={axis}
-          className="inline-flex max-w-full items-center overflow-hidden rounded-md border bg-background font-mono text-[11px] leading-5"
+          className="console-variant inline-flex max-w-full items-center overflow-hidden rounded-md border bg-background font-mono text-[11px] leading-5"
         >
           <span className="border-r bg-muted px-1.5 text-muted-foreground">
             {axis}
@@ -307,7 +308,7 @@ export function TableCard({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border bg-card shadow-xs [&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4 [&_thead]:bg-muted/40",
+        "console-table overflow-hidden rounded-xl border bg-card shadow-xs [&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4 [&_thead]:bg-muted/40",
         className
       )}
     >

@@ -248,8 +248,8 @@ stubs), with Connect's JSON protocol and the session cookie.
 - **Layout.** A sidebar on the left (Runs, Cases, Analysis, and Users for admins; the account
   menu and sign-out at its foot) collapses to icons with the toggle or `Ctrl/⌘ B`, and becomes
   a sheet on narrow screens. Each page has a bar with where the reader is (breadcrumbs), its
-  title, and its actions. The colours are tweakcn's "Claude" theme; run and job states have
-  colours of their own, since the theme's destructive colour is near-black.
+  title, and its actions. The console uses the "Claude" theme, open sections, light table rules, and text tabs. Failed
+  and interrupted states retain an error colour.
 - **Run content is text.** Model output, tool results, prompts, and injected payloads are
   rendered as text nodes, never as HTML, and no field is rendered as Markdown. Trajectories
   hold content that was built to attack whoever reads it.
@@ -259,8 +259,8 @@ stubs), with Connect's JSON protocol and the session cookie.
 | Sign-in | Username and password on the DUNE home. The desert scene is drawn in ASCII characters. Moving the pointer or tapping displaces the characters with a WebGL shader. Pausing, reduced motion, and browsers without WebGL show a still character scene. |
 | Runs | The newest 500 runs that match, counted by status (a count filters to its status), grouped by submission, each with its duration and how long ago it finished; filtered by workspace, case, suite, submission, and status, all on the server, so a filter reaches runs that are not among the newest overall; the workspace list comes from the case library; refreshed every 5 seconds; each submission's trigger rates on demand (`Report`) |
 | Run | Status, case revision, variant values, isolation, times, who submitted, cancelled, and resumed; cancel and resume; each scorer's last score, from the run's `score` events; the replay |
-| Replay | The run's events from `StreamEvents`, in order, one lane per agent and one for events no agent caused, appended live while the run goes on, in a panel of fixed height beside the chosen event's detail; each event is tagged with its type's colour and shows its first four lines. Types can be hidden. Clicking an event shows its stored payload and its causal chain (`GetTrace`, so only once the run is exported; a fork's chain goes on into its source), and, for a run that ended `done` or `cancelled`, forks from it with edits given as JSON and, per model slot, another model to run from there |
-| Compare | Two runs' replays side by side |
+| Replay | A timeline of the run's real `StreamEvents` in sequence, grouped at recorded lifecycle changes and updated live. Filter by agent or event type. Conversation shows sent channel messages with other activity collapsed. Select an event for its summary, stored payload, score evidence, and causal chain. The causal map shows the selected event's recorded parent links. The chain uses received events while the run is live or has no export, and `GetTrace` after export to follow a fork into its source. Missing parents stop the chain and are identified. Runs that ended `done` or `cancelled` can be forked from an event with JSON edits and another model per slot. |
+| Compare | Two runs' timelines side by side, with independent filters. |
 | Cases | The library by workspace; a new case from a template that loads and scores; a case's files in two views (`?view=source` picks the second): a flow, which parses `case.yaml` and its env file in the browser, pending edits included, and draws variant axes, the task, agents, channels, extensions, sandboxes, profiles, canaries, and scorers with what connects them, each with its settings, its lines of YAML, and the files it names (prompts, tasks, scripts) on a click, and a jump to those lines in the source view; the flow is a drawing, not a check, so a revision the loader refuses still draws, under the loader's message; and the source, an editor with a file tree, syntax colours, and a status bar (text files edited in place, binary files and links replaced by upload or deleted), saved as the next revision with a note; a save against a revision someone else has replaced says so and keeps the edits on screen; the revision history; the diff between two revisions, computed in the browser; submitting a revision with its models (a choice per model slot, from what model-gateway serves), variant overrides, and epochs; a revision that no longer loads says why instead; archive and unarchive |
 | Analysis | SQL (`Query`, up to 1,000 rows), tool call search, rule scans (started as a job and polled), and the judge |
 | Account | Change password; create, list, and revoke API tokens |
@@ -270,8 +270,7 @@ Development: `pnpm dev` in `console/` serves the app on `http://127.0.0.1:5173` 
 API to a local edge (`SWARM_EDGE`, default `http://127.0.0.1:7443`), which must run with
 `--public-url http://127.0.0.1:5173`, the only origin it then accepts cookie requests from.
 
-Not built: events carry no tags, so the replay filters by type only; the replay renders every
-event of a run at once, which is slow past a few thousand events.
+The timeline renders all matching events at once, which can be slow past a few thousand events.
 
 ## Tech choices
 
